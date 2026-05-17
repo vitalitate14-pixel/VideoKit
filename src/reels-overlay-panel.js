@@ -1351,10 +1351,24 @@ class ReelsOverlayPanel {
         }
 
         // ── Windows Electron 焦点修复 ──
-        // 阻止所有 textarea / input / select 的 mousedown 冒泡到预览视口，
-        // 防止视口的 mousedown handler 抢夺焦点导致无法编辑文字。
-        this.container.querySelectorAll('textarea, input, select').forEach(el => {
-            el.addEventListener('mousedown', (e) => e.stopPropagation());
+        // 使用捕获阶段拦截可编辑控件事件，避免预览拖拽、面板折叠等外层 handler
+        // 在 textarea 获得焦点前抢走事件，导致标题/正文偶发点不进去。
+        const stopEditorEvent = (e) => {
+            const target = e.target;
+            if (!target || !target.closest) return;
+            if (!target.closest('textarea,input,select,[contenteditable="true"],.rop-textarea,.rop-input,.rop-select,.rop-range,.rop-color')) return;
+            e.stopPropagation();
+            if ((e.type === 'pointerdown' || e.type === 'mousedown') &&
+                (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
+                setTimeout(() => {
+                    if (document.activeElement !== target && typeof target.focus === 'function') {
+                        target.focus({ preventScroll: true });
+                    }
+                }, 0);
+            }
+        };
+        ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick'].forEach(type => {
+            this.container.addEventListener(type, stopEditorEvent, true);
         });
         for (const fid of ['rop-title-override-w', 'rop-body-override-w', 'rop-footer-override-w']) {
             const el = this.container.querySelector('#' + fid);
@@ -4544,10 +4558,13 @@ class ReelsOverlayPanel {
         mgr.overlays = [];
 
         // Deep-clone and add each layer with new IDs, preserving existing text
+        const idMap = {}; // 旧ID → 新ID 映射（用于修复绑定引用）
         for (let i = 0; i < layers.length; i++) {
             const layerData = layers[i];
             const clone = JSON.parse(JSON.stringify(layerData));
+            const oldId = clone.id;
             clone.id = 'ov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            if (oldId) idMap[oldId] = clone.id;
             // 强制全程：兼容旧预设中存储的固定时长
             clone.start = 0;
             clone.end = 9999;
@@ -4564,6 +4581,13 @@ class ReelsOverlayPanel {
             }
             // Fixed layers already have text from preset — use as-is
             mgr.overlays.push(clone);
+        }
+
+        // 重映射跟随滚动绑定的 ID 引用（旧预设ID → 新生成的ID）
+        for (const ov of mgr.overlays) {
+            if (ov.bind_scroll_overlay_id && idMap[ov.bind_scroll_overlay_id]) {
+                ov.bind_scroll_overlay_id = idMap[ov.bind_scroll_overlay_id];
+            }
         }
 
         // Refresh UI
@@ -4920,10 +4944,13 @@ class ReelsOverlayPanel {
         const missingTextLayers = [];
         mgr.overlays = [];
 
+        const idMap = {};
         for (let i = 0; i < layers.length; i++) {
             const layerData = layers[i];
             const clone = JSON.parse(JSON.stringify(layerData));
+            const oldId = clone.id;
             clone.id = 'ov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            if (oldId) idMap[oldId] = clone.id;
             clone.start = 0;
             clone.end = 9999;
             
@@ -4960,6 +4987,13 @@ class ReelsOverlayPanel {
                 // 预设可能本身就没有文案（比如用 clear 模式保存的），不过这是预设自身的状态，用户选择了"使用预设"。
             }
             mgr.overlays.push(clone);
+        }
+
+        // 重映射跟随滚动绑定的 ID 引用
+        for (const ov of mgr.overlays) {
+            if (ov.bind_scroll_overlay_id && idMap[ov.bind_scroll_overlay_id]) {
+                ov.bind_scroll_overlay_id = idMap[ov.bind_scroll_overlay_id];
+            }
         }
 
         if (mode === 'keep') {
