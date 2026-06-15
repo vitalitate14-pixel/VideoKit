@@ -11795,6 +11795,10 @@ function _autoEditLcsWordDiff(wordsA, wordsB) {
 function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = []) {
     window.autoEditLastMismatches = mismatches;
     return new Promise((resolve) => {
+        mismatches.forEach(m => {
+            const fileObj = autoEditFiles.find(f => f.path === m.clipPath);
+            m.speed = fileObj ? (fileObj.speed || 1.0) : 1.0;
+        });
         let modal = document.getElementById('ae-mismatch-dialog-overlay');
         let content;
         if (!modal) {
@@ -12108,6 +12112,19 @@ function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = [])
                                         <button class="btn btn-secondary" onclick="window.playVideoClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.start || 0}, ${m.end || 0})" style="font-size: 10px; padding: 1px 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); color: #60a5fa; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">▶️ 播放片段</button>
                                     </div>
                                     <div style="display:flex;gap:8px;align-items:center;">
+                                        <div style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#a3aed0;margin-right:4px;" title="调整此视频片段的播放速度（同时加快声音与画面）">
+                                            <span>⚡️倍速:</span>
+                                            <select class="ae-clip-speed" data-idx="${idx}" style="background:#1e1e38;color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:1px 4px;font-size:10px;outline:none;cursor:pointer;line-height:1.2;">
+                                                <option value="1.0" ${m.speed === 1.0 || !m.speed ? 'selected' : ''}>1.0x</option>
+                                                <option value="1.1" ${m.speed === 1.1 ? 'selected' : ''}>1.1x</option>
+                                                <option value="1.2" ${m.speed === 1.2 ? 'selected' : ''}>1.2x</option>
+                                                <option value="1.25" ${m.speed === 1.25 ? 'selected' : ''}>1.25x</option>
+                                                <option value="1.3" ${m.speed === 1.3 ? 'selected' : ''}>1.3x</option>
+                                                <option value="1.5" ${m.speed === 1.5 ? 'selected' : ''}>1.5x</option>
+                                                <option value="1.75" ${m.speed === 1.75 ? 'selected' : ''}>1.75x</option>
+                                                <option value="2.0" ${m.speed === 2.0 ? 'selected' : ''}>2.0x</option>
+                                            </select>
+                                        </div>
                                         <span style="font-size:11px;background:rgba(239,68,68,0.2);color:#ef4444;padding:2px 6px;border-radius:4px;font-weight:600;">⚠️ 差异度: ${100 - m.similarity}%</span>
                                         <button class="btn btn-secondary" onclick="window.retranscribeAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #818cf8; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;" title="清除此视频的转录缓存并重新转录语音">🎙️ 重录</button>
                                         <button class="btn btn-secondary" onclick="window.replaceAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); color: #fca5a5; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">🔄 替换</button>
@@ -12152,6 +12169,19 @@ function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = [])
                                         <button class="btn btn-secondary" onclick="window.playVideoClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.start || 0}, ${m.end || 0})" style="font-size: 10px; padding: 1px 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); color: #60a5fa; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">▶️ 播放片段</button>
                                     </div>
                                     <div style="display:flex;gap:8px;align-items:center;">
+                                        <div style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#a3aed0;margin-right:4px;" title="调整此视频片段的播放速度（同时加快声音与画面）">
+                                            <span>⚡️倍速:</span>
+                                            <select class="ae-clip-speed" data-idx="${idx}" style="background:#1e1e38;color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:1px 4px;font-size:10px;outline:none;cursor:pointer;line-height:1.2;">
+                                                <option value="1.0" ${m.speed === 1.0 || !m.speed ? 'selected' : ''}>1.0x</option>
+                                                <option value="1.1" ${m.speed === 1.1 ? 'selected' : ''}>1.1x</option>
+                                                <option value="1.2" ${m.speed === 1.2 ? 'selected' : ''}>1.2x</option>
+                                                <option value="1.25" ${m.speed === 1.25 ? 'selected' : ''}>1.25x</option>
+                                                <option value="1.3" ${m.speed === 1.3 ? 'selected' : ''}>1.3x</option>
+                                                <option value="1.5" ${m.speed === 1.5 ? 'selected' : ''}>1.5x</option>
+                                                <option value="1.75" ${m.speed === 1.75 ? 'selected' : ''}>1.75x</option>
+                                                <option value="2.0" ${m.speed === 2.0 ? 'selected' : ''}>2.0x</option>
+                                            </select>
+                                        </div>
                                         <span style="font-size:11px;background:rgba(16,185,129,0.2);color:#34d399;padding:2px 8px;border-radius:4px;font-weight:600;">✅ 匹配一致 (${m.similarity}%)</span>
                                         <button class="btn btn-secondary" onclick="window.retranscribeAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #818cf8; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;" title="清除此视频的转录缓存并重新转录语音">🎙️ 重录</button>
                                         <button class="btn btn-secondary" onclick="window.replaceAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: #4ade80; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">🔄 替换</button>
@@ -12577,12 +12607,15 @@ function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = [])
             mismatches.forEach((m, idx) => {
                 const card = modal.querySelector(`.ae-mismatch-card[data-idx="${idx}"]`);
                 const input = card ? card.querySelector('.ae-edit-input') : null;
+                const speedSelect = card ? card.querySelector('.ae-clip-speed') : null;
+                const speed = speedSelect ? parseFloat(speedSelect.value) : 1.0;
                 const finalText = input ? input.value : m.scriptText;
-                if (finalText === m.scriptText) return;
+                if (finalText === m.scriptText && speed === (m.speed || 1.0)) return;
                 clipEdits.push({
                     clipIndex: m.clipIndex,
                     originalScript: m.scriptText,
-                    finalText
+                    finalText,
+                    speed
                 });
             });
             const ignoredMissingBlocks = Array.from(modal.querySelectorAll('.ae-missing-card.ae-card-ignored'))
@@ -12680,6 +12713,13 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
                 files: autoEditFiles.map(f => f.path),
                 mode: 'auto_edit',
                 ignore_mismatch: autoEditIgnoreMismatch,
+                force_mismatch: document.getElementById('autoedit-force-mismatch')?.checked || false,
+                clip_speeds: autoEditFiles.reduce((map, f) => {
+                    if (f.speed && f.speed !== 1.0) {
+                        map[f.path] = f.speed;
+                    }
+                    return map;
+                }, {}),
                 script_text: scriptText,
                 output_dir: outputDir,
                 language: document.getElementById('autoedit-language')?.value || 'auto',
@@ -12801,6 +12841,10 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
                     for (const r of clipEdits) {
                         const mismatch = mismatches.find(m => m.clipIndex === r.clipIndex);
                         if (!mismatch) continue;
+                        const fileObj = autoEditFiles.find(f => f.path === mismatch.clipPath);
+                        if (fileObj) {
+                            fileObj.speed = r.speed || 1.0;
+                        }
                         if (mismatch.similarity >= 50 && mismatch.scriptStartLine !== -1) {
                             const cleanStart = mismatch.scriptStartLine;
                             const cleanEnd = mismatch.scriptEndLine;

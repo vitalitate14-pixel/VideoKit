@@ -1850,7 +1850,8 @@ async function autoEditByScript(opts = {}) {
             console.error('[自动剪辑] 生成匹配报告失败:', reportErr);
         }
 
-        if (hasMismatch && !ignoreMismatch) {
+        const forceMismatch = opts.forceMismatch === true || opts.force_mismatch === true;
+        if ((hasMismatch || forceMismatch) && !ignoreMismatch) {
             throw new Error(JSON.stringify({
                 code: 'AUTOEDIT_TEXT_MISMATCH',
                 mismatches: allClipsMatchInfo,
@@ -1882,12 +1883,28 @@ async function autoEditByScript(opts = {}) {
             args.push('-to', plan.end.toFixed(3));
             args.push('-i', clipPath);
 
+            const clipSpeeds = opts.clipSpeeds || opts.clip_speeds || {};
+            const targetClipPath = plan.realClipPath || clipPath;
+            const speed = parseFloat(clipSpeeds[targetClipPath]) || 1.0;
+            const vPts = (1.0 / speed).toFixed(5);
+
+            let atempoFilter = '';
+            if (speed >= 0.5 && speed <= 2.0) {
+                atempoFilter = `atempo=${speed}`;
+            } else if (speed > 2.0 && speed <= 4.0) {
+                atempoFilter = `atempo=2.0,atempo=${(speed/2.0).toFixed(4)}`;
+            } else if (speed < 0.5 && speed >= 0.25) {
+                atempoFilter = `atempo=0.5,atempo=${(speed/0.5).toFixed(4)}`;
+            } else {
+                atempoFilter = `anull`;
+            }
+
             let filterComplex;
             if (hasAudio) {
-                filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+                filterComplex = `[0:v]setpts=${vPts}*PTS,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[0:a]${atempoFilter},aformat=sample_rates=48000:channel_layouts=stereo[a]`;
             } else {
                 args.push('-f', 'lavfi', '-i', 'anullsrc=cl=stereo:r=48000');
-                filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+                filterComplex = `[0:v]setpts=${vPts}*PTS,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
             }
 
             args.push(
@@ -1913,8 +1930,8 @@ async function autoEditByScript(opts = {}) {
 
             if (plan.scriptWordStart !== -1) {
                 if (workflowMode === 'concat_first') {
-                    const subStartMs = srtStart + Math.round((plan.origStartSec - plan.start) * 1000);
-                    const subEndMs = srtStart + Math.round((plan.origEndSec - plan.start) * 1000);
+                    const subStartMs = srtStart + Math.round(((plan.origStartSec - plan.start) / speed) * 1000);
+                    const subEndMs = srtStart + Math.round(((plan.origEndSec - plan.start) / speed) * 1000);
                     srtItems.push({
                         start: Math.max(0, subStartMs),
                         end: Math.min(srtStart + Math.round(cutDuration * 1000), subEndMs),
@@ -1927,8 +1944,8 @@ async function autoEditByScript(opts = {}) {
                             const scriptWordIdx = item.scriptWordIdx;
                             const clipWord = plan.words[item.clipWordIdx];
                             if (clipWord) {
-                                const startMs = srtStart + Math.round((clipWord.start - plan.start) * 1000);
-                                const endMs = srtStart + Math.round((clipWord.end - plan.start) * 1000);
+                                const startMs = srtStart + Math.round(((clipWord.start - plan.start) / speed) * 1000);
+                                const endMs = srtStart + Math.round(((clipWord.end - plan.start) / speed) * 1000);
                                 wordTimelineTimes[scriptWordIdx] = {
                                     start: Math.max(srtStart, Math.min(srtEnd, startMs)),
                                     end: Math.max(srtStart, Math.min(srtEnd, endMs))

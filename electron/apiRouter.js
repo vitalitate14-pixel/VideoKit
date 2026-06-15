@@ -193,6 +193,8 @@ async function runAutoEditByScript(data = {}, progressSender = null) {
         preset: data.preset,
         manualSubtitleMap: data.manual_subtitle_map,
         manualTranscripts: data.manual_transcripts || data.manualTranscripts,
+        forceMismatch: data.force_mismatch === true || data.force_mismatch === 'true',
+        clipSpeeds: data.clip_speeds || {},
         onProgress: progressSender,
     });
 }
