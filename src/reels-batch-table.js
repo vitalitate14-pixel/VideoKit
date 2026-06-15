@@ -3773,6 +3773,24 @@ function _bindBatchTableEvents() {
         if (!files.length) return;
         e.preventDefault();
 
+        // ── Check if any directory was dropped ──
+        const paths = files.map(f => (typeof getFileNativePath === 'function') ? getFileNativePath(f) : (f.path || f.name)).filter(Boolean);
+        const dirs = paths.filter(p => _isDirectoryPath(p));
+        if (dirs.length > 0) {
+            let total = 0;
+            for (const dir of dirs) {
+                total += _importMaterialGroupFolders(dir, { mode: 'append', silent: true }) || 0;
+            }
+            if (typeof showToast === 'function') {
+                if (total > 0) {
+                    showToast(`📦 已导入 ${total} 个素材组任务`, 'success', 5000);
+                } else {
+                    showToast('未识别到素材组；请确认文件夹内包含音频和视频，或总文件夹下有素材组子文件夹', 'warning', 6000);
+                }
+            }
+            return;
+        }
+
         // ── 精确落到 bgm 单元格时，设为配乐或追加到配乐池 ──
         const dropCell = e.target.closest('.rbt-droppable');
         if (dropCell && dropCell.dataset.field === 'bgm') {
@@ -10502,6 +10520,9 @@ function _batchImportFolder(files) {
 
 function _getPathBaseName(filePath) {
     if (!filePath) return '';
+    if (window.electronAPI && typeof window.electronAPI.pathBasename === 'function') {
+        return window.electronAPI.pathBasename(filePath);
+    }
     if (window.require) {
         try { return window.require('path').basename(filePath); } catch (_) { }
     }
@@ -10509,19 +10530,68 @@ function _getPathBaseName(filePath) {
 }
 
 function _isDirectoryPath(filePath) {
-    if (!filePath || !window.require) return false;
-    try {
-        const fs = window.require('fs');
-        return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory();
-    } catch (_) {
-        return false;
+    if (!filePath) return false;
+    if (window.electronAPI && typeof window.electronAPI.isDirectory === 'function') {
+        return window.electronAPI.isDirectory(filePath);
     }
+    if (window.require) {
+        try {
+            const fs = window.require('fs');
+            return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory();
+        } catch (_) { }
+    }
+    return false;
 }
 
 function _scanMaterialGroupFolders(rootDir) {
-    if (!rootDir || !window.require) return { groups: [], skipped: [] };
-    const fs = window.require('fs');
-    const pathMod = window.require('path');
+    if (!rootDir) return { groups: [], skipped: [] };
+    let fs = null, pathMod = null;
+    if (window.require) {
+        try {
+            fs = window.require('fs');
+            pathMod = window.require('path');
+        } catch (_) {}
+    }
+    if (!fs || !pathMod) {
+        if (window.electronAPI && window.electronAPI.fsExists && window.electronAPI.pathJoin) {
+            fs = {
+                existsSync: (p) => window.electronAPI.fsExists(p),
+                statSync: (p) => {
+                    const s = window.electronAPI.fsStat(p);
+                    if (!s) throw new Error('File not found');
+                    return {
+                        size: s.size,
+                        mtimeMs: s.mtimeMs,
+                        isDirectory: () => s.isDirectory,
+                        isFile: () => s.isFile
+                    };
+                },
+                readdirSync: (p, options) => {
+                    const entries = window.electronAPI.fsReaddir(p);
+                    if (options && options.withFileTypes) {
+                        return entries.map(e => ({
+                            name: e.name,
+                            isDirectory: () => e.isDirectory,
+                            isFile: () => e.isFile
+                        }));
+                    }
+                    return entries.map(e => e.name);
+                },
+                readFileSync: (p, encoding) => {
+                    if (encoding === 'utf-8' && window.electronAPI.readFileText) {
+                        return window.electronAPI.readFileText(p);
+                    }
+                    throw new Error('Not supported');
+                }
+            };
+            pathMod = {
+                join: (...args) => window.electronAPI.pathJoin(...args),
+                basename: (p) => window.electronAPI.pathBasename(p)
+            };
+        }
+    }
+    if (!fs || !pathMod) return { groups: [], skipped: [] };
+
     const videoExts = new Set(['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm']);
     const audioExts = _AUDIO_EXTS || new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'wma']);
     const groups = [];
@@ -10540,13 +10610,19 @@ function _scanMaterialGroupFolders(rootDir) {
 
         const audioFiles = [];
         const videoFiles = [];
+        const srtFiles = [];
+        const txtFiles = [];
         for (const fp of entries) {
             const ext = _getPathBaseName(fp).split('.').pop().toLowerCase();
             if (audioExts.has(ext)) audioFiles.push(fp);
             else if (videoExts.has(ext)) videoFiles.push(fp);
+            else if (ext === 'srt') srtFiles.push(fp);
+            else if (ext === 'txt') txtFiles.push(fp);
         }
         audioFiles.sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
         videoFiles.sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
+        srtFiles.sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
+        txtFiles.sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
 
         if (!audioFiles.length || !videoFiles.length) {
             return {
@@ -10556,7 +10632,17 @@ function _scanMaterialGroupFolders(rootDir) {
                 }
             };
         }
-        return { group: { name: groupName, dirPath, audioPath: audioFiles[0], videoPaths: videoFiles, extraAudioCount: Math.max(0, audioFiles.length - 1) } };
+        return {
+            group: {
+                name: groupName,
+                dirPath,
+                audioPath: audioFiles[0],
+                videoPaths: videoFiles,
+                srtPath: srtFiles[0] || null,
+                txtPath: txtFiles[0] || null,
+                extraAudioCount: Math.max(0, audioFiles.length - 1)
+            }
+        };
     };
 
     let subDirs = [];
@@ -10588,7 +10674,7 @@ function _scanMaterialGroupFolders(rootDir) {
 function _importMaterialGroupFolders(rootDir, options = {}) {
     const state = window._reelsState;
     if (!state || !rootDir) return 0;
-    if (!window.require) {
+    if (!window.require && !(window.electronAPI && window.electronAPI.fsExists)) {
         alert('素材组导入需要在桌面应用中使用');
         return 0;
     }
@@ -10623,6 +10709,26 @@ function _importMaterialGroupFolders(rootDir, options = {}) {
         task.bgSrcUrl = null;
         task.srcUrl = null;
         task._materialGroupDir = group.dirPath;
+
+        // 自动载入关联的字幕 (SRT)
+        if (group.srtPath) {
+            task.srtPath = group.srtPath;
+            _readSrtViaElectronAPI(task, group.srtPath);
+        }
+
+        // 自动载入关联的文案 (TXT)
+        if (group.txtPath) {
+            task.txtPath = group.txtPath;
+            if (window.electronAPI && window.electronAPI.readFileText) {
+                try {
+                    task.txtContent = window.electronAPI.readFileText(group.txtPath) || '';
+                    task.aligned = false;
+                } catch (e) {
+                    console.warn('[MaterialGroup] Failed to read txt file:', e);
+                }
+            }
+        }
+
         _ensureTaskId(task);
         state.tasks.push(task);
     }
@@ -10642,25 +10748,33 @@ function _importMaterialGroupFolders(rootDir, options = {}) {
         `✅ 已导入 ${groups.length} 个素材组任务`,
         `每个任务：1 个音频 + 子文件夹内视频按文件名顺序循环拼接`,
     ];
-    if (extraAudioGroups) details.push(`有 ${extraAudioGroups} 个文件夹含多个音频，仅使用排序后的第一个音频`);
+    if (extraAudioGroups) details.push(`有 ${extraAudioGroups} 个文件夹含多个音频，仅使用第一个音频`);
     if (skipped.length) details.push(`跳过 ${skipped.length} 个子文件夹：\n${skipped.slice(0, 10).map(s => `${s.name}: ${s.reason}`).join('\n')}${skipped.length > 10 ? '\n...' : ''}`);
     if (!options.silent) alert(details.join('\n'));
     return groups.length;
 }
 
 async function _selectAndImportMaterialGroupFolders(options = {}) {
-    if (!window.require) {
+    if (!window.require && !(window.electronAPI && window.electronAPI.selectDirectory)) {
         alert('素材组导入需要在桌面应用中使用');
         return;
     }
     try {
-        const { dialog, getCurrentWindow } = window.require('@electron/remote');
-        const result = await dialog.showOpenDialog(getCurrentWindow(), {
-            title: '选择素材组总文件夹（一级子文件夹各生成一行任务）',
-            properties: ['openDirectory']
-        });
-        if (!result.canceled && result.filePaths?.[0]) {
-            _importMaterialGroupFolders(result.filePaths[0], options);
+        let rootDir = null;
+        if (window.electronAPI && window.electronAPI.selectDirectory) {
+            rootDir = await window.electronAPI.selectDirectory();
+        } else {
+            const { dialog, getCurrentWindow } = window.require('@electron/remote');
+            const result = await dialog.showOpenDialog(getCurrentWindow(), {
+                title: '选择素材组总文件夹（一级子文件夹各生成一行任务）',
+                properties: ['openDirectory']
+            });
+            if (!result.canceled && result.filePaths?.[0]) {
+                rootDir = result.filePaths[0];
+            }
+        }
+        if (rootDir) {
+            _importMaterialGroupFolders(rootDir, options);
         }
     } catch (e) {
         alert('打开素材组文件夹失败: ' + (e.message || e));

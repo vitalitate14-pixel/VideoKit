@@ -75,6 +75,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
             return '';
         }
     },
+    isDirectory: (filePath) => {
+        try {
+            return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory();
+        } catch {
+            return false;
+        }
+    },
+    fsExists: (p) => {
+        try { return fs.existsSync(p); } catch { return false; }
+    },
+    fsStat: (p) => {
+        try {
+            const s = fs.statSync(p);
+            return {
+                size: s.size,
+                mtimeMs: s.mtimeMs,
+                isDirectory: s.isDirectory(),
+                isFile: s.isFile()
+            };
+        } catch {
+            return null;
+        }
+    },
+    fsReaddir: (p) => {
+        try {
+            return fs.readdirSync(p, { withFileTypes: true }).map(e => ({
+                name: e.name,
+                isDirectory: e.isDirectory(),
+                isFile: e.isFile()
+            }));
+        } catch {
+            return [];
+        }
+    },
+    pathJoin: (...args) => path.join(...args),
+    pathBasename: (p) => path.basename(p),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
     // 选择目录

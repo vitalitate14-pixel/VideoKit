@@ -1399,12 +1399,12 @@ async function autoEditByScript(opts = {}) {
                 let end = duration || 0;
                 const isUniqueClip = clipPathCounts[clipPath] === 1;
 
-                if (isUniqueClip && words.length > 0) {
-                    start = Math.max(0, words[0].start - leadPad);
-                    end = Math.min(duration || words[words.length - 1].end + tailPad, words[words.length - 1].end + tailPad);
-                } else if (wordStartIdx !== -1 && wordEndIdx !== -1 && words[wordStartIdx] && words[wordEndIdx]) {
+                if (wordStartIdx !== -1 && wordEndIdx !== -1 && words[wordStartIdx] && words[wordEndIdx]) {
                     start = Math.max(0, words[wordStartIdx].start - leadPad);
                     end = Math.min(duration || words[wordEndIdx].end + tailPad, words[wordEndIdx].end + tailPad);
+                } else if (isUniqueClip && words.length > 0) {
+                    start = Math.max(0, words[0].start - leadPad);
+                    end = Math.min(duration || words[words.length - 1].end + tailPad, words[words.length - 1].end + tailPad);
                 }
                 if (!end || end <= start) {
                     end = duration || start + 0.1;

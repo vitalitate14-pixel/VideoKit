@@ -11794,6 +11794,7 @@ function _autoEditLcsWordDiff(wordsA, wordsB) {
 
 function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = []) {
     window.autoEditLastMismatches = mismatches;
+    window.autoEditLastMissingBlocks = missingBlocks;
     return new Promise((resolve) => {
         mismatches.forEach(m => {
             const fileObj = autoEditFiles.find(f => f.path === m.clipPath);
@@ -12661,6 +12662,8 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
 
     const mainReportBtn = document.getElementById('autoedit-main-view-report-btn');
     if (mainReportBtn) mainReportBtn.style.display = 'none';
+    const mainReopenBtn = document.getElementById('autoedit-main-reopen-dialog-btn');
+    if (mainReopenBtn) mainReopenBtn.style.display = 'none';
 
     startBtn.disabled = true;
     startBtn.textContent = '⏳ 正在自动剪辑...';
@@ -12805,6 +12808,8 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
 
         const mainReportBtn = document.getElementById('autoedit-main-view-report-btn');
         if (mainReportBtn) mainReportBtn.style.display = 'inline-block';
+        const mainReopenBtn = document.getElementById('autoedit-main-reopen-dialog-btn');
+        if (mainReopenBtn) mainReopenBtn.style.display = 'inline-block';
 
         renderAutoEditResult(data);
         resultSection.classList.remove('hidden');
@@ -12837,6 +12842,8 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
                 
                 const mainReportBtn = document.getElementById('autoedit-main-view-report-btn');
                 if (mainReportBtn) mainReportBtn.style.display = 'inline-block';
+                const mainReopenBtn = document.getElementById('autoedit-main-reopen-dialog-btn');
+                if (mainReopenBtn) mainReopenBtn.style.display = 'inline-block';
                 
                 const dialogResult = await _showAutoEditMismatchDialog(mismatches, scriptText, mismatchData.missingBlocks || []);
                 const clipEdits = Array.isArray(dialogResult) ? dialogResult : (dialogResult?.clipEdits || []);
@@ -13260,6 +13267,73 @@ window.replaceAutoEditClip = async function(originalPath, index) {
         showToast(`替换失败: ${result ? result.error : '未知错误'}`, 'error');
         startAutoEditByScript(true);
     }
+};
+
+window.reopenAutoEditMismatchDialog = function() {
+    if (!window.autoEditLastMismatches) {
+        showToast('没有上一次的对齐核对数据', 'error');
+        return;
+    }
+    const scriptText = document.getElementById('autoedit-script')?.value || '';
+    _showAutoEditMismatchDialog(window.autoEditLastMismatches, scriptText, window.autoEditLastMissingBlocks || []).then(dialogResult => {
+        if (!dialogResult) return;
+        const clipEdits = Array.isArray(dialogResult) ? dialogResult : (dialogResult?.clipEdits || []);
+        const ignoredMissingBlocks = Array.isArray(dialogResult) ? [] : (dialogResult?.ignoredMissingBlocks || []);
+        if (clipEdits.length > 0 || ignoredMissingBlocks.length > 0) {
+            const rawLines = scriptText.replace(/\r\n/g, '\n').split('\n');
+            const cleanedToRawIndex = [];
+            for (let i = 0; i < rawLines.length; i++) {
+                if (rawLines[i].trim().length > 0) {
+                    cleanedToRawIndex.push(i);
+                }
+            }
+            const operations = [];
+            for (const r of clipEdits) {
+                const mismatch = window.autoEditLastMismatches.find(m => m.clipIndex === r.clipIndex);
+                if (!mismatch) continue;
+                const fileObj = autoEditFiles.find(f => f.path === mismatch.clipPath);
+                if (fileObj) {
+                    fileObj.speed = r.speed || 1.0;
+                }
+                if (mismatch.similarity >= 50 && mismatch.scriptStartLine !== -1) {
+                    const cleanStart = mismatch.scriptStartLine;
+                    const cleanEnd = mismatch.scriptEndLine;
+                    operations.push({
+                        cleanStart,
+                        cleanEnd,
+                        newLines: r.finalText.replace(/\r\n/g, '\n').split('\n'),
+                    });
+                } else {
+                    const fileObj = autoEditFiles.find(f => f.path === mismatch.clipPath);
+                    if (fileObj) {
+                        fileObj.manualTranscript = r.finalText;
+                    }
+                }
+            }
+            for (const block of ignoredMissingBlocks) {
+                operations.push({
+                    cleanStart: block.startLine,
+                    cleanEnd: block.endLine,
+                    newLines: [],
+                });
+            }
+            operations.sort((a, b) => {
+                if (b.cleanStart !== a.cleanStart) return b.cleanStart - a.cleanStart;
+                return b.cleanEnd - a.cleanEnd;
+            });
+            for (const op of operations) {
+                const rawStart = cleanedToRawIndex[op.cleanStart];
+                const rawEnd = cleanedToRawIndex[op.cleanEnd];
+                if (rawStart === undefined || rawEnd === undefined) continue;
+                rawLines.splice(rawStart, rawEnd - rawStart + 1, ...op.newLines);
+            }
+            const newScriptText = rawLines.join('\n');
+            autoEditIgnoreMismatch = true;
+            setTimeout(() => {
+                startAutoEditByScript(true, { scriptTextOverride: newScriptText });
+            }, 100);
+        }
+    });
 };
 
 window.copyTextToClipboard = function(text) {
