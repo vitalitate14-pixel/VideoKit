@@ -12690,6 +12690,18 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
             progressText.textContent = msg;
             statusEl.textContent = `⏳ ${msg}`;
 
+            // Update modal loading overlay elements if present
+            const modalTitle = document.getElementById('ae-modal-loading-title');
+            const modalSubtitle = document.getElementById('ae-modal-loading-subtitle');
+            const modalProgressContainer = document.getElementById('ae-modal-loading-progress-bar-container');
+            const modalProgressBar = document.getElementById('ae-modal-loading-progress-bar');
+            
+            if (modalTitle || modalSubtitle) {
+                if (modalProgressContainer) modalProgressContainer.style.display = 'block';
+                if (modalProgressBar) modalProgressBar.style.width = `${pct}%`;
+                if (modalSubtitle) modalSubtitle.textContent = `${msg} (${pct}%)`;
+            }
+
             // Update individual clip status in real-time
             if (progress.clip_index !== undefined && progress.clip_status) {
                 const idx = progress.clip_index;
@@ -13266,9 +13278,13 @@ window.showAutoEditModalLoading = function(message) {
     const content = modal.querySelector('div');
     if (!content) return;
     content.innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:20px;height:300px;">
-            <div style="width:50px;height:50px;border:3px solid rgba(255,255,255,0.1);border-radius:50%;border-top-color:#6366f1;animation:ae-spin 1s linear infinite;"></div>
-            <div style="font-size:15px;color:#a5b4fc;font-weight:600;">${message || '正在重新处理中，请稍候...'}</div>
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:20px;height:300px;text-align:center;">
+            <div style="width:50px;height:50px;border:3px solid rgba(255,255,255,0.1);border-radius:50%;border-top-color:#6366f1;animation:ae-spin 1s linear infinite;margin-bottom:10px;"></div>
+            <div id="ae-modal-loading-title" style="font-size:15px;color:#a5b4fc;font-weight:600;">${message || '正在重新处理中，请稍候...'}</div>
+            <div id="ae-modal-loading-progress-bar-container" style="width:280px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;margin-top:5px;display:none;">
+                <div id="ae-modal-loading-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#6366f1,#4f46e5);transition:width 0.2s ease;"></div>
+            </div>
+            <div id="ae-modal-loading-subtitle" style="font-size:12px;color:#8b95c0;font-weight:400;margin-top:2px;"></div>
         </div>
     `;
 };

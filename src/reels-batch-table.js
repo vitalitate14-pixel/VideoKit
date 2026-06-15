@@ -796,6 +796,7 @@ function _renderBatchTable() {
                 <div class="rbt-ms-actions">
                     <button class="rbt-btn rbt-ms-btn" id="rbt-ms-import-files" title="选择多个文件">📄 文件</button>
                     <button class="rbt-btn rbt-ms-btn" id="rbt-ms-import-folder" title="选择文件夹，拆散其中所有文件">📁 目录</button>
+                    <button class="rbt-btn rbt-ms-btn" id="rbt-ms-import-groups" title="选择总文件夹；一级子文件夹各生成一行任务">📦 素材组</button>
                     <button class="rbt-btn rbt-ms-btn" id="rbt-ms-import-seq" title="整个目录作为一个序列帧素材">🎞️ 序列帧</button>
                 </div>
                 <div class="rbt-ms-linked-dir">
@@ -900,6 +901,7 @@ function _renderBatchTable() {
                         <button class="rbt-btn" id="rbt-paste-scroll-btn" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格批量粘贴滚动字幕">粘贴滚动字幕</button>
                         <button class="rbt-btn" id="rbt-paste-clip-ab" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="A/B双版文案">粘贴剪辑文案 (A/B版)</button>
                         <button class="rbt-btn" id="rbt-bulk-create-btn" style="padding:2px 8px;font-size:11px;background:rgba(124,92,255,0.15);border:1px solid rgba(124,92,255,0.3);color:#b8a0ff;font-weight:600;" title="类似Canva大量制作：表格数据 × 覆层模板 = 批量任务">🧩 大量制作</button>
+                        <button class="rbt-btn" id="rbt-import-material-groups-btn" style="padding:2px 8px;font-size:11px;background:rgba(76,158,255,0.12);border:1px solid rgba(76,158,255,0.3);color:#8fc7ff;" title="选择总文件夹；一级子文件夹各生成一行：音频 + 多视频拼接循环">📦 导入素材组</button>
                     </div>
 
                     <!-- === 4. 批量参数总设置 (Scaling / Content Video / Blur) === -->
@@ -3313,6 +3315,10 @@ function _bindBatchTableEvents() {
     // Relocate missing materials
     container.querySelector('#rbt-relocate-btn')?.addEventListener('click', () => {
         _relocateMissingMaterials();
+    });
+
+    container.querySelector('#rbt-import-material-groups-btn')?.addEventListener('click', () => {
+        _selectAndImportMaterialGroupFolders({ mode: 'append' });
     });
 
     // ── 读取文件夹 ──
@@ -10494,6 +10500,173 @@ function _batchImportFolder(files) {
     alert(`✅ 从文件夹导入 ${created} 个任务\n检测到: ${summary.join(', ')}\n同名文件已自动配对`);
 }
 
+function _getPathBaseName(filePath) {
+    if (!filePath) return '';
+    if (window.require) {
+        try { return window.require('path').basename(filePath); } catch (_) { }
+    }
+    return String(filePath).replace(/\\/g, '/').split('/').pop() || String(filePath);
+}
+
+function _isDirectoryPath(filePath) {
+    if (!filePath || !window.require) return false;
+    try {
+        const fs = window.require('fs');
+        return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory();
+    } catch (_) {
+        return false;
+    }
+}
+
+function _scanMaterialGroupFolders(rootDir) {
+    if (!rootDir || !window.require) return { groups: [], skipped: [] };
+    const fs = window.require('fs');
+    const pathMod = window.require('path');
+    const videoExts = new Set(['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm']);
+    const audioExts = _AUDIO_EXTS || new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'wma']);
+    const groups = [];
+    const skipped = [];
+
+    const readGroupDir = (dirPath) => {
+        const groupName = _getPathBaseName(dirPath);
+        let entries = [];
+        try {
+            entries = fs.readdirSync(dirPath, { withFileTypes: true })
+                .filter(entry => entry.isFile() && !entry.name.startsWith('.'))
+                .map(entry => pathMod.join(dirPath, entry.name));
+        } catch (e) {
+            return { skipped: { name: groupName, reason: e.message || '无法读取子文件夹' } };
+        }
+
+        const audioFiles = [];
+        const videoFiles = [];
+        for (const fp of entries) {
+            const ext = _getPathBaseName(fp).split('.').pop().toLowerCase();
+            if (audioExts.has(ext)) audioFiles.push(fp);
+            else if (videoExts.has(ext)) videoFiles.push(fp);
+        }
+        audioFiles.sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
+        videoFiles.sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
+
+        if (!audioFiles.length || !videoFiles.length) {
+            return {
+                skipped: {
+                    name: groupName,
+                    reason: !audioFiles.length && !videoFiles.length ? '缺少音频和视频' : (!audioFiles.length ? '缺少音频' : '缺少视频')
+                }
+            };
+        }
+        return { group: { name: groupName, dirPath, audioPath: audioFiles[0], videoPaths: videoFiles, extraAudioCount: Math.max(0, audioFiles.length - 1) } };
+    };
+
+    let subDirs = [];
+    try {
+        subDirs = fs.readdirSync(rootDir, { withFileTypes: true })
+            .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+            .map(entry => pathMod.join(rootDir, entry.name))
+            .sort((a, b) => _getPathBaseName(a).localeCompare(_getPathBaseName(b)));
+    } catch (e) {
+        return { groups, skipped: [{ name: _getPathBaseName(rootDir), reason: e.message || '无法读取目录' }] };
+    }
+
+    for (const dirPath of subDirs) {
+        const result = readGroupDir(dirPath);
+        if (result.group) groups.push(result.group);
+        else if (result.skipped) skipped.push(result.skipped);
+    }
+
+    if (groups.length === 0) {
+        const direct = readGroupDir(rootDir);
+        if (direct.group) {
+            groups.push(direct.group);
+            skipped.length = 0;
+        }
+    }
+    return { groups, skipped };
+}
+
+function _importMaterialGroupFolders(rootDir, options = {}) {
+    const state = window._reelsState;
+    if (!state || !rootDir) return 0;
+    if (!window.require) {
+        alert('素材组导入需要在桌面应用中使用');
+        return 0;
+    }
+
+    const { groups, skipped } = _scanMaterialGroupFolders(rootDir);
+    if (!groups.length) {
+        const skipMsg = skipped.length ? `\n\n跳过:\n${skipped.slice(0, 10).map(s => `${s.name}: ${s.reason}`).join('\n')}` : '';
+        if (!options.silent) {
+            alert(`没有找到可导入的素材组。\n规则：总文件夹下每个一级子文件夹至少包含 1 个音频和 1 个视频。${skipMsg}`);
+        }
+        return 0;
+    }
+
+    const mode = options.mode || 'append';
+    if (mode === 'replace') state.tasks = [];
+
+    const startIndex = state.tasks.length;
+    for (const group of groups) {
+        const task = _createEmptyTask();
+        task.baseName = group.name || _generateUniqueCardName(state.tasks || [], 'group');
+        task.fileName = `${task.baseName}.mp4`;
+        task.exportName = task.baseName;
+        task.audioPath = group.audioPath;
+        task.bgMode = 'multi';
+        task.bgClipPool = [...group.videoPaths];
+        task.bgClipActivePool = [];
+        task.bgClipOrder = 'sequence';
+        task.bgTransition = task.bgTransition || 'none';
+        task.bgTransDur = task.bgTransDur || 0.5;
+        task.bgPath = group.videoPaths[0] || null;
+        task.videoPath = group.videoPaths[0] || null;
+        task.bgSrcUrl = null;
+        task.srcUrl = null;
+        task._materialGroupDir = group.dirPath;
+        _ensureTaskId(task);
+        state.tasks.push(task);
+    }
+
+    _resolveDuplicateTaskNames(state.tasks);
+    _skipNextApply = true;
+    _renderBatchTable();
+    if (typeof _renderTaskList === 'function') _renderTaskList();
+    if (startIndex >= 0 && typeof reelsSelectTask === 'function') {
+        try { reelsSelectTask(startIndex); } catch (_) { }
+    }
+    if (typeof _syncTasksToActiveTab === 'function') _syncTasksToActiveTab();
+    if (typeof _batchAutoSave === 'function') _batchAutoSave();
+
+    const extraAudioGroups = groups.filter(g => g.extraAudioCount > 0).length;
+    const details = [
+        `✅ 已导入 ${groups.length} 个素材组任务`,
+        `每个任务：1 个音频 + 子文件夹内视频按文件名顺序循环拼接`,
+    ];
+    if (extraAudioGroups) details.push(`有 ${extraAudioGroups} 个文件夹含多个音频，仅使用排序后的第一个音频`);
+    if (skipped.length) details.push(`跳过 ${skipped.length} 个子文件夹：\n${skipped.slice(0, 10).map(s => `${s.name}: ${s.reason}`).join('\n')}${skipped.length > 10 ? '\n...' : ''}`);
+    if (!options.silent) alert(details.join('\n'));
+    return groups.length;
+}
+
+async function _selectAndImportMaterialGroupFolders(options = {}) {
+    if (!window.require) {
+        alert('素材组导入需要在桌面应用中使用');
+        return;
+    }
+    try {
+        const { dialog, getCurrentWindow } = window.require('@electron/remote');
+        const result = await dialog.showOpenDialog(getCurrentWindow(), {
+            title: '选择素材组总文件夹（一级子文件夹各生成一行任务）',
+            properties: ['openDirectory']
+        });
+        if (!result.canceled && result.filePaths?.[0]) {
+            _importMaterialGroupFolders(result.filePaths[0], options);
+        }
+    } catch (e) {
+        alert('打开素材组文件夹失败: ' + (e.message || e));
+    }
+}
+
 // ═══════════════════════════════════════════════════════
 // 9b. File assignment helpers
 // ═══════════════════════════════════════════════════════
@@ -15615,6 +15788,11 @@ function _bindMediaSidebarEvents(container) {
         hiddenFolderInput.click();
     });
 
+    // ━━━ Import Material Groups — root folder contains task subfolders ━━━
+    sidebar.querySelector('#rbt-ms-import-groups')?.addEventListener('click', () => {
+        _selectAndImportMaterialGroupFolders({ mode: 'append' });
+    });
+
     // ━━━ Sequence frame directory ━━━
     sidebar.querySelector('#rbt-ms-import-seq')?.addEventListener('click', async () => {
         if (window.require) {
@@ -15740,7 +15918,25 @@ function _bindMediaSidebarEvents(container) {
             poolArea.style.boxShadow = '';
             const files = Array.from(e.dataTransfer.files || []);
             if (files.length > 0) {
-                handleFiles(files);
+                const paths = files.map(f => {
+                    const p = (typeof getFileNativePath === 'function') ? getFileNativePath(f) : (f.path || f.name);
+                    return p;
+                }).filter(Boolean);
+                const dirs = paths.filter(p => _isDirectoryPath(p));
+                if (dirs.length > 0) {
+                    let total = 0;
+                    for (const dir of dirs) {
+                        total += _importMaterialGroupFolders(dir, { mode: 'append', silent: true }) || 0;
+                    }
+                    const filePaths = paths.filter(p => !_isDirectoryPath(p));
+                    if (filePaths.length > 0) _addFilesByPath(filePaths);
+                    if (typeof showToast === 'function') {
+                        if (total > 0) showToast(`📦 已导入 ${total} 个素材组任务`, 'success', 5000);
+                        else if (filePaths.length === 0) showToast('未识别到素材组；请确认文件夹内包含音频和视频，或总文件夹下有素材组子文件夹', 'warning', 6000);
+                    }
+                } else {
+                    handleFiles(files);
+                }
             }
         });
     }
