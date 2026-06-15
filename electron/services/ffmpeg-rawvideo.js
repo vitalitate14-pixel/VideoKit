@@ -68,16 +68,31 @@ async function getMediaDuration(filePath) {
 }
 
 /** 用 ffprobe 检测文件是否真有音频轨道 */
-function hasAudioTrack(filePath) {
+async function hasAudioTrack(filePath) {
+    if (!filePath) return false;
+    // 如果是 .wav 文件，我们自己拼接生成的文件肯定有音轨，直接返回 true，防止 ffprobe 路径或权限的额外干扰
+    if (filePath.toLowerCase().endsWith('.wav')) return true;
     try {
-        const result = execFileSync(findFFprobe(), [
+        const { runCommand } = require('./ffmpeg');
+        const { stdout } = await runCommand('ffprobe', [
             '-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', filePath
-        ], { timeout: 10000 }).toString().trim();
-        return result.length > 0;
+        ], { timeout: 10000 });
+        return stdout.trim().length > 0;
     } catch (e) {
-        return false;
+        console.error(`[hasAudioTrack] ffprobe check failed for ${filePath}: ${e.message}`);
+        // 回退到 execFileSync
+        try {
+            const result = execFileSync(findFFprobe(), [
+                '-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', filePath
+            ], { timeout: 10000 }).toString().trim();
+            return result.length > 0;
+        } catch (innerErr) {
+            console.error(`[hasAudioTrack] fallback execFileSync check also failed: ${innerErr.message}`);
+            return false;
+        }
     }
 }
+
 
 function buildAtempoChainForDurationScale(durationScale = 100) {
     const scale = Number(durationScale) || 100;
@@ -132,6 +147,11 @@ async function prepareBg(opts) {
         backgroundPath,
         bgMode = 'single',
         bgClipPool = [],
+        bgClipSettings = {},
+        bgMinClipDur = 5,
+        bgMaxClipDur = 7,
+        segments = [],
+        originalScript = '',
         bgClipOrder = 'random',
         bgClipSeed = '',
         bgTransition = 'crossfade',
@@ -182,30 +202,314 @@ async function prepareBg(opts) {
             throw new Error('素材池中没有有效的文件');
         }
 
-        // 获取每个素材的时长
+        // 获取每个素材的时长，并考虑 custom trim 属性
         const clipDurations = [];
         for (const clip of validClips) {
-            const dur = isImageMedia(clip) ? 5.0 : await getMediaDuration(clip);
-            clipDurations.push({ path: clip, duration: Math.max(dur, 0.5) * ptsFactor, isImage: isImageMedia(clip) });
+            let start = null;
+            let end = null;
+            if (bgClipSettings && bgClipSettings[clip]) {
+                if (bgClipSettings[clip].trimStart != null) start = parseFloat(bgClipSettings[clip].trimStart);
+                if (bgClipSettings[clip].trimEnd != null) end = parseFloat(bgClipSettings[clip].trimEnd);
+            }
+            let rawDur = isImageMedia(clip) ? 5.0 : await getMediaDuration(clip);
+            let clipDur = rawDur;
+            if (end != null && end > 0) {
+                clipDur = end - (start || 0);
+            } else if (start != null && start > 0) {
+                clipDur = rawDur - start;
+            }
+            clipDurations.push({
+                path: clip,
+                duration: Math.max(clipDur, 0.5) * ptsFactor,
+                isImage: isImageMedia(clip),
+                trimStart: start,
+                trimEnd: end
+            });
         }
 
-        const orderedClipDurations = bgClipOrder === 'random'
+        const orderedClipDurations = (bgClipOrder === 'random' || bgClipOrder === 'random_align')
             ? _stableShuffleBgClips(clipDurations, `${bgClipSeed || ''}|${validClips.join('|')}`)
             : clipDurations;
 
-        // 选择素材直到总时长 >= 目标时长
-        const selectedClips = [];
-        let totalDur = 0;
-        const transOverlap = bgTransition !== 'none' ? bgTransDur : 0;
-        let attempts = 0;
-        while (totalDur < duration && attempts < 200) {
-            const pick = orderedClipDurations[selectedClips.length % orderedClipDurations.length];
-            selectedClips.push(pick);
-            totalDur += pick.duration - (selectedClips.length > 1 ? transOverlap : 0);
-            attempts++;
+        let selectedClips = [];
+        const isCardingMode = bgClipOrder === 'random_align' || bgClipOrder === 'sequence_align';
+
+        if (isCardingMode && Array.isArray(segments) && segments.length > 0) {
+            // 依据台词卡点时间切分
+            const cutPoints = [0];
+            const preSwitchOffset = 0.2; // 提前 0.2 秒切换背景，实现无缝预切换
+
+            const getSentenceBoundaries = (segs, originalText) => {
+                const strongBoundaries = new Set();
+                const weakBoundaries = new Set();
+                if (!segs || segs.length === 0) return { strongBoundaries, weakBoundaries };
+                
+                const lastIdx = segs.length - 1;
+                strongBoundaries.add(lastIdx);
+
+                const sentencePunct = new Set([
+                    '。', '！', '？', '，', '、', '；', '：', 
+                    '.', '!', '?', ',', ';', ':', '\n', '\r', 
+                    '…', '—', '“', '”', '‘', '’', '（', '）', 
+                    '(', ')', '[', ']', '【', '】'
+                ]);
+                const strongPunct = new Set(['。', '！', '？', '.', '!', '?', '\n', '\r', '…', '—']);
+
+                segs.forEach((seg, i) => {
+                    const txt = String(seg.edited_text || seg.text || '').trim();
+                    if (txt && sentencePunct.has(txt[txt.length - 1])) {
+                        const char = txt[txt.length - 1];
+                        if (strongPunct.has(char)) {
+                            strongBoundaries.add(i);
+                        } else {
+                            weakBoundaries.add(i);
+                        }
+                    }
+                });
+
+                if (!originalText) return { strongBoundaries, weakBoundaries };
+
+                const rawChars = Array.from(originalText);
+                const cleanOriginalText = [];
+                const cleanToRawMap = [];
+                for (let i = 0; i < rawChars.length; i++) {
+                    const char = rawChars[i];
+                    if (!/\s/.test(char) && !sentencePunct.has(char)) {
+                        cleanToRawMap.push(i);
+                        cleanOriginalText.push(char);
+                    }
+                }
+                const cleanOrigStr = cleanOriginalText.join('');
+
+                let accumulatedCleanText = "";
+                for (let idx = 0; idx < segs.length; idx++) {
+                    const segVal = segs[idx].edited_text || segs[idx].text || "";
+                    const cleanSegText = String(segVal)
+                        .replace(/\s+/g, '')
+                        .split('')
+                        .filter(c => !sentencePunct.has(c))
+                        .join('');
+
+                    accumulatedCleanText += cleanSegText;
+                    if (accumulatedCleanText.length === 0) continue;
+
+                    const matchIdx = cleanOrigStr.toLowerCase().indexOf(accumulatedCleanText.toLowerCase());
+                    if (matchIdx !== -1) {
+                        const endCleanIdx = matchIdx + accumulatedCleanText.length - 1;
+                        const endRawIdx = cleanToRawMap[endCleanIdx];
+                        if (endRawIdx !== undefined) {
+                            let isBoundary = false;
+                            let matchedChar = '';
+                            let k = endRawIdx + 1;
+                            for (; k < rawChars.length; k++) {
+                                const nextChar = rawChars[k];
+                                if (sentencePunct.has(nextChar)) {
+                                    isBoundary = true;
+                                    matchedChar = nextChar;
+                                    break;
+                                }
+                                if (!/\s/.test(nextChar)) {
+                                    break;
+                                }
+                            }
+                            if (k === rawChars.length) {
+                                isBoundary = true;
+                            }
+                            if (isBoundary) {
+                                if (k === rawChars.length || strongPunct.has(matchedChar)) {
+                                    strongBoundaries.add(idx);
+                                } else {
+                                    weakBoundaries.add(idx);
+                                }
+                            }
+                        }
+                    }
+                }
+                return { strongBoundaries, weakBoundaries };
+            };
+
+            const { strongBoundaries, weakBoundaries } = getSentenceBoundaries(segments, originalScript);
+
+            const strongCandidates = [];
+            const weakCandidates = [];
+            const allCandidates = [];
+
+            segments.forEach((seg, idx) => {
+                const endVal = parseFloat(seg.end);
+                if (!isNaN(endVal) && endVal > 0) {
+                    const shiftedPt = Math.max(0.1, endVal - preSwitchOffset);
+                    if (shiftedPt < duration) {
+                        allCandidates.push(shiftedPt);
+                        if (strongBoundaries.has(idx)) {
+                            strongCandidates.push(shiftedPt);
+                        } else if (weakBoundaries.has(idx)) {
+                            weakCandidates.push(shiftedPt);
+                        }
+                    }
+                }
+            });
+
+            const sortedStrongCands = Array.from(new Set(strongCandidates)).sort((a, b) => a - b);
+            const sortedWeakCands = Array.from(new Set(weakCandidates)).sort((a, b) => a - b);
+            const sortedAllCands = Array.from(new Set(allCandidates)).sort((a, b) => a - b);
+
+            const preferredSplit = Math.max(1.0, bgMinClipDur > 0 ? Math.min(bgMaxClipDur, bgMinClipDur + 1) : 5);
+            const minOk = Math.max(1.0, bgMinClipDur - 1.0);
+            const maxOk = bgMaxClipDur + 1.0;
+            let lastCut = 0;
+            let candIdx = 0;
+
+            while (candIdx < sortedAllCands.length) {
+                const remainingAll = sortedAllCands.filter(pt => pt > lastCut + 0.01);
+                if (remainingAll.length === 0) break;
+
+                const remainingStrong = sortedStrongCands.filter(pt => pt > lastCut + 0.01);
+                const remainingWeak = sortedWeakCands.filter(pt => pt > lastCut + 0.01);
+
+                let bestPt = null;
+                // 1. 优先寻找区间内的强标点
+                for (let i = 0; i < remainingStrong.length; i++) {
+                    const pt = remainingStrong[i];
+                    const dist = pt - lastCut;
+                    if (dist >= minOk && dist <= maxOk) {
+                        if (bestPt === null || Math.abs(dist - preferredSplit) < Math.abs(bestPt - lastCut - preferredSplit)) {
+                            bestPt = pt;
+                        }
+                    }
+                }
+
+                // 2. 如果没有强标点，寻找弱标点
+                if (bestPt === null) {
+                    for (let i = 0; i < remainingWeak.length; i++) {
+                        const pt = remainingWeak[i];
+                        const dist = pt - lastCut;
+                        if (dist >= minOk && dist <= maxOk) {
+                            if (bestPt === null || Math.abs(dist - preferredSplit) < Math.abs(bestPt - lastCut - preferredSplit)) {
+                                bestPt = pt;
+                            }
+                        }
+                    }
+                }
+
+                if (bestPt !== null) {
+                    cutPoints.push(bestPt);
+                    lastCut = bestPt;
+                    const idx = sortedAllCands.indexOf(bestPt);
+                    candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                } else {
+                    const hasExceedingStrong = remainingStrong.some(pt => pt - lastCut > maxOk);
+                    const hasExceedingWeak = remainingWeak.some(pt => pt - lastCut > maxOk);
+                    
+                    if (hasExceedingStrong || hasExceedingWeak) {
+                        const smallerStrong = remainingStrong.filter(pt => pt - lastCut < minOk);
+                        const smallerWeak = remainingWeak.filter(pt => pt - lastCut < minOk);
+                        
+                        if (smallerStrong.length > 0) {
+                            const latestSmaller = smallerStrong[smallerStrong.length - 1];
+                            cutPoints.push(latestSmaller);
+                            lastCut = latestSmaller;
+                            const idx = sortedAllCands.indexOf(latestSmaller);
+                            candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                        } else if (smallerWeak.length > 0) {
+                            const latestSmaller = smallerWeak[smallerWeak.length - 1];
+                            cutPoints.push(latestSmaller);
+                            lastCut = latestSmaller;
+                            const idx = sortedAllCands.indexOf(latestSmaller);
+                            candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                        } else {
+                            let bestWordPt = null;
+                            for (let i = 0; i < remainingAll.length; i++) {
+                                const pt = remainingAll[i];
+                                const dist = pt - lastCut;
+                                if (dist >= minOk && dist <= maxOk) {
+                                    if (bestWordPt === null || Math.abs(dist - preferredSplit) < Math.abs(bestWordPt - lastCut - preferredSplit)) {
+                                        bestWordPt = pt;
+                                    }
+                                }
+                            }
+                            
+                            if (bestWordPt !== null) {
+                                cutPoints.push(bestWordPt);
+                                lastCut = bestWordPt;
+                                const idx = sortedAllCands.indexOf(bestWordPt);
+                                candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                            } else {
+                                const nextForcedCut = lastCut + preferredSplit;
+                                cutPoints.push(nextForcedCut);
+                                lastCut = nextForcedCut;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            if (bgMaxClipDur > 0) {
+                while ((duration - lastCut) > bgMaxClipDur) {
+                    const nextForcedCut = lastCut + preferredSplit;
+                    cutPoints.push(nextForcedCut);
+                    lastCut = nextForcedCut;
+                }
+            }
+            if (cutPoints.length > 1 && duration - cutPoints[cutPoints.length - 1] < 1.5) {
+                cutPoints[cutPoints.length - 1] = duration;
+            } else if (cutPoints[cutPoints.length - 1] < duration - 0.01) {
+                cutPoints.push(duration);
+            } else {
+                cutPoints[cutPoints.length - 1] = duration;
+            }
+            
+            console.log(`[WYSIWYG-BG] 台词卡点切片时刻:`, cutPoints.map(p => p.toFixed(2)).join(', '));
+            
+            // 根据切分点为每个区间分配素材
+            const tDur = bgTransition !== 'none' ? bgTransDur : 0;
+            
+            for (let idx = 0; idx < cutPoints.length - 1; idx++) {
+                const segStart = cutPoints[idx];
+                const segEnd = cutPoints[idx + 1];
+                const d = segEnd - segStart; // 区间纯时长
+                
+                // 对应 Clip 应该有的播放长度
+                const isLast = (idx === cutPoints.length - 2);
+                const clipNeededDur = d + (isLast ? 0 : tDur);
+                
+                // 从打乱/顺序的素材池里轮流挑选一个素材
+                const pick = orderedClipDurations[idx % orderedClipDurations.length];
+                
+                // 复制一份并调整其 duration
+                selectedClips.push({
+                    ...pick,
+                    duration: clipNeededDur
+                });
+            }
+        } else {
+            // 没有字幕段，回退到原有的根据素材池自身时长进行拼接
+            console.log(`[WYSIWYG-BG] 无字幕信息，回退到按素材自身时长自动拼接`);
+            let totalDur = 0;
+            const transOverlap = bgTransition !== 'none' ? bgTransDur : 0;
+            let attempts = 0;
+            while (totalDur < duration && attempts < 200) {
+                const pick = orderedClipDurations[selectedClips.length % orderedClipDurations.length];
+                selectedClips.push(pick);
+                totalDur += pick.duration - (selectedClips.length > 1 ? transOverlap : 0);
+                attempts++;
+            }
+            // 同样，我们需要校准最后一个 clip 的 duration 以免超出总 duration
+            if (selectedClips.length > 0) {
+                let runningDur = 0;
+                for (let i = 0; i < selectedClips.length; i++) {
+                    const isLast = (i === selectedClips.length - 1);
+                    if (isLast) {
+                        selectedClips[i].duration = Math.max(0.5, duration - runningDur);
+                    } else {
+                        runningDur += selectedClips[i].duration - transOverlap;
+                    }
+                }
+            }
         }
 
-        console.log(`[WYSIWYG-BG] 选中 ${selectedClips.length} 个片段, 预计总时长: ${totalDur.toFixed(2)}s`);
+        console.log(`[WYSIWYG-BG] 最终选中 ${selectedClips.length} 个片段`);
 
         if (selectedClips.length === 1) {
             // 仅一个片段，直接处理
@@ -216,15 +520,19 @@ async function prepareBg(opts) {
                 return { framesDir, frameCount: 1 };
             } else {
                 const shouldLoop = duration > clip.duration + 0.1;
-                await extractSimpleLoop(ffmpeg, clip.path, framesDir, scaleCropFilter, fps, duration, 1.0, shouldLoop);
+                await extractSimpleLoopWithTrim(ffmpeg, clip.path, framesDir, scaleCropFilter, fps, duration, ptsFactor, shouldLoop, clip.trimStart, clip.trimEnd);
             }
         } else {
             // 多片段拼接
             const args = ['-y'];
             for (const clip of selectedClips) {
                 if (clip.isImage) {
-                    args.push('-loop', '1', '-t', '5', '-i', clip.path);
+                    args.push('-loop', '1', '-t', String(clip.duration), '-i', clip.path);
                 } else {
+                    if (clip.trimStart != null && clip.trimStart > 0) {
+                        args.push('-ss', String(clip.trimStart));
+                    }
+                    args.push('-t', String(clip.duration / ptsFactor));
                     args.push('-i', clip.path);
                 }
             }
@@ -314,7 +622,59 @@ async function prepareBg(opts) {
         // 统计帧数
         const files = fs.readdirSync(framesDir).filter(f => f.endsWith('.jpg') || f.endsWith('.png'));
         console.log(`[WYSIWYG-BG] 多素材帧提取完成: ${files.length} 帧`);
-        return { framesDir, frameCount: files.length };
+
+        // Stitch background audio if any clip has audio
+        let bgAudioPath = null;
+        try {
+            let anyClipHasAudio = false;
+            for (const clip of selectedClips) {
+                if (!clip.isImage && await hasAudioTrack(clip.path)) {
+                    anyClipHasAudio = true;
+                    break;
+                }
+            }
+            if (anyClipHasAudio) {
+                console.log(`[WYSIWYG-BG] 检测到背景视频包含音轨，开始合并背景音频...`);
+                const audioArgs = ['-y'];
+                const filterParts = [];
+                let inputIdx = 0;
+                for (const clip of selectedClips) {
+                    const clipHasAudio = !clip.isImage && await hasAudioTrack(clip.path);
+                    if (clipHasAudio) {
+                        if (clip.trimStart != null && clip.trimStart > 0) {
+                            audioArgs.push('-ss', String(clip.trimStart));
+                        }
+                        audioArgs.push('-t', String(clip.duration / ptsFactor));
+                        audioArgs.push('-i', clip.path);
+                        filterParts.push(`[${inputIdx}:a]aformat=sample_fmts=flt:channel_layouts=stereo:sample_rates=44100[a${inputIdx}]`);
+                    } else {
+                        audioArgs.push('-f', 'lavfi', '-i', `anullsrc=r=44100:cl=stereo:d=${clip.duration / ptsFactor}`);
+                        filterParts.push(`[${inputIdx}:a]aformat=sample_fmts=flt:channel_layouts=stereo:sample_rates=44100[a${inputIdx}]`);
+                    }
+                    inputIdx++;
+                }
+                const concatLabels = selectedClips.map((_, i) => `[a${i}]`).join('');
+                filterParts.push(`${concatLabels}concat=n=${selectedClips.length}:v=0:a=1[aout]`);
+                
+                const outWav = path.join(framesDir, 'bg_audio.wav');
+                audioArgs.push(
+                    '-filter_complex', filterParts.join(';'),
+                    '-map', '[aout]',
+                    '-c:a', 'pcm_s16le',
+                    outWav
+                );
+                console.log(`[WYSIWYG-BG] 合并音频命令: ${ffmpeg} ${audioArgs.join(' ')}`);
+                await runFFmpegSync(ffmpeg, audioArgs);
+                if (fs.existsSync(outWav)) {
+                    bgAudioPath = outWav;
+                    console.log(`[WYSIWYG-BG] 背景音频合并成功: ${bgAudioPath}`);
+                }
+            }
+        } catch (audioErr) {
+            console.error(`[WYSIWYG-BG] 背景音频合并失败:`, audioErr.message);
+        }
+
+        return { framesDir, frameCount: files.length, bgAudioPath };
     }
 
     // ═══ 单素材模式（原有逻辑）═══
@@ -434,6 +794,34 @@ async function prepareBg(opts) {
     const files = fs.readdirSync(framesDir).filter(f => f.endsWith('.jpg') || f.endsWith('.png'));
     console.log(`[WYSIWYG-BG] 帧提取完成: ${files.length} 帧`);
     return { framesDir, frameCount: files.length };
+}
+
+async function extractSimpleLoopWithTrim(ffmpeg, backgroundPath, framesDir, scaleCropFilter, fps, duration, ptsFactor = 1.0, shouldLoop = false, trimStart = null, trimEnd = null) {
+    let vf = scaleCropFilter;
+    if (Math.abs(ptsFactor - 1.0) > 0.01) {
+        vf = `${scaleCropFilter},setpts=PTS*${ptsFactor.toFixed(3)}`;
+    }
+    const args = ['-y'];
+    if (shouldLoop) {
+        args.push('-stream_loop', '-1');
+    }
+    if (trimStart != null && trimStart > 0) {
+        args.push('-ss', String(trimStart));
+    }
+    if (trimEnd != null && trimEnd > 0) {
+        const dur = trimEnd - (trimStart || 0);
+        args.push('-t', String(dur));
+    }
+    args.push(
+        '-i', backgroundPath,
+        '-t', String(duration),
+        '-vf', vf,
+        '-r', String(fps),
+        '-an',
+        '-qscale:v', '2',
+        `${framesDir}/frame_%06d.jpg`,
+    );
+    await runFFmpegSync(ffmpeg, args);
 }
 
 async function extractSimpleLoop(ffmpeg, backgroundPath, framesDir, scaleCropFilter, fps, duration, ptsFactor = 1.0, shouldLoop = false) {
@@ -1168,7 +1556,7 @@ async function mixAudio(session) {
     // 检测覆层视频音频是否有效
     const cvPath = session.contentVideoPath;
     const cvVol = session.contentVideoVolume ?? 1.0;
-    const hasContentVideoAudio = cvPath && fs.existsSync(cvPath) && !isImageMedia(cvPath) && hasAudioTrack(cvPath);
+    const hasContentVideoAudio = cvPath && fs.existsSync(cvPath) && !isImageMedia(cvPath) && await hasAudioTrack(cvPath);
     if (hasContentVideoAudio) console.log(`[WYSIWYG] 覆层视频含音频轨: ${cvPath}`);
     // 检测是否有渲染后的背景音频（bg 层特效渲染产物）
     const renderedBgAudio = session._renderedBgAudioPath && fs.existsSync(session._renderedBgAudioPath)
@@ -1180,7 +1568,7 @@ async function mixAudio(session) {
         // 无配音
         const bgVolumeVal = typeof bgVolume === 'number' ? bgVolume : 0.1;
         const wantBgAudio = bgVolumeVal > 0.001;
-        const bgReallyHasAudio = wantBgAudio && backgroundPath && fs.existsSync(backgroundPath) && hasAudioTrack(backgroundPath);
+        const bgReallyHasAudio = wantBgAudio && backgroundPath && fs.existsSync(backgroundPath) && await hasAudioTrack(backgroundPath);
 
         // 收集所有音频源
         let audioInputs = []; // [{path, volume, loop, durationScale}]
@@ -1246,7 +1634,7 @@ async function mixAudio(session) {
 
         // 二次验证：即使前端标记 bgHasAudio=true，也用 ffprobe 实际检测是否真有音频轨
         const bgWanted = !renderedBgAudio && bgHasAudio && bgVolumeVal2 > 0.001 && backgroundPath && fs.existsSync(backgroundPath);
-        const bgReallyHasAudio = bgWanted ? hasAudioTrack(backgroundPath) : false;
+        const bgReallyHasAudio = bgWanted ? await hasAudioTrack(backgroundPath) : false;
         if (bgWanted && !bgReallyHasAudio) {
             console.log(`[WYSIWYG] 背景视频无音频轨道，跳过背景音频混合: ${backgroundPath}`);
         }

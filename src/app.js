@@ -541,7 +541,7 @@ function initSubTabs() {
             // 有独立文件输入的子模块，隐藏顶部通用文件输入区域
             const mediaFileSection = document.getElementById('media-file-section');
             if (mediaFileSection) {
-                const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-lipsync', 'media-batchcut', 'media-batchtxt', 'media-unirename'];
+                const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-lipsync', 'media-batchcut', 'media-autoedit', 'media-batchtxt', 'media-unirename', 'media-audiomatch'];
                 mediaFileSection.style.display = tabsWithOwnInput.includes(tab.dataset.subtab) ? 'none' : '';
             }
 
@@ -588,7 +588,7 @@ function initMediaSidebar() {
                         'x264': '高效 H.264 压缩，在保持画质的同时大幅减小视频体积',
                         'dnxhr': '达芬奇/剪映等剪辑软件的代理/高画质编辑格式',
                         'dnxhr_hqx': '达芬奇/剪映等剪辑软件的高动态 10bit 编辑格式',
-                        'mp3': '将各类媒体文件中的音频提取或转换为 MP3 格式',
+                        'mp3': '从视频/音频中提取并转换为 MP3 格式',
                         'wav': '将各类媒体文件中的音频提取或转换为无损 WAV 格式',
                         'audio_black': '将音频转换为带黑屏画面的 MP4 视频，方便上传视频平台',
                         'audio_split': '批量对音频文件进行高精度裁切与分段导出',
@@ -637,7 +637,7 @@ function switchMediaSubtab(subtabId) {
     // 控制通用输入框可见性
     const mediaFileSection = document.getElementById('media-file-section');
     if (mediaFileSection) {
-        const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-lipsync', 'media-batchcut', 'media-batchtxt', 'media-unirename', 'media-batchrename'];
+        const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-lipsync', 'media-batchcut', 'media-autoedit', 'media-batchtxt', 'media-unirename', 'media-batchrename', 'media-audiomatch'];
         mediaFileSection.style.display = tabsWithOwnInput.includes(subtabId) ? 'none' : '';
     }
 
@@ -1766,14 +1766,26 @@ function resolveAssetPath(relativePath) {
 
 function normalizeFilePath(pathValue) {
     if (!pathValue) return '';
+    if (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function') {
+        try {
+            const u = window.electronAPI.toFileUrl(pathValue);
+            if (u) return u;
+        } catch (e) {
+            console.error('Failed to normalize file path with toFileUrl:', e);
+        }
+    }
     if (/^file:\/\//i.test(pathValue)) {
         return pathValue;
     }
-    if (/^[a-zA-Z]:\\/.test(pathValue)) {
-        return `file:///${pathValue.replace(/\\/g, '/')}`;
+    if (/^[a-zA-Z]:[/\\]/.test(pathValue)) {
+        const replaced = pathValue.replace(/\\/g, '/');
+        const parts = replaced.split('/');
+        const drive = parts[0];
+        const rest = parts.slice(1).map(encodeURIComponent).join('/');
+        return `file:///${drive}/${rest}`;
     }
     if (pathValue.startsWith('/')) {
-        return `file://${pathValue}`;
+        return `file://${pathValue.split('/').map(p => p === '' ? '' : encodeURIComponent(p)).join('/')}`;
     }
     return pathValue;
 }
@@ -2434,7 +2446,7 @@ class ApiKeyTableManager {
     
     escapeHtml(text) {
         if (!text) return '';
-        return text
+        return String(text)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
@@ -4009,7 +4021,7 @@ const MTB_TOOLS = [
     { id: 'watermark', category: 'common', label: '文字水印', desc: '给视频叠加可配置文字水印。', mode: 'watermark', input: 'file', options: 'watermark' },
     { id: 'logo', category: 'common', label: 'Logo 叠加', desc: 'Logo 预设、位置尺寸和双背景预览。', portSubtab: 'media-logo', needsGlobalInput: true },
 
-    { id: 'mp3', category: 'audio', label: '转 MP3', desc: '提取或转换为 192kbps 双声道 MP3。', mode: 'mp3', input: 'file' },
+    { id: 'mp3', category: 'audio', label: '提取音频 MP3', desc: '从视频/音频中提取为 192kbps 双声道 MP3。', mode: 'mp3', input: 'file' },
     { id: 'wav', category: 'audio', label: '转 WAV', desc: '转换为 PCM WAV，适合后期处理。', mode: 'wav', input: 'file' },
     { id: 'aac', category: 'audio', label: '转 AAC', desc: '输出 AAC 音频文件。', mode: 'aac', input: 'file' },
     { id: 'flac', category: 'audio', label: '转 FLAC', desc: '输出无损 FLAC 音频。', mode: 'flac', input: 'file' },
@@ -4023,6 +4035,7 @@ const MTB_TOOLS = [
     { id: 'classify', category: 'analysis', label: '画面分类', desc: '对图片/视频帧进行分类整理。', portSubtab: 'media-classify' },
 
     { id: 'batchcut', category: 'edit', label: '批量剪辑', desc: '批量入出点剪辑和 FCPXML 时间线。', portSubtab: 'media-batchcut' },
+    { id: 'autoedit', category: 'edit', label: '文案自动剪辑', desc: '按断行文案识别片段语音，自动裁切、拼接并生成最终字幕。', mode: 'auto_edit', input: 'file', options: 'auto_edit' },
     { id: 'lipsync', category: 'edit', label: '口型同步', desc: '口型同步视频生成流程。', portSubtab: 'media-lipsync' },
 
     { id: 'txtwrap', category: 'text', label: 'TXT 智能断行', desc: '从表格粘贴文案并批量断行。', portSubtab: 'media-format', legacyFormatMode: 'txt_wrap', needsGlobalInput: true },
@@ -4074,7 +4087,7 @@ const MTB_HELP = {
         notes: ['这个工具已直接挂载旧版成熟界面，不是跳转占位。', 'Logo 位置参数按 1080x1920 竖屏设计。']
     },
     mp3: {
-        purpose: '提取或转换音频为 MP3。',
+        purpose: '从视频或音频文件中提取声音，并转换为 MP3。',
         steps: ['选择音频或视频文件。', '点击开始处理。'],
         notes: ['默认输出 192kbps 双声道 MP3。', '视频输入会自动忽略画面。']
     },
@@ -4132,6 +4145,11 @@ const MTB_HELP = {
         purpose: '按入出点批量剪辑，并可导出 FCPXML 时间线。',
         steps: ['选择单个或多个视频。', '添加或粘贴剪辑片段。', '选择快速或精确模式。', '开始批量剪辑，或导出 FCPXML。'],
         notes: ['快速模式依赖关键帧，速度快但不一定帧级精准。', '精确模式会重编码，速度较慢但入出点更准。']
+    },
+    autoedit: {
+        purpose: '把一组已经切成小段的视频，自动匹配到整段文案中的位置，裁切有效语音后按文案顺序拼接，并生成最终 SRT。',
+        steps: ['选择多个视频片段。', '粘贴最终成片文案，断行用于字幕显示。', '选择整段匹配或一行一片段兼容模式。', '点击开始处理。'],
+        notes: ['需要已配置 Gladia API Key。', '默认不会把断行当成片段边界；只有选择一行一片段模式时才逐行对应。', '片段里多说、少说或提前结束时，会按词级时间轴寻找最接近文案的范围。']
     },
     lipsync: {
         purpose: '根据音频生成口型同步视频。',
@@ -4337,7 +4355,7 @@ function mtbRestorePortedNodes(keepActive = false) {
                 subtabName = activeItem.dataset.subtab;
             }
         }
-        const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-lipsync', 'media-batchcut', 'media-batchtxt', 'media-unirename'];
+        const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-lipsync', 'media-batchcut', 'media-autoedit', 'media-batchtxt', 'media-unirename', 'media-audiomatch'];
         mediaFileSection.style.display = tabsWithOwnInput.includes(subtabName) ? 'none' : '';
     }
 }
@@ -4517,6 +4535,73 @@ function mtbRenderOptions(tool) {
         return;
     }
 
+    if (tool.options === 'auto_edit') {
+        root.innerHTML = `
+            <div class="mtb-autoedit-options">
+                <label>断行文案
+                    <textarea id="mtb-autoedit-script" class="input" rows="8" placeholder="粘贴最终成片文案，可按字幕节奏断行。系统会自动判断每个片段对应文案里的哪几行。"></textarea>
+                </label>
+                <div class="mtb-inline-fields">
+                    <label>语言
+                        <select id="mtb-autoedit-language" class="select">
+                            <option value="auto" selected>自动识别</option>
+                            <option value="zh">中文</option>
+                            <option value="en">英语</option>
+                            <option value="ja">日语</option>
+                            <option value="ko">韩语</option>
+                            <option value="es">西班牙语</option>
+                            <option value="pt">葡萄牙语</option>
+                        </select>
+                    </label>
+                    <label>匹配方式
+                        <select id="mtb-autoedit-match" class="select">
+                            <option value="script" selected>整段文案自动匹配</option>
+                            <option value="line_per_clip">一行对应一个片段</option>
+                        </select>
+                    </label>
+                    <label>工作流
+                        <select id="mtb-autoedit-workflow" class="select">
+                            <option value="cut_first" selected>先剪后合 (常规)</option>
+                            <option value="concat_first">先合后剪 (加速)</option>
+                        </select>
+                    </label>
+                    <label>转场
+                        <select id="mtb-autoedit-transition" class="select">
+                            <option value="none" selected>无转场</option>
+                            <option value="crossfade">交叉淡化</option>
+                            <option value="fade_black">黑场过渡</option>
+                            <option value="fade_white">白场过渡</option>
+                        </select>
+                    </label>
+                    <label>转场时长 <input id="mtb-autoedit-transition-duration" class="input input-small" type="number" value="0.35" min="0.05" max="3" step="0.05"> 秒</label>
+                    <label>前留白 <input id="mtb-autoedit-lead" class="input input-small" type="number" value="0.04" min="0" max="2" step="0.01"> 秒</label>
+                    <label>后留白 <input id="mtb-autoedit-tail" class="input input-small" type="number" value="0.08" min="0" max="2" step="0.01"> 秒</label>
+                    <label>匹配阈值 <input id="mtb-autoedit-score" class="input input-small" type="number" value="0.52" min="0.1" max="1" step="0.01"></label>
+                    <label><input id="mtb-autoedit-burn" type="checkbox"> 烧录字幕</label>
+                    <label><input id="mtb-autoedit-mp3" type="checkbox" checked> 导出 Voice Changer MP3</label>
+                    <label><input id="mtb-autoedit-vc-enabled" type="checkbox"> 高级 Voice Changer</label>
+                    <label>音色
+                        <input id="mtb-autoedit-vc-voice" class="input input-small" list="mtb-autoedit-vc-voices" placeholder="Voice ID" style="width: 180px;">
+                        <datalist id="mtb-autoedit-vc-voices"></datalist>
+                    </label>
+                    <button type="button" class="btn btn-secondary" onclick="loadAutoEditVoiceChangerVoices('mtb')" style="padding: 4px 10px; font-size: 12px;">加载音色</button>
+                    <label><input id="mtb-autoedit-vc-replace" type="checkbox" checked> 替换最终视频声音</label>
+                    <label><input id="mtb-autoedit-vc-noise" type="checkbox"> 变声前降噪</label>
+                    <label>稳定度 <input id="mtb-autoedit-vc-stability" class="input input-small" type="number" value="0.5" min="0" max="1" step="0.05"></label>
+                    <label>相似度 <input id="mtb-autoedit-vc-similarity" class="input input-small" type="number" value="0.75" min="0" max="1" step="0.05"></label>
+                    <label style="min-width:280px;flex:1;">手动变声音频
+                        <input id="mtb-autoedit-manual-audio" class="input input-small" placeholder="选择已生成的新音频，替换最终视频声音" style="width: 100%;">
+                    </label>
+                    <button type="button" class="btn btn-secondary" onclick="mtbPickAutoEditManualAudio()" style="padding: 4px 10px; font-size: 12px;">选择音频</button>
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('mtb-autoedit-manual-audio').value=''" style="padding: 4px 10px; font-size: 12px;">清空</button>
+                    <label><input id="mtb-autoedit-force" type="checkbox"> 重新转录</label>
+                </div>
+                <p class="hint" style="margin-top:8px;">默认把断行当作字幕分句，不当作片段边界；兼容模式才会一行对应一个片段。</p>
+            </div>
+        `;
+        return;
+    }
+
     root.innerHTML = `
         <div class="mtb-option-grid">
             <label class="mtb-option-card">
@@ -4536,6 +4621,24 @@ async function mtbSelectOutputDir() {
         showToast('选择目录失败: ' + error.message, 'error');
     }
 }
+
+async function mtbPickAutoEditManualAudio() {
+    try {
+        const files = await window.electronAPI?.selectFiles?.({
+            properties: ['openFile'],
+            filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'] }],
+        });
+        const filePath = Array.isArray(files) ? files[0] : files;
+        if (filePath) {
+            const input = document.getElementById('mtb-autoedit-manual-audio');
+            if (input) input.value = filePath;
+        }
+    } catch (error) {
+        showToast('选择音频失败: ' + error.message, 'error');
+    }
+}
+
+window.mtbPickAutoEditManualAudio = mtbPickAutoEditManualAudio;
 
 function mtbSetStatus(text, type = '') {
     const el = document.getElementById('mtb-status');
@@ -4588,6 +4691,32 @@ function mtbBuildPayload(tool) {
         payload.export_mp4 = exportMp4;
         payload.cut_points_map = {};
         for (const f of files) payload.cut_points_map[f] = rawPoints;
+    } else if (tool.options === 'auto_edit') {
+        payload.clips = files;
+        payload.script_text = document.getElementById('mtb-autoedit-script')?.value || '';
+        payload.language = document.getElementById('mtb-autoedit-language')?.value || 'auto';
+        payload.match_mode = document.getElementById('mtb-autoedit-match')?.value || 'script';
+        payload.workflow_mode = document.getElementById('mtb-autoedit-workflow')?.value || 'cut_first';
+        payload.transition_type = document.getElementById('mtb-autoedit-transition')?.value || 'none';
+        payload.transition_duration = parseFloat(document.getElementById('mtb-autoedit-transition-duration')?.value || '0.35');
+        payload.lead_pad = parseFloat(document.getElementById('mtb-autoedit-lead')?.value || '0.04');
+        payload.tail_pad = parseFloat(document.getElementById('mtb-autoedit-tail')?.value || '0.08');
+        payload.min_score = parseFloat(document.getElementById('mtb-autoedit-score')?.value || '0.52');
+        payload.burn_subtitles = document.getElementById('mtb-autoedit-burn')?.checked || false;
+        payload.export_mp3 = document.getElementById('mtb-autoedit-mp3')?.checked !== false;
+        payload.voice_changer_enabled = document.getElementById('mtb-autoedit-vc-enabled')?.checked || false;
+        payload.voice_changer_voice_id = document.getElementById('mtb-autoedit-vc-voice')?.value || '';
+        payload.voice_changer_replace_audio = document.getElementById('mtb-autoedit-vc-replace')?.checked !== false;
+        payload.voice_changer_remove_noise = document.getElementById('mtb-autoedit-vc-noise')?.checked || false;
+        payload.voice_changer_model_id = 'eleven_multilingual_sts_v2';
+        payload.voice_changer_stability = parseFloat(document.getElementById('mtb-autoedit-vc-stability')?.value || '0.5');
+        payload.voice_changer_similarity = parseFloat(document.getElementById('mtb-autoedit-vc-similarity')?.value || '0.75');
+        payload.manual_audio_path = document.getElementById('mtb-autoedit-manual-audio')?.value || '';
+        payload.manual_audio_replace = Boolean(payload.manual_audio_path.trim());
+        payload.force_transcribe = document.getElementById('mtb-autoedit-force')?.checked || false;
+        payload.target_width = 1080;
+        payload.target_height = 1920;
+        payload.fps = 30;
     }
     return payload;
 }
@@ -4608,6 +4737,18 @@ async function mtbRunSelectedTool() {
         const exportMp4 = document.getElementById('mtb-split-mp4')?.checked || false;
         if (!exportMp3 && !exportMp4) {
             showToast('请至少选择一种导出格式', 'error');
+            return;
+        }
+    }
+    if (tool.options === 'auto_edit') {
+        const scriptText = document.getElementById('mtb-autoedit-script')?.value || '';
+        const lineCount = scriptText.split(/\r?\n/).map(s => s.trim()).filter(Boolean).length;
+        if (lineCount === 0) {
+            showToast('请先粘贴断行文案', 'error');
+            return;
+        }
+        if (document.getElementById('mtb-autoedit-vc-enabled')?.checked && !document.getElementById('mtb-autoedit-vc-voice')?.value?.trim()) {
+            showToast('请先选择或填写 ElevenLabs Voice ID', 'error');
             return;
         }
     }
@@ -4634,7 +4775,18 @@ async function mtbRunSelectedTool() {
             throw new Error(result.error || '处理失败');
         }
         mtbSetStatus(result.message || '处理完成', 'success');
-        mtbRenderResults(result.files || []);
+        const resultFiles = result.files || [
+            result.output_path,
+            result.final_video_path && result.final_video_path !== result.output_path ? result.final_video_path : '',
+            result.srt_path,
+            result.mp3_path,
+            result.voice_changed_mp3_path,
+            result.voice_changed_video_path,
+            result.manual_audio_path,
+            result.manual_audio_video_path,
+            result.subtitled_path,
+        ].filter((p, index, arr) => p && arr.indexOf(p) === index);
+        mtbRenderResults(resultFiles, result);
         showToast(result.message || '处理完成', 'success');
     } catch (error) {
         progress?.classList.add('hidden');
@@ -4644,13 +4796,26 @@ async function mtbRunSelectedTool() {
     }
 }
 
-function mtbRenderResults(files) {
+function mtbRenderResults(files, detail = null) {
     const root = document.getElementById('mtb-result');
     if (!root) return;
     if (!files || files.length === 0) {
         root.innerHTML = '';
         return;
     }
+    const segmentHtml = detail?.segments?.length ? `
+        <div class="mtb-result-segments">
+            ${detail.segments.map(seg => `
+                <div class="mtb-result-segment">
+                    <strong>输出 #${seg.index}</strong>
+                    <span>原片段 #${seg.source_index || seg.index}</span>
+                    <span>${mtbEsc(seg.duration)}s</span>
+                    <span>匹配 ${Math.round((seg.match_score || 0) * 100)}%</span>
+                    <span title="${mtbEsc(seg.matched_text || '')}" style="word-break: break-all; line-height: 1.4;">文案 ${seg.script_start_line || '?'}-${seg.script_end_line || '?'}: ${mtbEsc(String(seg.script || '').replace(/\s*\n\s*/g, ' / '))}</span>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
     root.innerHTML = `
         <div class="mtb-result-list">
             <strong>已生成 ${files.length} 个文件</strong>
@@ -4658,6 +4823,7 @@ function mtbRenderResults(files) {
                 const name = String(p).split(/[\\/]/).pop();
                 return `<a href="file://${mtbEsc(p)}" title="${mtbEsc(p)}">打开 ${mtbEsc(name)}</a>`;
             }).join('')}
+            ${segmentHtml}
         </div>
     `;
 }
@@ -11253,6 +11419,2180 @@ if (origSubTabHandler) {
     });
 }
 
+// ==================== 文案自动剪辑模块 ====================
+
+let autoEditFiles = [];
+let autoEditOutputDir = '';
+let autoEditResultFiles = [];
+let autoEditLastResult = null;
+let autoEditProgressUnsubscribe = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('autoedit-video-input');
+    if (input) {
+        input.addEventListener('change', (e) => {
+            autoEditAddFiles(Array.from(e.target.files || []));
+            e.target.value = '';
+        });
+    }
+
+    const dropZone = document.getElementById('autoedit-drop-zone');
+    if (dropZone) {
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--accent)';
+            dropZone.style.background = 'rgba(102,126,234,0.05)';
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = 'var(--border-color)';
+            dropZone.style.background = '';
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--border-color)';
+            dropZone.style.background = '';
+            autoEditAddFiles(Array.from(e.dataTransfer.files || []));
+        });
+    }
+
+    const scriptInput = document.getElementById('autoedit-script');
+    if (scriptInput) {
+        scriptInput.addEventListener('input', updateAutoEditScriptCount);
+    }
+    const matchModeInput = document.getElementById('autoedit-match-mode');
+    if (matchModeInput) {
+        matchModeInput.addEventListener('change', updateAutoEditScriptCount);
+    }
+    const manualAudioInput = document.getElementById('autoedit-manual-audio-input');
+    if (manualAudioInput) {
+        manualAudioInput.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            const pathInput = document.getElementById('autoedit-manual-audio-path');
+            if (file && pathInput) pathInput.value = getFileNativePath(file);
+            e.target.value = '';
+        });
+    }
+    const resultAudioInput = document.getElementById('autoedit-result-audio-input');
+    if (resultAudioInput) {
+        resultAudioInput.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            const pathInput = document.getElementById('autoedit-result-audio-path');
+            if (file && pathInput) pathInput.value = getFileNativePath(file);
+            e.target.value = '';
+        });
+    }
+});
+
+function autoEditScriptLines() {
+    return (document.getElementById('autoedit-script')?.value || '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean);
+}
+
+function updateAutoEditScriptCount() {
+    const el = document.getElementById('autoedit-script-count');
+    if (!el) return;
+    const lineCount = autoEditScriptLines().length;
+    const fileCount = autoEditFiles.length;
+    const matchMode = document.getElementById('autoedit-match-mode')?.value || 'script';
+    if (matchMode === 'line_per_clip') {
+        el.textContent = `${lineCount} 行文案 · ${fileCount} 个片段 · 一行一片段`;
+        el.style.color = lineCount && fileCount && lineCount !== fileCount ? '#fbbf24' : '';
+    } else {
+        el.textContent = `${lineCount} 行字幕文案 · ${fileCount} 个片段 · 自动匹配`;
+        el.style.color = '';
+    }
+}
+
+function autoEditAddFiles(files) {
+    const videoExts = ['.mp4', '.mov', '.mkv', '.avi', '.wmv', '.flv', '.webm', '.m4v'];
+    const newFiles = (files || [])
+        .filter(f => videoExts.some(ext => String(f.name || '').toLowerCase().endsWith(ext)))
+        .map(f => ({ path: getFileNativePath(f), name: f.name || String(f.path || '') }))
+        .filter(f => f.path && !autoEditFiles.some(x => x.path === f.path));
+
+    autoEditFiles.push(...newFiles);
+    autoEditFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    renderAutoEditFiles();
+    updateAutoEditScriptCount();
+    if (newFiles.length > 0) showToast(`已添加 ${newFiles.length} 个视频片段`, 'success');
+}
+
+function renderAutoEditFiles() {
+    const list = document.getElementById('autoedit-file-list');
+    if (!list) return;
+    if (autoEditFiles.length === 0) {
+        list.innerHTML = '<p class="hint">请先选择视频片段。</p>';
+        return;
+    }
+
+    const startBtn = document.getElementById('autoedit-start-btn');
+    const isProcessing = startBtn && startBtn.disabled;
+
+    list.innerHTML = autoEditFiles.map((file, i) => {
+        const statusVal = file.status || '';
+        let statusHtml = '';
+        if (statusVal === 'transcribing') {
+            statusHtml = `<span style="color: var(--accent); font-weight: 600; padding: 2px 6px; background: rgba(102,126,234,0.1); border-radius: 3px; font-size: 11px;">⏳ 转录中</span>`;
+        } else if (statusVal === 'cached') {
+            statusHtml = `<span style="color: #4dabf7; font-weight: 600; padding: 2px 6px; background: rgba(77,171,247,0.1); border-radius: 3px; font-size: 11px;">✅ 已转录</span>`;
+        } else if (statusVal === 'transcribed') {
+            statusHtml = `<span style="color: #4dabf7; font-weight: 600; padding: 2px 6px; background: rgba(77,171,247,0.1); border-radius: 3px; font-size: 11px;">✅ 已转录</span>`;
+        } else if (statusVal === 'failed') {
+            statusHtml = `<span style="color: #ff6b6b; font-weight: 600; padding: 2px 6px; background: rgba(255,107,107,0.1); border-radius: 3px; font-size: 11px;" title="${escapeHtml(file.error || '转录失败')}">❌ 失败</span>`;
+        } else if (statusVal === 'empty') {
+            statusHtml = `<span style="color: #f59f00; font-weight: 600; padding: 2px 6px; background: rgba(245,159,0,0.1); border-radius: 3px; font-size: 11px;" title="${escapeHtml(file.error || '转录内容为空，可能是无声段落/静音')}">⚠️ 识别为空/无声</span>`;
+        } else if (statusVal === 'unmatched') {
+            statusHtml = `<span style="color: #f76707; font-weight: 600; padding: 2px 6px; background: rgba(247,103,7,0.1); border-radius: 3px; font-size: 11px;" title="${escapeHtml(file.error || '未匹配到任何断行文案')}">⚠️ 未匹配到文案</span>`;
+        } else if (statusVal === 'pending') {
+            statusHtml = `<span style="color: var(--text-muted); padding: 2px 6px; background: rgba(255,255,255,0.03); border-radius: 3px; font-size: 11px;">排队中</span>`;
+        } else if (statusVal === 'discarded') {
+            statusHtml = `<span style="color: #f08c00; font-weight: 600; padding: 2px 6px; background: rgba(240,140,0,0.15); border-radius: 3px; font-size: 11px;">❌ 未采用</span>`;
+        }
+
+        const selectSubtitleBtn = `<button class="btn btn-secondary" onclick="selectAutoEditManualSubtitle(${i})" style="padding: 2px 6px; font-size: 11px;" title="手动指定此视频的 .srt/.json/.txt 字幕文件">🔗 字幕</button>`;
+
+        const actionHtml = isProcessing
+            ? ''
+            : `
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    ${selectSubtitleBtn}
+                    ${file.status ? `<button class="btn btn-secondary" onclick="clearAutoEditFileCache(${i})" style="padding: 2px 6px; font-size: 11px;" title="清除此视频的转录缓存，下次运行将重新识别">🔄 重新识别</button>` : ''}
+                    <button class="btn btn-secondary" onclick="removeAutoEditFile(${i})" style="padding: 2px 6px; font-size: 11px;">移除</button>
+                </div>
+            `;
+
+        const orderHtml = (file.outputIndex && file.outputIndex < 9999)
+            ? `<span style="color: #228be6; font-weight: bold; font-size: 11px; padding: 2px 6px; border: 1px solid rgba(34,139,230,0.3); border-radius: 3px; background: rgba(34,139,230,0.05); margin-right: 6px;">🎬 播放顺序 #${file.outputIndex}</span>`
+            : '';
+
+        const subtextHtml = file.manualSubtitlePath
+            ? `<div style="font-size: 10px; color: #4dabf7; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="手动指定字幕: ${escapeHtml(file.manualSubtitlePath)}">📄 字幕: ${escapeHtml(file.manualSubtitlePath.split(/[/\\]/).pop())} <span style="cursor: pointer; color: #ff6b6b; font-weight: bold;" onclick="clearAutoEditManualSubtitle(${i}, event)">[清除]</span></div>`
+            : '';
+
+        return `
+            <div style="display: grid; grid-template-columns: 38px 1fr auto auto; gap: 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--border-color); font-size: 12px;">
+                <strong style="color: var(--accent);">#${i + 1}</strong>
+                <div style="overflow: hidden; display: flex; flex-direction: column;">
+                    <span title="${escapeHtml(file.path)}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${orderHtml}${escapeHtml(file.name)}
+                    </span>
+                    ${subtextHtml}
+                </div>
+                ${statusHtml}
+                ${actionHtml}
+            </div>
+        `;
+    }).join('');
+}
+
+async function selectAutoEditManualSubtitle(index) {
+    if (index < 0 || index >= autoEditFiles.length) return;
+    try {
+        if (window.electronAPI?.selectFiles) {
+            const result = await window.electronAPI.selectFiles({
+                multiple: false,
+                title: '选择字幕文件',
+                filters: [
+                    { name: '字幕/文本文件 (*.srt, *.json, *.txt)', extensions: ['srt', 'json', 'txt'] }
+                ]
+            });
+            if (result && result.length > 0) {
+                autoEditFiles[index].manualSubtitlePath = result[0];
+                autoEditFiles[index].status = '';
+                autoEditFiles[index].error = null;
+                renderAutoEditFiles();
+                showToast(`已选择字幕文件: ${result[0].split(/[/\\]/).pop()}`, 'success');
+            }
+        }
+    } catch (e) {
+        showToast('选择字幕文件失败: ' + e.message, 'error');
+    }
+}
+
+function clearAutoEditManualSubtitle(index, event) {
+    if (event) event.stopPropagation();
+    if (index < 0 || index >= autoEditFiles.length) return;
+    autoEditFiles[index].manualSubtitlePath = null;
+    autoEditFiles[index].status = '';
+    autoEditFiles[index].error = null;
+    renderAutoEditFiles();
+    showToast('已清除手动指定的字幕', 'info');
+}
+
+window.selectAutoEditManualSubtitle = selectAutoEditManualSubtitle;
+window.clearAutoEditManualSubtitle = clearAutoEditManualSubtitle;
+
+async function clearAutoEditFileCache(index) {
+    if (index < 0 || index >= autoEditFiles.length) return;
+    const file = autoEditFiles[index];
+    try {
+        const resp = await apiFetch(`${API_BASE}/media/clear-clip-cache`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: file.path }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || '清除缓存失败');
+        
+        file.status = '';
+        file.outputIndex = null;
+        file.error = null;
+        renderAutoEditFiles();
+        showToast('已清除该片段的转录缓存，下次运行将重新识别', 'success');
+    } catch (e) {
+        showToast(`清除缓存失败: ${escapeHtml(e.message)}`, 'error');
+    }
+}
+
+window.clearAutoEditFileCache = clearAutoEditFileCache;
+
+function removeAutoEditFile(index) {
+    if (index < 0 || index >= autoEditFiles.length) return;
+    autoEditFiles.splice(index, 1);
+    renderAutoEditFiles();
+    updateAutoEditScriptCount();
+}
+
+function clearAutoEditFiles() {
+    autoEditFiles = [];
+    const input = document.getElementById('autoedit-video-input');
+    if (input) input.value = '';
+    renderAutoEditFiles();
+    updateAutoEditScriptCount();
+}
+
+function clearAutoEditScript() {
+    const input = document.getElementById('autoedit-script');
+    if (input) input.value = '';
+    updateAutoEditScriptCount();
+}
+
+function clearAutoEditManualAudio() {
+    const input = document.getElementById('autoedit-manual-audio-path');
+    if (input) input.value = '';
+}
+
+window.clearAutoEditManualAudio = clearAutoEditManualAudio;
+
+async function loadAutoEditVoiceChangerVoices(scope = 'main') {
+    const inputId = scope === 'mtb' ? 'mtb-autoedit-vc-voice' : 'autoedit-voicechanger-voice';
+    const listId = scope === 'mtb' ? 'mtb-autoedit-vc-voices' : 'autoedit-voicechanger-voices';
+    const input = document.getElementById(inputId);
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    const previousValue = input?.value || '';
+    try {
+        const response = await apiFetch(`${API_BASE}/elevenlabs/voices`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ include_shared: true }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '加载音色失败');
+        const fallbackVoices = [
+            { voice_id: '21m00Tcm4TlvDq8ikWAM', name: '[官方] Rachel', category: 'premade' },
+            { voice_id: 'JBFqnCBsd6RMkjVDRZzb', name: '[官方] George', category: 'premade' },
+        ];
+        const voices = Array.isArray(data.voices) && data.voices.length > 0 ? data.voices : fallbackVoices;
+        if (data.error && voices === fallbackVoices) {
+            showToast(`音色接口返回空，已使用官方默认音色: ${data.error}`, 'info', 6000);
+        }
+        list.innerHTML = voices.map(v => {
+            const id = escapeHtml(v.voice_id || '');
+            const name = escapeHtml(v.name || v.voice_id || '');
+            const category = escapeHtml(v.category || '');
+            return `<option value="${id}" label="${name}${category ? ` · ${category}` : ''}"></option>`;
+        }).join('');
+        if (input && !input.value && voices[0]?.voice_id) input.value = previousValue || voices[0].voice_id;
+        showToast(`已加载 ${voices.length} 个 ElevenLabs 音色`, 'success');
+    } catch (error) {
+        showToast(`加载音色失败: ${escapeHtml(error.message)}`, 'error');
+    }
+}
+
+window.loadAutoEditVoiceChangerVoices = loadAutoEditVoiceChangerVoices;
+
+let autoEditIgnoreMismatch = false;
+
+function tokenizeTextForDiff(text) {
+    if (!text) return [];
+    const regex = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]|[a-zA-Z0-9'-]+|[^\s]/g;
+    return String(text).match(regex) || [];
+}
+
+function tokenizeTextWithIndices(text) {
+    if (!text) return [];
+    const regex = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]|[a-zA-Z0-9'-]+|[^\s]/g;
+    const tokens = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        tokens.push({
+            word: match[0],
+            start: match.index,
+            end: regex.lastIndex
+        });
+    }
+    return tokens;
+}
+
+function joinTokensSmartly(tokens) {
+    let result = '';
+    const isWide = (str) => /[^\x00-\xff]/.test(str);
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (i === 0) {
+            result += token;
+        } else {
+            const prev = tokens[i - 1];
+            if (isWide(token) || isWide(prev)) {
+                result += token;
+            } else {
+                result += ' ' + token;
+            }
+        }
+    }
+    return result;
+}
+
+function _autoEditLcsWordDiff(wordsA, wordsB) {
+    const m = wordsA.length, n = wordsB.length;
+    if (m === 0 && n === 0) return [];
+    if (m === 0) return wordsB.map(w => ({ type: 'add', word: w }));
+    if (n === 0) return wordsA.map(w => ({ type: 'remove', word: w }));
+    const MAX = 600;
+    const a = m > MAX ? wordsA.slice(0, MAX) : wordsA;
+    const b = n > MAX ? wordsB.slice(0, MAX) : wordsB;
+    const ml = a.length, nl = b.length;
+    const dp = Array.from({ length: ml + 1 }, () => new Uint16Array(nl + 1));
+    for (let i = 1; i <= ml; i++) {
+        for (let j = 1; j <= nl; j++) {
+            dp[i][j] = a[i - 1].toLowerCase() === b[j - 1].toLowerCase()
+                ? dp[i - 1][j - 1] + 1
+                : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+    const result = [];
+    let i = ml, j = nl;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && a[i - 1].toLowerCase() === b[j - 1].toLowerCase()) {
+            result.unshift({ type: 'same', word: a[i - 1] });
+            i--;
+            j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            result.unshift({ type: 'add', word: b[j - 1] });
+            j--;
+        } else {
+            result.unshift({ type: 'remove', word: a[i - 1] });
+            i--;
+        }
+    }
+    return result;
+}
+
+function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = []) {
+    window.autoEditLastMismatches = mismatches;
+    return new Promise((resolve) => {
+        let modal = document.getElementById('ae-mismatch-dialog-overlay');
+        let content;
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'ae-mismatch-dialog-overlay';
+            modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+
+            const styleEl = document.createElement('style');
+            styleEl.textContent = `
+                .ae-mismatch-card {
+                    cursor: pointer;
+                    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .ae-mismatch-card:hover {
+                    background: rgba(255, 255, 255, 0.04) !important;
+                    border-color: rgba(99, 102, 241, 0.4) !important;
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                }
+                .ae-mismatch-card.selected-card-glow {
+                    border-color: #6366f1 !important;
+                    box-shadow: 0 0 15px rgba(99, 102, 241, 0.3) !important;
+                    background: rgba(99, 102, 241, 0.05) !important;
+                }
+                .ae-script-line {
+                    transition: all 0.2s ease;
+                }
+                .ae-script-line:hover {
+                    background: rgba(99, 102, 241, 0.1) !important;
+                    color: #fff !important;
+                }
+                .ae-mismatch-card.ae-card-ignored {
+                    opacity: 0.45 !important;
+                    background: rgba(255, 255, 255, 0.01) !important;
+                    border-style: dotted !important;
+                    border-color: rgba(255, 255, 255, 0.1) !important;
+                    box-shadow: none !important;
+                    transform: none !important;
+                }
+                @keyframes ae-spin {
+                    to { transform: rotate(360deg); }
+                }
+            `;
+            modal.appendChild(styleEl);
+
+            content = document.createElement('div');
+            // Wide dialog for 2 columns layout
+            content.style.cssText = 'background:#13132a;width:1160px;max-height:85%;border-radius:14px;padding:24px;border:1px solid rgba(255, 255, 255, 0.08);box-shadow:0 20px 60px rgba(0, 0, 0, 0.6);display:flex;flex-direction:column;gap:16px;color:#e8ecff;';
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+        } else {
+            content = modal.querySelector('div');
+        }
+
+        const escapeHtml = (str) => {
+            return String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
+        };
+
+        const isPunctuation = (str) => {
+            return !/[\p{L}\p{N}]/u.test(str);
+        };
+
+        const highlightScriptText = (diff) => {
+            let html = '';
+            const isWide = (str) => /[^\x00-\xff]/.test(str);
+            let prevToken = '';
+            let isFirst = true;
+
+            for (const d of diff) {
+                if (d.type === 'remove') continue;
+                
+                const token = d.word;
+                let spacing = '';
+                if (!isFirst) {
+                    if (!isWide(token) && !isWide(prevToken)) {
+                        spacing = ' ';
+                    }
+                }
+                isFirst = false;
+                prevToken = token;
+
+                if (d.type === 'same' || (d.type === 'add' && isPunctuation(d.word))) {
+                    html += spacing + escapeHtml(token);
+                } else if (d.type === 'add') {
+                    html += spacing + `<span style="background:rgba(239,68,68,0.22);color:#ff9e9e;padding:1px 4px;border-radius:3px;font-weight:bold;border-bottom:2px solid #ff4a4a;">${escapeHtml(token)}</span>`;
+                }
+            }
+            return html;
+        };
+
+        const highlightRecognizedText = (diff, cardIdx) => {
+            let html = '';
+            const isWide = (str) => /[^\x00-\xff]/.test(str);
+            let prevToken = '';
+            let isFirst = true;
+
+            for (let k = 0; k < diff.length; k++) {
+                const d = diff[k];
+                if (d.type === 'add') continue;
+                
+                const token = d.word;
+                let spacing = '';
+                if (!isFirst) {
+                    if (!isWide(token) && !isWide(prevToken)) {
+                        spacing = ' ';
+                    }
+                }
+                isFirst = false;
+                prevToken = token;
+
+                if (isPunctuation(token)) {
+                    html += spacing + escapeHtml(token);
+                    continue;
+                }
+
+                let style = 'cursor:pointer;user-select:none;transition:all 0.15s;border-radius:3px;padding:1px 3px;display:inline-block;line-height:1.2;margin:1px 0;';
+                let className = 'ae-rec-word';
+                if (d.type === 'remove') {
+                    // Extra word: default is ignored (struck out)
+                    style += 'background:rgba(245,158,11,0.08);color:#777;text-decoration:line-through;opacity:0.6;';
+                    className += ' ae-rec-extra';
+                } else {
+                    // Same word: default is active/included
+                    style += 'background:rgba(255,255,255,0.02);color:#cbd5e1;';
+                    className += ' ae-rec-same active';
+                }
+
+                html += spacing + `<span class="${className}" data-card-idx="${cardIdx}" data-diff-idx="${k}" style="${style}" title="点击切换：保留 / 剔除">${escapeHtml(token)}</span>`;
+            }
+            return html;
+        };
+
+        const prepareCardDiff = (m) => {
+            const wordsA = tokenizeTextForDiff(m.recognizedText);
+            const wordsBWithIndices = tokenizeTextWithIndices(m.scriptText);
+            const wordsB = wordsBWithIndices.map(t => t.word);
+            const diff = _autoEditLcsWordDiff(wordsA, wordsB);
+            
+            let missingWordCount = 0;
+            let extraWordCount = 0;
+            let bIdx = 0;
+            diff.forEach((d, index) => {
+                d.diffIdx = index;
+                if (d.type === 'add') {
+                    d.wordIdx = missingWordCount++;
+                } else if (d.type === 'remove') {
+                    d.wordIdx = extraWordCount++;
+                }
+                if (d.type === 'same' || d.type === 'add') {
+                    if (wordsBWithIndices[bIdx]) {
+                        d.charStart = wordsBWithIndices[bIdx].start;
+                        d.charEnd = wordsBWithIndices[bIdx].end;
+                    }
+                    bIdx++;
+                }
+            });
+            return {
+                diff,
+                missingWords: diff.filter(d => d.type === 'add' && !isPunctuation(d.word)),
+                extraWords: diff.filter(d => d.type === 'remove' && !isPunctuation(d.word))
+            };
+        };
+
+        // Combine clips and missing script blocks
+        const sequenceItems = [];
+        mismatches.forEach((m, idx) => {
+            sequenceItems.push({
+                type: 'clip',
+                originalIndex: idx,
+                data: m,
+                sortIndex: m.scriptWordStart !== -1 && m.scriptWordStart !== undefined ? m.scriptWordStart : 999999
+            });
+        });
+        missingBlocks.forEach((b, idx) => {
+            sequenceItems.push({
+                type: 'missing',
+                originalIndex: idx,
+                data: b,
+                sortIndex: b.startIdx !== undefined ? b.startIdx : 999999
+            });
+        });
+        sequenceItems.sort((a, b) => a.sortIndex - b.sortIndex);
+
+        // Build left column: Reference Script Lines
+        const rawLines = scriptText.replace(/\r\n/g, '\n').split('\n');
+        const cleanedToRawIndex = [];
+        for (let i = 0; i < rawLines.length; i++) {
+            if (rawLines[i].trim().length > 0) {
+                cleanedToRawIndex.push(i);
+            }
+        }
+
+        const scriptLines = rawLines;
+        let scriptLinesHtml = '';
+        scriptLines.forEach((lineText, lineIdx) => {
+            const trimmed = lineText.trim();
+            if (!trimmed) {
+                scriptLinesHtml += `<div style="height:12px;"></div>`;
+                return;
+            }
+            
+            // Find which card item covers this line index
+            const matchingItem = sequenceItems.find(item => {
+                if (item.type === 'clip') {
+                    if (item.data.scriptWordStart === -1 || item.data.scriptWordStart === undefined) return false;
+                    const rawStart = cleanedToRawIndex[item.data.scriptStartLine];
+                    const rawEnd = cleanedToRawIndex[item.data.scriptEndLine];
+                    return rawStart !== undefined && rawEnd !== undefined && rawStart <= lineIdx && lineIdx <= rawEnd;
+                } else {
+                    const rawStart = cleanedToRawIndex[item.data.startLine];
+                    const rawEnd = cleanedToRawIndex[item.data.endLine];
+                    return rawStart !== undefined && rawEnd !== undefined && rawStart <= lineIdx && lineIdx <= rawEnd;
+                }
+            });
+            
+            const matchingItemIdx = matchingItem ? sequenceItems.indexOf(matchingItem) : -1;
+            const borderStyle = matchingItem
+                ? (matchingItem.type === 'missing' ? 'border-left:3px solid #f87171;' : (matchingItem.data.isMismatch ? 'border-left:3px solid #ef4444;' : 'border-left:3px solid #34d399;'))
+                : 'border-left:3px solid rgba(255,255,255,0.05);';
+                
+            scriptLinesHtml += `
+                <div class="ae-script-line" data-line-idx="${lineIdx}" data-target-card-idx="${matchingItemIdx}" style="padding:6px 10px;margin-bottom:4px;border-radius:6px;cursor:pointer;background:rgba(255,255,255,0.02);transition:all 0.15s;font-size:12px;line-height:1.5;color:#cbd5e1;${borderStyle}" title="${matchingItemIdx !== -1 ? `点击跳转到第 ${matchingItemIdx + 1} 个片段` : ''}">
+                    <div style="font-size:9px;color:#64748b;margin-bottom:1px;font-family:monospace;">L${lineIdx + 1}</div>
+                    <div>${escapeHtml(lineText)}</div>
+                </div>
+            `;
+        });
+
+        let html = `
+            <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:12px;">
+                <span style="font-size:24px;">⚠️</span>
+                <div style="flex:1;">
+                    <h3 style="margin:0;color:#e8ecff;font-size:16px;font-weight:700;">视频与文案对齐核对面板</h3>
+                    <div style="font-size:11px;color:#8b95c0;margin-top:2px;">共有 ${mismatches.length} 个视频片段，${missingBlocks.length} 处丢失文案。</div>
+                </div>
+                <button id="ae-mismatch-btn-close" style="border:none;background:rgba(255,255,255,0.06);color:#999;border-radius:8px;padding:6px 12px;font-size:18px;cursor:pointer;line-height:1;" title="关闭">✕</button>
+            </div>
+            
+            <div style="display:flex;gap:20px;flex:1;min-height:0;overflow:hidden;">
+                <!-- Left Column: Complete Reference Script -->
+                <div style="width:340px;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.08);padding-right:16px;min-height:0;">
+                    <div style="font-weight:bold;font-size:13px;color:#a5b4fc;margin-bottom:4px;display:flex;align-items:center;gap:6px;">📖 完整参考文案对照</div>
+                    <div style="font-size:11px;color:#8b95c0;margin-bottom:12px;line-height:1.4;">点击段落可跳转定位到右侧对应的片段卡片。</div>
+                    <div style="flex:1;overflow-y:auto;padding-right:4px;" class="scroll-container" id="ae-mismatch-script-lines">
+                        ${scriptLinesHtml}
+                    </div>
+                </div>
+                
+                <!-- Right Column: Card sequence -->
+                <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+                    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding-right:6px;" id="ae-mismatch-list-container" class="scroll-container">
+        `;
+
+        const errorMismatches = mismatches.filter(m => m.isMismatch);
+        if (errorMismatches.length === 0 && missingBlocks.length === 0) {
+            html += `
+                <div style="padding:16px 20px;color:#fca5a5;font-size:13px;background:rgba(239,68,68,0.1);border-radius:10px;border:1px solid rgba(239,68,68,0.2);line-height:1.6;margin-bottom:12px;">
+                    💡 <strong>顺序或行数错乱警告：</strong>没有检测到单个视频片段存在严重文字差异（均达到了对齐度阈值）且没有漏读的行。<br>
+                    这可能是因为视频片段顺序与您的文案段落不符，或者文案行数与视频片段数多寡不一。<br>
+                    建议点击左下角 <strong>“📊 查看对齐报告”</strong> 了解更多，或在主页面调整视频顺序。
+                </div>
+            `;
+        }
+
+        sequenceItems.forEach((item, itemIdx) => {
+            if (item.type === 'clip') {
+                const m = item.data;
+                const idx = item.originalIndex;
+                const { diff, missingWords, extraWords } = prepareCardDiff(m);
+                const hasMissing = missingWords.length > 0;
+                const hasExtra = extraWords.length > 0;
+
+                let diffHtml = '';
+                if (hasMissing) {
+                    const wordTags = missingWords.map(d => {
+                        return `<span class="ae-word-tag ae-missing-tag active" data-word-idx="${d.wordIdx}" style="display:inline-flex;align-items:center;padding:3px 8px;background:rgba(239,68,68,0.18);color:#ff9e9e;border:1px solid rgba(239,68,68,0.4);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;user-select:none;transition:all 0.15s;" title="点击切换：保留 / 删除">${escapeHtml(d.word)}</span>`;
+                    }).join(' ');
+
+                    diffHtml += `
+                        <div style="font-size:12px;background:rgba(239,68,68,0.04);padding:10px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.12);display:flex;flex-direction:column;gap:8px;">
+                            <div style="font-weight:bold;color:#ef4444;">⚠️ AI漏读的词（点击单词可单独切换 保留/删除）：</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                                ${wordTags}
+                            </div>
+                        </div>
+                    `;
+                }
+                if (hasExtra) {
+                    const wordTags = extraWords.map(d => {
+                        return `<span class="ae-word-tag ae-extra-tag" data-word-idx="${d.wordIdx}" style="display:inline-flex;align-items:center;padding:3px 8px;background:rgba(255,255,255,0.03);color:#777;border:1px solid rgba(255,255,255,0.06);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;user-select:none;text-decoration:line-through;transition:all 0.15s;" title="点击切换：忽略 / 添加">${escapeHtml(d.word)}</span>`;
+                    }).join(' ');
+
+                    diffHtml += `
+                        <div style="font-size:12px;background:rgba(245,158,11,0.04);padding:10px 14px;border-radius:8px;border:1px solid rgba(245,158,11,0.12);display:flex;flex-direction:column;gap:8px;">
+                            <div style="font-weight:bold;color:#f59e0b;">⚠️ AI多读的词（点击单词可单独切换 忽略/添加）：</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                                ${wordTags}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                if (m.isMismatch) {
+                    html += `
+                        <div class="ae-mismatch-card ae-mismatch-error-card" id="ae-card-item-${itemIdx}" data-idx="${idx}" style="background:rgba(239,68,68,0.02);border:1px solid rgba(239,68,68,0.15);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:8px;flex-direction:column;gap:4px;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+                                    <div style="display:flex;gap:12px;align-items:center;">
+                                        <span style="font-weight:bold;font-size:12px;color:#fca5a5;background:rgba(239,68,68,0.2);padding:2px 6px;border-radius:4px;">最终顺序 #${itemIdx + 1}</span>
+                                        <span style="font-size:12px;color:#a3aed0;">原序号 #${m.sourceIndex + 1}</span>
+                                        <button class="btn btn-secondary" onclick="window.playVideoClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.start || 0}, ${m.end || 0})" style="font-size: 10px; padding: 1px 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); color: #60a5fa; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">▶️ 播放片段</button>
+                                    </div>
+                                    <div style="display:flex;gap:8px;align-items:center;">
+                                        <span style="font-size:11px;background:rgba(239,68,68,0.2);color:#ef4444;padding:2px 6px;border-radius:4px;font-weight:600;">⚠️ 差异度: ${100 - m.similarity}%</span>
+                                        <button class="btn btn-secondary" onclick="window.retranscribeAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #818cf8; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;" title="清除此视频的转录缓存并重新转录语音">🎙️ 重录</button>
+                                        <button class="btn btn-secondary" onclick="window.replaceAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); color: #fca5a5; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">🔄 替换</button>
+                                        <button class="btn btn-secondary" onclick="window.removeAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #ccc; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;" title="将此视频片段从工作区排除">🔕 忽略</button>
+                                    </div>
+                                </div>
+                                <div style="font-size:12px;color:#e8ecff;word-break:break-all;font-weight:bold;margin-top:2px;">
+                                    📹 文件名: ${escapeHtml(m.fileName)}
+                                </div>
+                                <div style="font-size:11px;color:#8b95c0;word-break:break-all;font-family:monospace;margin-top:2px;">
+                                    📁 完整路径: ${escapeHtml(m.clipPath)}
+                                </div>
+                            </div>
+
+                            <div style="display:flex;gap:10px;font-size:12px;color:#aab;">
+                                <div style="flex:1;background:rgba(255,255,255,0.01);padding:6px 8px;border-radius:4px;">
+                                    <div style="font-weight:bold;color:#a78bfa;margin-bottom:2px;">参考文案:</div>
+                                    <div style="word-break:break-all;line-height:1.4;">${highlightScriptText(diff)}</div>
+                                </div>
+                                <div style="flex:1;background:rgba(255,255,255,0.01);padding:6px 8px;border-radius:4px;">
+                                    <div style="font-weight:bold;color:#60a5fa;margin-bottom:2px;">识别文案:</div>
+                                    <div style="word-break:break-all;line-height:1.4;">${highlightRecognizedText(diff)}</div>
+                                </div>
+                            </div>
+
+                            ${diffHtml}
+
+                            <div style="display:flex;flex-direction:column;gap:4px;">
+                                <span style="font-size:11px;color:#80c0ff;font-weight:bold;">✏️ 该片段最终剪辑的字幕片段（可微调）：</span>
+                                <textarea class="ae-edit-input" data-idx="${idx}" style="width:100%;min-height:54px;background:#1e1e38;color:#fff;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;resize:vertical;font-family:inherit;line-height:1.45;word-break:break-all;">${escapeHtml(m.scriptText)}</textarea>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="ae-mismatch-card ae-mismatch-ok-card" id="ae-card-item-${itemIdx}" data-idx="${idx}" style="background:rgba(16,185,129,0.02);border:1px solid rgba(16,185,129,0.15);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:8px;flex-direction:column;gap:4px;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+                                    <div style="display:flex;gap:12px;align-items:center;">
+                                        <span style="font-weight:bold;font-size:12px;color:#a7f3d0;background:rgba(16,185,129,0.2);padding:2px 6px;border-radius:4px;">最终顺序 #${itemIdx + 1}</span>
+                                        <span style="font-size:12px;color:#a3aed0;">原序号 #${m.sourceIndex + 1}</span>
+                                        <button class="btn btn-secondary" onclick="window.playVideoClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.start || 0}, ${m.end || 0})" style="font-size: 10px; padding: 1px 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); color: #60a5fa; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">▶️ 播放片段</button>
+                                    </div>
+                                    <div style="display:flex;gap:8px;align-items:center;">
+                                        <span style="font-size:11px;background:rgba(16,185,129,0.2);color:#34d399;padding:2px 8px;border-radius:4px;font-weight:600;">✅ 匹配一致 (${m.similarity}%)</span>
+                                        <button class="btn btn-secondary" onclick="window.retranscribeAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #818cf8; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;" title="清除此视频的转录缓存并重新转录语音">🎙️ 重录</button>
+                                        <button class="btn btn-secondary" onclick="window.replaceAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: #4ade80; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">🔄 替换</button>
+                                        <button class="btn btn-secondary" onclick="window.removeAutoEditClip('${m.clipPath.replace(/\\/g, '\\\\')}', ${m.sourceIndex})" style="font-size: 10px; padding: 1px 6px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #ccc; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;" title="将此视频片段从工作区排除">🔕 忽略</button>
+                                    </div>
+                                </div>
+                                <div style="font-size:12px;color:#e8ecff;word-break:break-all;font-weight:bold;margin-top:2px;">
+                                    📹 文件名: ${escapeHtml(m.fileName)}
+                                </div>
+                                <div style="font-size:11px;color:#8b95c0;word-break:break-all;font-family:monospace;margin-top:2px;">
+                                    📁 完整路径: ${escapeHtml(m.clipPath)}
+                                </div>
+                            </div>
+
+                            <div style="display:flex;gap:10px;font-size:12px;color:#aab;">
+                                <div style="flex:1;background:rgba(255,255,255,0.01);padding:6px 8px;border-radius:4px;">
+                                    <div style="font-weight:bold;color:#a78bfa;margin-bottom:2px;">参考文案:</div>
+                                    <div style="word-break:break-all;line-height:1.4;">${highlightScriptText(diff)}</div>
+                                </div>
+                                <div style="flex:1;background:rgba(255,255,255,0.01);padding:6px 8px;border-radius:4px;">
+                                    <div style="font-weight:bold;color:#60a5fa;margin-bottom:2px;">识别文案:</div>
+                                    <div style="word-break:break-all;line-height:1.4;">${highlightRecognizedText(diff)}</div>
+                                </div>
+                            </div>
+
+                            ${diffHtml}
+
+                            <div style="display:flex;flex-direction:column;gap:4px;">
+                                <span style="font-size:11px;color:#80c0ff;font-weight:bold;">✏️ 该片段最终剪辑的字幕片段（可微调）：</span>
+                                <textarea class="ae-edit-input" data-idx="${idx}" style="width:100%;min-height:54px;background:#1e1e38;color:#fff;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;resize:vertical;font-family:inherit;line-height:1.45;word-break:break-all;">${escapeHtml(m.scriptText)}</textarea>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else if (item.type === 'missing') {
+                const b = item.data;
+                const rawStart = cleanedToRawIndex[b.startLine] !== undefined ? cleanedToRawIndex[b.startLine] + 1 : b.startLine + 1;
+                const rawEnd = cleanedToRawIndex[b.endLine] !== undefined ? cleanedToRawIndex[b.endLine] + 1 : b.endLine + 1;
+                html += `
+                    <div class="ae-mismatch-card ae-missing-card" id="ae-card-item-${itemIdx}" data-missing-idx="${item.originalIndex}" style="background:rgba(239,68,68,0.03);border:1px dashed rgba(239,68,68,0.3);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;">
+                         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:8px;">
+                             <div style="display:flex;gap:12px;align-items:center;">
+                                 <span style="font-weight:bold;font-size:12px;color:#ff9e9e;background:rgba(239,68,68,0.2);padding:2px 6px;border-radius:4px;">最终顺序 #${itemIdx + 1}</span>
+                                 <span style="font-size:11px;background:rgba(239,68,68,0.25);color:#ef4444;padding:2px 6px;border-radius:4px;font-weight:600;">🚫 漏读/丢失文案</span>
+                             </div>
+                             <div style="display:flex;gap:6px;align-items:center;">
+                                 <button class="btn btn-secondary ae-btn-ignore-missing" style="font-size: 10px; padding: 1px 6px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #ccc; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">🔕 忽略</button>
+                                 <button class="btn btn-secondary ae-btn-copy-missing" data-text="${escapeHtml(b.text)}" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #818cf8; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">📋 复制文案</button>
+                                 <button class="btn btn-secondary" onclick="window.addSupplementaryClip(${b.startLine})" style="font-size: 10px; padding: 1px 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: #4ade80; border-radius: 4px; cursor: pointer; line-height: 1.2; display: inline-flex; align-items: center; gap: 3px;">➕ 补充片段并重新对齐</button>
+                             </div>
+                         </div>
+                         <div style="font-size:12px;color:#fca5a5;font-weight:bold;">参考文案中被遗漏的句子 (对应行号: ${rawStart} - ${rawEnd}):</div>
+                         <div style="background:#1a1a30;padding:10px;border-radius:6px;font-size:12px;color:#ff9e9e;line-height:1.45;word-break:break-all;border:1px solid rgba(239,68,68,0.15);">${escapeHtml(b.text)}</div>
+                    </div>
+                `;
+            }
+        });
+
+        html += `
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;">
+                <button id="ae-mismatch-btn-view-report" class="btn btn-secondary" style="padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:auto;background:rgba(34, 197, 94, 0.1);border:1px solid rgba(34, 197, 94, 0.3);color: #4ade80;">📊 查看对齐报告</button>
+                <button id="ae-mismatch-btn-skip" class="btn btn-secondary" style="padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">⏭️ 取消</button>
+                <button id="ae-mismatch-btn-use-edited" style="
+                    padding:6px 20px;border-radius:6px;border:1px solid #4f46e5;
+                    background:linear-gradient(135deg,#4f46e5,#3730a3);color:#fff;
+                    font-size:13px;cursor:pointer;font-weight:600;
+                    transition:all 0.15s;
+                ">🚀 应用修改并继续对齐 (推荐)</button>
+            </div>
+        `;
+
+        content.innerHTML = html;
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+
+        const cleanup = () => document.body.removeChild(modal);
+
+        function updateCardText(idx) {
+            const m = mismatches[idx];
+            if (!m) return;
+
+            const card = modal.querySelector(`.ae-mismatch-card[data-idx="${idx}"]`);
+            if (!card) return;
+
+            const wordsA = tokenizeTextForDiff(m.recognizedText);
+            const wordsBWithIndices = tokenizeTextWithIndices(m.scriptText);
+            const wordsB = wordsBWithIndices.map(t => t.word);
+            const diff = _autoEditLcsWordDiff(wordsA, wordsB);
+
+            let missingWordCount = 0;
+            let extraWordCount = 0;
+            let bIdx = 0;
+            diff.forEach((d, index) => {
+                d.diffIdx = index;
+                if (d.type === 'add') {
+                    d.wordIdx = missingWordCount++;
+                } else if (d.type === 'remove') {
+                    d.wordIdx = extraWordCount++;
+                }
+                if (d.type === 'same' || d.type === 'add') {
+                    if (wordsBWithIndices[bIdx]) {
+                        d.charStart = wordsBWithIndices[bIdx].start;
+                        d.charEnd = wordsBWithIndices[bIdx].end;
+                    }
+                    bIdx++;
+                }
+            });
+
+            const missingTags = Array.from(card.querySelectorAll('.ae-missing-tag'));
+            const recWords = Array.from(card.querySelectorAll('.ae-rec-word'));
+
+            let resultText = '';
+            let lastIdx = 0;
+            for (let k = 0; k < diff.length; k++) {
+                const d = diff[k];
+                if (d.type === 'same') {
+                    const tag = recWords.find(t => parseInt(t.dataset.diffIdx, 10) === k);
+                    const isKeep = tag ? tag.classList.contains('active') : true;
+                    if (isKeep) {
+                        if (d.charEnd !== undefined) {
+                            resultText += m.scriptText.substring(lastIdx, d.charEnd);
+                            lastIdx = d.charEnd;
+                        }
+                    } else {
+                        if (d.charStart !== undefined) {
+                            resultText += m.scriptText.substring(lastIdx, d.charStart);
+                            lastIdx = d.charEnd; // Skip the token but consume its range
+                        }
+                    }
+                } else if (d.type === 'add') {
+                    const tag = missingTags.find(t => parseInt(t.dataset.wordIdx, 10) === d.wordIdx);
+                    const isKeep = tag ? tag.classList.contains('active') : true;
+                    if (isKeep) {
+                        if (d.charEnd !== undefined) {
+                            resultText += m.scriptText.substring(lastIdx, d.charEnd);
+                            lastIdx = d.charEnd;
+                        }
+                    } else {
+                        if (d.charStart !== undefined) {
+                            resultText += m.scriptText.substring(lastIdx, d.charStart);
+                            lastIdx = d.charEnd; // Skip the token but consume its range
+                        }
+                    }
+                } else if (d.type === 'remove') {
+                    const tag = recWords.find(t => parseInt(t.dataset.diffIdx, 10) === k);
+                    const isAdd = tag ? tag.classList.contains('active') : false;
+                    if (isAdd) {
+                        const isWide = (str) => /[^\x00-\xff]/.test(str);
+                        const prevChar = resultText.slice(-1);
+                        const needSpace = prevChar && prevChar !== ' ' && prevChar !== '\n' && !isWide(prevChar) && !isWide(d.word);
+                        resultText += (needSpace ? ' ' : '') + d.word;
+                    }
+                }
+            }
+            if (lastIdx < m.scriptText.length) {
+                resultText += m.scriptText.substring(lastIdx);
+            }
+
+            const input = card.querySelector('.ae-edit-input');
+            if (input) input.value = resultText;
+        }
+
+        // Setup event listener to click left-side lines to scroll right-side cards
+        const lineElements = modal.querySelectorAll('.ae-script-line');
+        lineElements.forEach(el => {
+            el.addEventListener('click', () => {
+                const targetIdx = parseInt(el.dataset.targetCardIdx, 10);
+                if (targetIdx !== -1 && !isNaN(targetIdx)) {
+                    // Highlight selected line
+                    lineElements.forEach(le => {
+                        le.style.background = 'rgba(255,255,255,0.02)';
+                        le.style.color = '#cbd5e1';
+                    });
+                    el.style.background = 'rgba(99,102,241,0.2)';
+                    el.style.color = '#fff';
+
+                    // Find target card
+                    const targetCard = modal.querySelector(`#ae-card-item-${targetIdx}`);
+                    if (targetCard) {
+                        // Scroll to card
+                        targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        
+                        // Add glow highlight to the card
+                        const originalBorder = targetCard.style.borderColor;
+                        const originalBg = targetCard.style.background;
+                        targetCard.style.transition = 'all 0.3s ease';
+                        targetCard.style.borderColor = '#6366f1';
+                        targetCard.style.boxShadow = '0 0 15px rgba(99,102,241,0.4)';
+                        targetCard.style.background = 'rgba(99,102,241,0.08)';
+                        
+                        setTimeout(() => {
+                            targetCard.style.borderColor = originalBorder;
+                            targetCard.style.boxShadow = 'none';
+                            targetCard.style.background = originalBg;
+                        }, 1200);
+                    }
+                }
+            });
+        });
+
+        // Setup event listener to click right-side cards to scroll left-side script lines
+        const cardElements = modal.querySelectorAll('.ae-mismatch-card');
+        cardElements.forEach(card => {
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('button, textarea, input, .ae-word-tag') || card.classList.contains('ae-card-ignored')) {
+                    return;
+                }
+                
+                const idAttr = card.getAttribute('id') || '';
+                const matchIdx = idAttr.match(/^ae-card-item-(\d+)$/);
+                if (matchIdx) {
+                    const itemIdx = parseInt(matchIdx[1], 10);
+                    
+                    // Highlight card itself
+                    cardElements.forEach(c => {
+                        c.classList.remove('selected-card-glow');
+                    });
+                    card.classList.add('selected-card-glow');
+                    
+                    // Find all matching script lines on the left
+                    const targetLines = modal.querySelectorAll(`.ae-script-line[data-target-card-idx="${itemIdx}"]`);
+                    if (targetLines.length > 0) {
+                        // Highlight target lines on the left
+                        lineElements.forEach(le => {
+                            le.style.background = 'rgba(255,255,255,0.02)';
+                            le.style.color = '#cbd5e1';
+                        });
+                        
+                        targetLines.forEach(tl => {
+                            tl.style.background = 'rgba(99, 102, 241, 0.2)';
+                            tl.style.color = '#fff';
+                        });
+                        
+                        // Scroll first matching line into view inside container
+                        const firstLine = targetLines[0];
+                        firstLine.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+            });
+        });
+
+        // Setup copy missing text buttons click listener
+        modal.querySelectorAll('.ae-btn-copy-missing').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const text = btn.getAttribute('data-text');
+                window.copyTextToClipboard(text);
+            });
+        });
+
+        // Setup ignore missing text buttons click listener
+        modal.querySelectorAll('.ae-btn-ignore-missing').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const card = btn.closest('.ae-missing-card');
+                if (card) {
+                    card.classList.toggle('ae-card-ignored');
+                    const isIgnored = card.classList.contains('ae-card-ignored');
+                    if (isIgnored) {
+                        btn.textContent = '🔔 已忽略';
+                        btn.style.background = 'rgba(34, 197, 94, 0.15)';
+                        btn.style.borderColor = 'rgba(34, 197, 94, 0.35)';
+                        btn.style.color = '#4ade80';
+                    } else {
+                        btn.textContent = '🔕 忽略';
+                        btn.style.background = 'rgba(255,255,255,0.06)';
+                        btn.style.borderColor = 'rgba(255,255,255,0.15)';
+                        btn.style.color = '#ccc';
+                    }
+                }
+            });
+        });
+
+        // Initialize diff logic and tags event listeners
+        sequenceItems.forEach((item) => {
+            if (item.type === 'clip') {
+                const idx = item.originalIndex;
+                const m = mismatches[idx];
+                const card = modal.querySelector(`.ae-mismatch-card[data-idx="${idx}"]`);
+                if (card && m) {
+                    const cardDiffData = prepareCardDiff(m);
+                    const diff = cardDiffData.diff;
+
+                    // Bind missing word tags
+                    card.querySelectorAll('.ae-missing-tag').forEach(tag => {
+                        tag.addEventListener('click', () => {
+                            tag.classList.toggle('active');
+                            if (tag.classList.contains('active')) {
+                                tag.style.background = 'rgba(239,68,68,0.18)';
+                                tag.style.color = '#ff9e9e';
+                                tag.style.borderColor = 'rgba(239,68,68,0.4)';
+                                tag.style.textDecoration = 'none';
+                            } else {
+                                tag.style.background = 'rgba(255,255,255,0.03)';
+                                tag.style.color = '#777';
+                                tag.style.borderColor = 'rgba(255,255,255,0.06)';
+                                tag.style.textDecoration = 'line-through';
+                            }
+                            updateCardText(idx);
+                        });
+                    });
+
+                    // Bind extra word tags
+                    card.querySelectorAll('.ae-extra-tag').forEach(tag => {
+                        tag.addEventListener('click', () => {
+                            tag.classList.toggle('active');
+                            const wordIdx = parseInt(tag.dataset.wordIdx, 10);
+                            
+                            // Find corresponding diff item and sync it
+                            const extraWord = diff.find(d => d.type === 'remove' && d.wordIdx === wordIdx);
+                            if (extraWord) {
+                                const recTag = card.querySelector(`.ae-rec-word.ae-rec-extra[data-diff-idx="${extraWord.diffIdx}"]`);
+                                if (recTag) {
+                                    if (tag.classList.contains('active')) {
+                                        recTag.classList.add('active');
+                                        recTag.style.background = 'rgba(245,158,11,0.22)';
+                                        recTag.style.color = '#ffd84a';
+                                        recTag.style.textDecoration = 'none';
+                                        recTag.style.opacity = '1';
+                                        recTag.style.borderBottom = '2px solid #f59e0b';
+                                    } else {
+                                        recTag.classList.remove('active');
+                                        recTag.style.background = 'rgba(255,255,255,0.03)';
+                                        recTag.style.color = '#777';
+                                        recTag.style.textDecoration = 'line-through';
+                                        recTag.style.opacity = '0.5';
+                                        recTag.style.borderBottom = 'none';
+                                    }
+                                }
+                            }
+
+                            if (tag.classList.contains('active')) {
+                                tag.style.background = 'rgba(245,158,11,0.2)';
+                                tag.style.color = '#ffd84a';
+                                tag.style.borderColor = 'rgba(245,158,11,0.4)';
+                                tag.style.textDecoration = 'none';
+                            } else {
+                                tag.style.background = 'rgba(255,255,255,0.03)';
+                                tag.style.color = '#777';
+                                tag.style.borderColor = 'rgba(255,255,255,0.06)';
+                                tag.style.textDecoration = 'line-through';
+                            }
+                            updateCardText(idx);
+                        });
+                    });
+
+                    // Bind clickable recognized text words
+                    card.querySelectorAll('.ae-rec-word').forEach(tag => {
+                        tag.addEventListener('click', () => {
+                            tag.classList.toggle('active');
+                            const diffIdx = parseInt(tag.dataset.diffIdx, 10);
+                            const isSame = tag.classList.contains('ae-rec-same');
+                            
+                            if (tag.classList.contains('active')) {
+                                if (isSame) {
+                                    tag.style.background = 'rgba(255,255,255,0.02)';
+                                    tag.style.color = '#cbd5e1';
+                                    tag.style.textDecoration = 'none';
+                                    tag.style.opacity = '1';
+                                } else {
+                                    tag.style.background = 'rgba(245,158,11,0.22)';
+                                    tag.style.color = '#ffd84a';
+                                    tag.style.textDecoration = 'none';
+                                    tag.style.opacity = '1';
+                                    tag.style.borderBottom = '2px solid #f59e0b';
+                                }
+                            } else {
+                                tag.style.background = 'rgba(255,255,255,0.03)';
+                                tag.style.color = '#777';
+                                tag.style.textDecoration = 'line-through';
+                                tag.style.opacity = '0.5';
+                                tag.style.borderBottom = 'none';
+                            }
+
+                            // Sync with extra tag panel if applicable
+                            if (!isSame) {
+                                const extraWord = diff[diffIdx];
+                                if (extraWord) {
+                                    const panelTag = card.querySelector(`.ae-extra-tag[data-word-idx="${extraWord.wordIdx}"]`);
+                                    if (panelTag) {
+                                        if (tag.classList.contains('active')) {
+                                            panelTag.classList.add('active');
+                                            panelTag.style.background = 'rgba(245,158,11,0.2)';
+                                            panelTag.style.color = '#ffd84a';
+                                            panelTag.style.borderColor = 'rgba(245,158,11,0.4)';
+                                            panelTag.style.textDecoration = 'none';
+                                        } else {
+                                            panelTag.classList.remove('active');
+                                            panelTag.style.background = 'rgba(255,255,255,0.03)';
+                                            panelTag.style.color = '#777';
+                                            panelTag.style.borderColor = 'rgba(255,255,255,0.06)';
+                                            panelTag.style.textDecoration = 'line-through';
+                                        }
+                                    }
+                                }
+                            }
+
+                            updateCardText(idx);
+                        });
+                    });
+
+                    updateCardText(idx);
+                }
+            }
+        });
+
+        modal.querySelector('#ae-mismatch-btn-close').addEventListener('click', () => { cleanup(); resolve(null); });
+        modal.querySelector('#ae-mismatch-btn-skip').addEventListener('click', () => { cleanup(); resolve(null); });
+
+        const viewReportBtn = modal.querySelector('#ae-mismatch-btn-view-report');
+        if (viewReportBtn) {
+            viewReportBtn.addEventListener('click', () => {
+                viewAutoEditReport();
+            });
+        }
+
+        modal.querySelector('#ae-mismatch-btn-use-edited').addEventListener('click', () => {
+            const clipEdits = [];
+            mismatches.forEach((m, idx) => {
+                const card = modal.querySelector(`.ae-mismatch-card[data-idx="${idx}"]`);
+                const input = card ? card.querySelector('.ae-edit-input') : null;
+                const finalText = input ? input.value : m.scriptText;
+                if (finalText === m.scriptText) return;
+                clipEdits.push({
+                    clipIndex: m.clipIndex,
+                    originalScript: m.scriptText,
+                    finalText
+                });
+            });
+            const ignoredMissingBlocks = Array.from(modal.querySelectorAll('.ae-missing-card.ae-card-ignored'))
+                .map(card => missingBlocks[parseInt(card.dataset.missingIdx, 10)])
+                .filter(Boolean);
+            window.showAutoEditModalLoading('🚀 正在应用您的修改并重新对齐，请稍候...');
+            resolve({ clipEdits, ignoredMissingBlocks });
+        });
+    });
+}
+
+async function startAutoEditByScript(isRetry = false, options = {}) {
+    if (autoEditFiles.length === 0) {
+        showToast('请先选择视频片段', 'error');
+        return;
+    }
+
+    const scriptText = options.scriptTextOverride ?? document.getElementById('autoedit-script')?.value ?? '';
+    const scriptLines = String(scriptText || '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    if (scriptLines.length === 0) {
+        showToast('请先粘贴断行文案', 'error');
+        return;
+    }
+    const matchMode = document.getElementById('autoedit-match-mode')?.value || 'script';
+    if (matchMode === 'line_per_clip' && autoEditFiles.length !== scriptLines.length) {
+        showToast(`一行一片段模式下数量不一致，将处理前 ${Math.min(autoEditFiles.length, scriptLines.length)} 组`, 'info', 6000);
+    }
+    if (document.getElementById('autoedit-voicechanger-enabled')?.checked && !document.getElementById('autoedit-voicechanger-voice')?.value?.trim()) {
+        showToast('请先选择或填写 ElevenLabs Voice ID', 'error');
+        return;
+    }
+
+    const outputDir = document.getElementById('media-output-path')?.value || '';
+    const statusEl = document.getElementById('autoedit-status');
+    const startBtn = document.getElementById('autoedit-start-btn');
+    const progressSection = document.getElementById('autoedit-progress-section');
+    const progressText = document.getElementById('autoedit-progress-text');
+    const progressBar = document.querySelector('#autoedit-progress-bar .progress-bar-inner');
+    const resultSection = document.getElementById('autoedit-result-section');
+
+    const mainReportBtn = document.getElementById('autoedit-main-view-report-btn');
+    if (mainReportBtn) mainReportBtn.style.display = 'none';
+
+    startBtn.disabled = true;
+    startBtn.textContent = '⏳ 正在自动剪辑...';
+    statusEl.textContent = `⏳ 正在匹配 ${autoEditFiles.length} 个片段与 ${scriptLines.length} 行字幕文案...`;
+    statusEl.style.color = 'var(--accent)';
+    progressSection.classList.remove('hidden');
+    resultSection.classList.add('hidden');
+    if (progressBar) progressBar.style.width = '12%';
+    progressText.textContent = '正在转录并匹配文案，较长视频会需要一些时间...';
+
+    // Initialize individual clip statuses to pending
+    autoEditFiles.forEach(f => {
+        f.status = 'pending';
+        f.error = null;
+    });
+    renderAutoEditFiles();
+
+    if (typeof autoEditProgressUnsubscribe === 'function') {
+        autoEditProgressUnsubscribe();
+        autoEditProgressUnsubscribe = null;
+    }
+    if (window.electronAPI?.onAutoEditProgress) {
+        autoEditProgressUnsubscribe = window.electronAPI.onAutoEditProgress((progress = {}) => {
+            const pct = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+            if (progressBar) progressBar.style.width = `${pct}%`;
+            const msg = progress.message || '正在处理...';
+            progressText.textContent = msg;
+            statusEl.textContent = `⏳ ${msg}`;
+
+            // Update individual clip status in real-time
+            if (progress.clip_index !== undefined && progress.clip_status) {
+                const idx = progress.clip_index;
+                if (autoEditFiles[idx]) {
+                    autoEditFiles[idx].status = progress.clip_status;
+                    if (progress.clip_error) {
+                        autoEditFiles[idx].error = progress.clip_error;
+                    }
+                    renderAutoEditFiles();
+                }
+            }
+        });
+    }
+
+    try {
+        const resp = await apiFetch(`${API_BASE}/media/convert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                clips: autoEditFiles.map(f => f.path),
+                files: autoEditFiles.map(f => f.path),
+                mode: 'auto_edit',
+                ignore_mismatch: autoEditIgnoreMismatch,
+                script_text: scriptText,
+                output_dir: outputDir,
+                language: document.getElementById('autoedit-language')?.value || 'auto',
+                match_mode: matchMode,
+                workflow_mode: document.getElementById('autoedit-workflow-mode')?.value || 'cut_first',
+                transition_type: document.getElementById('autoedit-transition-type')?.value || 'none',
+                transition_duration: parseFloat(document.getElementById('autoedit-transition-duration')?.value || '0.35'),
+                lead_pad: parseFloat(document.getElementById('autoedit-lead-pad')?.value || '0.04'),
+                tail_pad: parseFloat(document.getElementById('autoedit-tail-pad')?.value || '0.08'),
+                min_score: parseFloat(document.getElementById('autoedit-min-score')?.value || '0.52'),
+                burn_subtitles: document.getElementById('autoedit-burn-subtitles')?.checked || false,
+                export_mp3: document.getElementById('autoedit-export-mp3')?.checked !== false,
+                voice_changer_enabled: document.getElementById('autoedit-voicechanger-enabled')?.checked || false,
+                voice_changer_voice_id: document.getElementById('autoedit-voicechanger-voice')?.value || '',
+                voice_changer_replace_audio: document.getElementById('autoedit-voicechanger-replace')?.checked !== false,
+                voice_changer_remove_noise: document.getElementById('autoedit-voicechanger-noise')?.checked || false,
+                voice_changer_model_id: 'eleven_multilingual_sts_v2',
+                voice_changer_stability: parseFloat(document.getElementById('autoedit-voicechanger-stability')?.value || '0.5'),
+                voice_changer_similarity: parseFloat(document.getElementById('autoedit-voicechanger-similarity')?.value || '0.75'),
+                manual_audio_path: document.getElementById('autoedit-manual-audio-path')?.value || '',
+                manual_audio_replace: Boolean(document.getElementById('autoedit-manual-audio-path')?.value?.trim()),
+                force_transcribe: document.getElementById('autoedit-force-transcribe')?.checked || false,
+                target_width: 1080,
+                target_height: 1920,
+                fps: 30,
+                manual_subtitle_map: autoEditFiles.reduce((map, f) => {
+                    if (f.manualSubtitlePath) {
+                        map[f.path] = f.manualSubtitlePath;
+                    }
+                    return map;
+                }, {}),
+                manual_transcripts: autoEditFiles.reduce((map, f) => {
+                    if (f.manualTranscript) {
+                        map[f.path] = f.manualTranscript;
+                    }
+                    return map;
+                }, {}),
+            })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || '文案自动剪辑失败');
+
+        // 标记最终播放顺序，但保留用户选择/文件名排序后的输入顺序。
+        // 后续重新匹配仍会使用这个稳定输入顺序，避免上一次输出顺序反过来影响下一次匹配结果。
+        const segments = data.segments || [];
+        autoEditFiles.forEach((file) => {
+            const matchedSeg = segments.find(seg => seg.source === file.path);
+            if (matchedSeg) {
+                file.outputIndex = matchedSeg.index;
+                file.matchScore = matchedSeg.match_score;
+                const isTextEmpty = !matchedSeg.recognized_text || matchedSeg.recognized_text.trim() === '' || matchedSeg.recognized_text.startsWith('(转录失败:');
+                if (isTextEmpty) {
+                    file.status = 'empty';
+                } else {
+                    file.status = matchedSeg.match_score > 0 ? 'transcribed' : 'unmatched';
+                }
+            } else {
+                file.outputIndex = 9999;
+                file.status = 'unmatched';
+            }
+        });
+        renderAutoEditFiles();
+
+        if (progressBar) progressBar.style.width = '100%';
+        progressText.textContent = '✅ 自动剪辑完成';
+        statusEl.textContent = `✅ ${data.message || '自动剪辑完成'}`;
+        statusEl.style.color = 'var(--success)';
+        autoEditOutputDir = data.output_dir || '';
+        autoEditLastResult = data;
+
+        const mainReportBtn = document.getElementById('autoedit-main-view-report-btn');
+        if (mainReportBtn) mainReportBtn.style.display = 'inline-block';
+
+        renderAutoEditResult(data);
+        resultSection.classList.remove('hidden');
+        const sendBtn = document.getElementById('autoedit-send-reels-btn');
+        if (sendBtn) sendBtn.style.display = '';
+        if (document.getElementById('autoedit-send-reels')?.checked) {
+            try {
+                await sendAutoEditResultToReels(data, { silent: true });
+            } catch (sendError) {
+                console.warn('[AutoEdit] send to Reels failed:', sendError);
+            }
+        }
+        autoEditIgnoreMismatch = false;
+        // Close any open mismatch dialogs on success
+        const mismatchOverlay = document.getElementById('ae-mismatch-dialog-overlay');
+        if (mismatchOverlay) mismatchOverlay.remove();
+
+        showToast('文案自动剪辑完成', 'success');
+    } catch (error) {
+        if (error.message.includes('"code":"AUTOEDIT_TEXT_MISMATCH"')) {
+            try {
+                const mismatchData = JSON.parse(error.message);
+                const mismatches = mismatchData.mismatches;
+                
+                autoEditLastResult = {
+                    report_path: mismatchData.report_path,
+                    output_dir: mismatchData.output_dir
+                };
+                autoEditOutputDir = mismatchData.output_dir || '';
+                
+                const mainReportBtn = document.getElementById('autoedit-main-view-report-btn');
+                if (mainReportBtn) mainReportBtn.style.display = 'inline-block';
+                
+                const dialogResult = await _showAutoEditMismatchDialog(mismatches, scriptText, mismatchData.missingBlocks || []);
+                const clipEdits = Array.isArray(dialogResult) ? dialogResult : (dialogResult?.clipEdits || []);
+                const ignoredMissingBlocks = Array.isArray(dialogResult) ? [] : (dialogResult?.ignoredMissingBlocks || []);
+                if (dialogResult && (clipEdits.length > 0 || ignoredMissingBlocks.length > 0)) {
+                    const rawLines = scriptText.replace(/\r\n/g, '\n').split('\n');
+                    const cleanedToRawIndex = [];
+                    for (let i = 0; i < rawLines.length; i++) {
+                        if (rawLines[i].trim().length > 0) {
+                            cleanedToRawIndex.push(i);
+                        }
+                    }
+                    const operations = [];
+                    for (const r of clipEdits) {
+                        const mismatch = mismatches.find(m => m.clipIndex === r.clipIndex);
+                        if (!mismatch) continue;
+                        if (mismatch.similarity >= 50 && mismatch.scriptStartLine !== -1) {
+                            const cleanStart = mismatch.scriptStartLine;
+                            const cleanEnd = mismatch.scriptEndLine;
+                            operations.push({
+                                cleanStart,
+                                cleanEnd,
+                                newLines: r.finalText.replace(/\r\n/g, '\n').split('\n'),
+                            });
+                        } else {
+                            const fileObj = autoEditFiles.find(f => f.path === mismatch.clipPath);
+                            if (fileObj) {
+                                fileObj.manualTranscript = r.finalText;
+                                console.log(`[src/app.js] Low similarity mismatch detected (${mismatch.similarity}%). Stored manual transcript override for re-alignment:`, r.finalText);
+                            }
+                        }
+                    }
+                    for (const block of ignoredMissingBlocks) {
+                        operations.push({
+                            cleanStart: block.startLine,
+                            cleanEnd: block.endLine,
+                            newLines: [],
+                        });
+                    }
+                    operations.sort((a, b) => {
+                        if (b.cleanStart !== a.cleanStart) return b.cleanStart - a.cleanStart;
+                        return b.cleanEnd - a.cleanEnd;
+                    });
+                    for (const op of operations) {
+                        const rawStart = cleanedToRawIndex[op.cleanStart];
+                        const rawEnd = cleanedToRawIndex[op.cleanEnd];
+                        if (rawStart === undefined || rawEnd === undefined) continue;
+                        rawLines.splice(rawStart, rawEnd - rawStart + 1, ...op.newLines);
+                    }
+                    const newScriptText = rawLines.join('\n');
+                    autoEditIgnoreMismatch = true;
+                    setTimeout(() => {
+                        startAutoEditByScript(true, { scriptTextOverride: newScriptText });
+                    }, 100);
+                    return;
+                } else {
+                    const mismatchOverlay = document.getElementById('ae-mismatch-dialog-overlay');
+                    if (mismatchOverlay) mismatchOverlay.remove();
+
+                    statusEl.textContent = '❌ 用户取消剪辑 (文案不匹配)';
+                    statusEl.style.color = 'var(--error)';
+                    progressText.textContent = '❌ 取消剪辑';
+                    return;
+                }
+            } catch (e) {
+                console.error('[AutoEdit] Mismatch dialog error:', e);
+                const mismatchOverlay = document.getElementById('ae-mismatch-dialog-overlay');
+                if (mismatchOverlay) mismatchOverlay.remove();
+            }
+        } else {
+            const mismatchOverlay = document.getElementById('ae-mismatch-dialog-overlay');
+            if (mismatchOverlay) mismatchOverlay.remove();
+        }
+        autoEditIgnoreMismatch = false;
+        statusEl.textContent = `❌ ${escapeHtml(error.message)}`;
+        statusEl.style.color = 'var(--error)';
+        progressText.textContent = `❌ 失败: ${escapeHtml(error.message)}`;
+        showToast(`文案自动剪辑失败: ${escapeHtml(error.message)}`, 'error');
+    } finally {
+        if (typeof autoEditProgressUnsubscribe === 'function') {
+            autoEditProgressUnsubscribe();
+            autoEditProgressUnsubscribe = null;
+        }
+        startBtn.disabled = false;
+        startBtn.textContent = '🚀 开始文案自动剪辑';
+        renderAutoEditFiles();
+    }
+}
+
+function renderAutoEditResult(data) {
+    const root = document.getElementById('autoedit-result-list');
+    if (!root) return;
+    const files = [
+        data.output_path ? { label: '拼接视频', path: data.output_path } : null,
+        data.final_video_path && data.final_video_path !== data.output_path ? { label: '最终视频', path: data.final_video_path } : null,
+        data.srt_path ? { label: '最终字幕', path: data.srt_path } : null,
+        data.mp3_path ? { label: 'Voice Changer MP3', path: data.mp3_path } : null,
+        data.voice_changed_mp3_path ? { label: '变声 MP3', path: data.voice_changed_mp3_path } : null,
+        data.voice_changed_video_path ? { label: '变声视频', path: data.voice_changed_video_path } : null,
+        data.manual_audio_path ? { label: '手动新音频', path: data.manual_audio_path } : null,
+        data.manual_audio_video_path ? { label: '手动换声视频', path: data.manual_audio_video_path } : null,
+        data.subtitled_path ? { label: '烧录字幕视频', path: data.subtitled_path } : null,
+    ].filter(Boolean);
+    autoEditResultFiles = files;
+
+    const fileHtml = files.map((f, i) => `
+        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border-color); font-size: 12px;">
+            <span style="font-weight: 600; min-width: 90px;">${escapeHtml(f.label)}</span>
+            <span title="${escapeHtml(f.path)}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(f.path)}</span>
+            <button class="btn btn-secondary" onclick="showAutoEditResultFile(${i})" style="padding: 2px 8px; font-size: 11px; margin-left: auto;">定位</button>
+        </div>
+    `).join('');
+
+    const segments = data.segments || [];
+    const segmentHtml = segments.length ? `
+        <div style="margin-top: 12px;">
+            <div style="font-weight: 600; margin-bottom: 8px; color: var(--text-secondary);">片段匹配明细</div>
+            ${segments.map(seg => {
+                const srcTag = seg.transcription_source === 'cache'
+                    ? '<span style="padding: 1px 4px; border-radius: 3px; font-size: 10px; background: rgba(81,207,102,0.15); color:#51cf66; font-weight:600; text-align:center;">缓存</span>'
+                    : (seg.transcription_source === 'gladia'
+                        ? '<span style="padding: 1px 4px; border-radius: 3px; font-size: 10px; background: rgba(255,143,0,0.15); color:#ff9f43; font-weight:600; text-align:center;">转录</span>'
+                        : (seg.transcription_source === 'failed'
+                            ? '<span style="padding: 1px 4px; border-radius: 3px; font-size: 10px; background: rgba(239,68,68,0.15); color:#ef4444; font-weight:600; text-align:center;">失败</span>'
+                            : '<span style="padding: 1px 4px; border-radius: 3px; font-size: 10px; background: rgba(255,255,255,0.05); color:var(--text-muted); text-align:center;">-</span>'));
+                
+                const isUnmatched = !seg.script_start_line || seg.script_start_line === '?';
+                const matchedTextHtml = isUnmatched
+                    ? '<span style="color: #ff9f43; font-weight: 500;">⚠️ 未匹配到文案 (片段无声或未识别出声音)</span>'
+                    : `文案 ${seg.script_start_line}-${seg.script_end_line}: ${escapeHtml(String(seg.script || '').replace(/\s*\n\s*/g, ' / '))}`;
+                
+                const rowStyle = isUnmatched
+                    ? 'display: grid; grid-template-columns: 70px 90px 70px 80px 60px 1fr 100px; gap: 8px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--border-color); font-size: 12px; background: rgba(255, 159, 67, 0.05); border-radius: 4px;'
+                    : 'display: grid; grid-template-columns: 70px 90px 70px 80px 60px 1fr 100px; gap: 8px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--border-color); font-size: 12px;';
+                
+                return `
+                    <div style="${rowStyle}">
+                        <strong style="color: var(--accent);">输出 #${seg.index}</strong>
+                        <span>原片段 #${seg.source_index || seg.index}</span>
+                        <span>${escapeHtml(seg.duration)}s</span>
+                        <span>匹配 ${Math.round((seg.match_score || 0) * 100)}%</span>
+                        ${srcTag}
+                        <span title="${escapeHtml(seg.matched_text || '')}" style="word-break: break-all; line-height: 1.4;">${matchedTextHtml}</span>
+                        <button class="btn btn-secondary" onclick="window.playVideoClip('${seg.source.replace(/\\/g, '\\\\')}', ${seg.start || 0}, ${seg.end || 0})" style="font-size: 11px; padding: 2px 8px; white-space: nowrap; margin-left: auto;">▶️ 播放片段</button>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    ` : '';
+
+    root.innerHTML = `
+        <div style="margin-bottom: 8px; color: var(--success); font-weight: 600;">✅ 已处理 ${data.used_clip_count || segments.length || 0} 组片段</div>
+        ${fileHtml || '<p class="hint">没有返回输出文件。</p>'}
+        <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="sendAutoEditResultToReels()" style="padding: 5px 12px; font-size: 12px;">🎬 送入批量 Reels</button>
+            <button class="btn btn-secondary" id="autoedit-rename-btn" onclick="renameAutoEditOriginalClips()" style="padding: 5px 12px; font-size: 12px; background: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.3); color: #818cf8;">✏️ 一键重命名本地原视频</button>
+            <button class="btn btn-secondary" id="autoedit-view-report-btn" onclick="viewAutoEditReport()" style="padding: 5px 12px; font-size: 12px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); color: #4ade80;">📊 查看对齐报告</button>
+        </div>
+        ${segmentHtml}
+    `;
+}
+
+async function renameAutoEditOriginalClips() {
+    if (!autoEditLastResult || !autoEditLastResult.segments || autoEditLastResult.segments.length === 0) {
+        showToast('没有可重命名的片段数据', 'error');
+        return;
+    }
+
+    const confirmRename = confirm('确定要一键重命名这些本地视频文件吗？这会在文件名最前面添加 01-, 02- 形式的播放顺序编号（也会同步重命名它们的转录缓存，防止下次运行重复转录耗费 API）。');
+    if (!confirmRename) return;
+
+    const renameBtn = document.getElementById('autoedit-rename-btn');
+    if (renameBtn) {
+        renameBtn.disabled = true;
+        renameBtn.textContent = '⏳ 正在重命名...';
+    }
+
+    try {
+        const clips = autoEditLastResult.segments.map(seg => ({
+            source: seg.source,
+            index: seg.index
+        }));
+
+        const resp = await apiFetch(`${API_BASE}/media/rename-original-clips`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clips })
+        });
+
+        const resData = await resp.json();
+        if (!resp.ok) throw new Error(resData.error || '重命名失败');
+
+        const renamed = resData.renamed || [];
+        if (renamed.length === 0) {
+            showToast('未检测到需要重命名的文件，或文件已被重命名', 'warning');
+            return;
+        }
+
+        // 更新前端文件名列表状态，避免文件丢失
+        renamed.forEach(r => {
+            const f = autoEditFiles.find(file => file.path === r.oldPath);
+            if (f) {
+                f.path = r.newPath;
+                f.name = r.newPath.split(/[/\\]/).pop();
+            }
+            // 同时更新结果数据里的 source
+            const seg = autoEditLastResult.segments.find(s => s.source === r.oldPath);
+            if (seg) {
+                seg.source = r.newPath;
+            }
+        });
+
+        // 重新渲染列表与结果面板
+        renderAutoEditFiles();
+        renderAutoEditResult(autoEditLastResult);
+        showToast(`成功重命名 ${renamed.length} 个视频文件并已自动同步重命名对应的转录缓存！`, 'success', 5000);
+    } catch (err) {
+        console.error(err);
+        showToast(`重命名失败: ${err.message}`, 'error');
+    } finally {
+        if (renameBtn) {
+            renameBtn.disabled = false;
+            renameBtn.textContent = '✏️ 一键重命名本地原视频';
+        }
+    }
+}
+
+window.renameAutoEditOriginalClips = renameAutoEditOriginalClips;
+
+async function replaceAutoEditResultAudio() {
+    if (!autoEditLastResult?.output_path && !autoEditLastResult?.final_video_path) {
+        showToast('请先完成一次文案自动剪辑', 'error');
+        return;
+    }
+    const audioPath = document.getElementById('autoedit-result-audio-path')?.value?.trim() || '';
+    if (!audioPath) {
+        showToast('请先选择换声后的新音频', 'error');
+        return;
+    }
+
+    const scriptText = document.getElementById('autoedit-script')?.value || '';
+    if (!scriptText.trim()) {
+        showToast('缺少原文案，无法按新音频重新生成字幕', 'error');
+        return;
+    }
+
+    const videoPath = autoEditLastResult.manual_audio_video_path || autoEditLastResult.voice_changed_video_path || autoEditLastResult.output_path;
+    try {
+        showToast('正在替换音频并重新转录新音频...', 'info', 4000);
+        const resp = await apiFetch(`${API_BASE}/media/replace-audio`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_path: videoPath,
+                audio_path: audioPath,
+                output_dir: autoEditLastResult.output_dir || '',
+                script_text: scriptText,
+                language: document.getElementById('autoedit-language')?.value || 'auto',
+                min_score: parseFloat(document.getElementById('autoedit-min-score')?.value || '0.52'),
+                regenerate_subtitles: true,
+                burn_subtitles: document.getElementById('autoedit-burn-subtitles')?.checked || false,
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || '替换音频失败');
+        autoEditLastResult = {
+            ...autoEditLastResult,
+            manual_audio_path: audioPath,
+            manual_audio_video_path: data.output_path,
+            srt_path: data.srt_path || autoEditLastResult.srt_path,
+            subtitled_path: data.subtitled_path || '',
+            final_video_path: data.final_video_path || data.output_path,
+        };
+        renderAutoEditResult(autoEditLastResult);
+        showToast(data.message || '已用新音频替换视频声音并刷新字幕', 'success');
+    } catch (error) {
+        showToast(`替换音频失败: ${escapeHtml(error.message)}`, 'error');
+    }
+}
+
+window.replaceAutoEditResultAudio = replaceAutoEditResultAudio;
+
+async function viewAutoEditReport() {
+    if (!autoEditLastResult || !autoEditLastResult.report_path) {
+        showToast('没有找到对齐报告文件路径', 'error');
+        return;
+    }
+    const reportPath = autoEditLastResult.report_path;
+    if (!window.electronAPI || !window.electronAPI.readFileText) {
+        showToast('当前环境不支持读取本地文件', 'error');
+        return;
+    }
+    const reportText = window.electronAPI.readFileText(reportPath);
+    if (!reportText) {
+        showToast('对齐报告文件为空或读取失败', 'error');
+        return;
+    }
+
+    _showReportDialog(reportText, reportPath);
+}
+
+window.playVideoClip = function(filePath, startVal = 0, endVal = 0) {
+    if (!filePath) return;
+    
+    const startNum = parseFloat(startVal) || 0;
+    const endNum = parseFloat(endVal) || 0;
+    
+    // Create background overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:100000;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+    
+    const container = document.createElement('div');
+    container.style.cssText = 'background:#13132a;width:640px;border-radius:14px;padding:20px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 20px 60px rgba(0,0,0,0.7);display:flex;flex-direction:column;gap:14px;color:#e8ecff;position:relative;';
+    
+    const titleBar = document.createElement('div');
+    titleBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:10px;';
+    
+    const titleEl = document.createElement('span');
+    titleEl.style.cssText = 'font-size:14px;font-weight:600;color:#e8ecff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:480px;';
+    
+    const parts = filePath.split(/[/\\]/);
+    const fileName = parts[parts.length - 1];
+    titleEl.textContent = `▶️ 正在播放片段: ${fileName}${endNum > startNum ? ` [范围: ${startNum.toFixed(2)}s - ${endNum.toFixed(2)}s]` : ''}`;
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.style.cssText = 'border:none;background:rgba(255,255,255,0.06);color:#999;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;line-height:1;transition:all 0.2s;';
+    closeBtn.textContent = '关闭';
+    closeBtn.onmouseover = () => { closeBtn.style.background = 'rgba(255,255,255,0.1)'; closeBtn.style.color = '#fff'; };
+    closeBtn.onmouseout = () => { closeBtn.style.background = 'rgba(255,255,255,0.06)'; closeBtn.style.color = '#999'; };
+    
+    const destroy = () => {
+        videoEl.pause();
+        videoEl.src = '';
+        document.body.removeChild(overlay);
+    };
+    closeBtn.onclick = destroy;
+    
+    titleBar.appendChild(titleEl);
+    titleBar.appendChild(closeBtn);
+    
+    const videoUrl = window.electronAPI ? `local-media://${filePath}` : `file://${filePath}`;
+    const videoEl = document.createElement('video');
+    videoEl.src = videoUrl;
+    videoEl.controls = true;
+    videoEl.autoplay = true;
+    videoEl.style.cssText = 'width:100%;max-height:450px;border-radius:8px;outline:none;background:#000;border:1px solid rgba(255,255,255,0.05);';
+    
+    // Set crop boundaries
+    if (startNum > 0) {
+        videoEl.addEventListener('loadedmetadata', () => {
+            videoEl.currentTime = startNum;
+        });
+    }
+    
+    if (endNum > startNum) {
+        videoEl.addEventListener('timeupdate', () => {
+            if (videoEl.currentTime >= endNum) {
+                videoEl.pause();
+                videoEl.currentTime = startNum;
+            }
+        });
+    }
+    
+    videoEl.onerror = (e) => {
+        console.error('[playVideoClip] Video load error code:', videoEl.error ? videoEl.error.code : 'unknown', 'message:', videoEl.error ? videoEl.error.message : '', 'URL:', videoUrl);
+    };
+    
+    container.appendChild(titleBar);
+    container.appendChild(videoEl);
+    overlay.appendChild(container);
+    
+    overlay.onclick = (e) => {
+        if (e.target === overlay) destroy();
+    };
+    
+    document.body.appendChild(overlay);
+};
+
+window.replaceAutoEditClip = async function(originalPath, index) {
+    if (!window.electronAPI || !window.electronAPI.selectFiles) {
+        showToast('当前环境不支持选择文件', 'error');
+        return;
+    }
+    const files = await window.electronAPI.selectFiles({
+        title: '选择替换的视频片段',
+        properties: ['openFile'],
+        filters: [{ name: '视频文件', extensions: ['mp4', 'mov', 'avi', 'mkv'] }]
+    });
+    if (!files || files.length === 0) return;
+    const newClipPath = files[0];
+    
+    window.showAutoEditModalLoading('🔄 正在备份、替换视频文件并重新对齐，请稍候...');
+    
+    const result = await window.electronAPI.apiCall('media/auto-edit-replace-clip', {
+        originalClipPath: originalPath,
+        newClipPath: newClipPath
+    });
+    
+    if (result && result.success) {
+        // Update the file path in autoEditFiles
+        const updatedPath = (result.data && result.data.updatedPath) || originalPath;
+        const targetPath = String(originalPath || '').replace(/\\/g, '/');
+        let fileIdx = autoEditFiles.findIndex(f => String(f.path || '').replace(/\\/g, '/') === targetPath);
+        if (fileIdx !== -1) {
+            autoEditFiles[fileIdx].path = updatedPath;
+            autoEditFiles[fileIdx].name = updatedPath.split(/[/\\]/).pop();
+            autoEditFiles[fileIdx].status = '';
+            autoEditFiles[fileIdx].error = null;
+            renderAutoEditFiles();
+        }
+
+        const reportModal = document.getElementById('ae-report-dialog-overlay');
+        if (reportModal) reportModal.remove();
+
+        startAutoEditByScript(true);
+    } else {
+        showToast(`替换失败: ${result ? result.error : '未知错误'}`, 'error');
+        startAutoEditByScript(true);
+    }
+};
+
+window.copyTextToClipboard = function(text) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('已复制到剪贴板', 'success');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showToast('复制失败', 'error');
+    });
+};
+
+window.showAutoEditModalLoading = function(message) {
+    const modal = document.getElementById('ae-mismatch-dialog-overlay');
+    if (!modal) return;
+    const content = modal.querySelector('div');
+    if (!content) return;
+    content.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:20px;height:300px;">
+            <div style="width:50px;height:50px;border:3px solid rgba(255,255,255,0.1);border-radius:50%;border-top-color:#6366f1;animation:ae-spin 1s linear infinite;"></div>
+            <div style="font-size:15px;color:#a5b4fc;font-weight:600;">${message || '正在重新处理中，请稍候...'}</div>
+        </div>
+    `;
+};
+
+window.retranscribeAutoEditClip = async function(originalPath, index) {
+    window.showAutoEditModalLoading('🎙️ 正在清空此片段的转录缓存，请稍候...');
+    const result = await window.electronAPI.apiCall('media/clear-clip-cache', {
+        file_path: originalPath
+    });
+    
+    if (result && result.success) {
+        // Find in autoEditFiles and reset status
+        const targetPath = String(originalPath || '').replace(/\\/g, '/');
+        let fileIdx = autoEditFiles.findIndex(f => String(f.path || '').replace(/\\/g, '/') === targetPath);
+        if (fileIdx !== -1) {
+            autoEditFiles[fileIdx].status = '';
+            autoEditFiles[fileIdx].error = null;
+            renderAutoEditFiles();
+        }
+        
+        window.showAutoEditModalLoading('🎙️ 缓存已清空，正在重新对齐，请稍候...');
+        
+        // Close modals safely
+        const reportModal = document.getElementById('ae-report-dialog-overlay');
+        if (reportModal) reportModal.remove();
+        
+        // Re-run
+        startAutoEditByScript(true);
+    } else {
+        showToast(`清除缓存失败: ${result ? result.error : '未知错误'}`, 'error');
+        startAutoEditByScript(true);
+    }
+};
+
+window.removeAutoEditClip = async function(filePath, index) {
+    const targetPath = String(filePath || '').replace(/\\/g, '/');
+    let fileIdx = autoEditFiles.findIndex(f => String(f.path || '').replace(/\\/g, '/') === targetPath);
+    if (fileIdx !== -1) {
+        const baseName = autoEditFiles[fileIdx].name;
+        window.showAutoEditModalLoading(`🔕 正在从工作区排除片段 ${baseName}，请稍候...`);
+        autoEditFiles.splice(fileIdx, 1);
+        renderAutoEditFiles();
+        showToast(`已排除片段: ${baseName}`, 'success');
+        
+        // Close modals safely
+        const reportModal = document.getElementById('ae-report-dialog-overlay');
+        if (reportModal) reportModal.remove();
+        
+        // Re-run
+        startAutoEditByScript(true);
+    } else {
+        showToast('找不到指定的视频片段，已取消忽略，避免误删其他片段', 'error');
+    }
+};
+
+window.addSupplementaryClip = async function(targetLineIdx) {
+    if (!window.electronAPI || !window.electronAPI.selectFiles) {
+        showToast('当前环境不支持选择文件', 'error');
+        return;
+    }
+    const files = await window.electronAPI.selectFiles({
+        title: '选择要补充的视频片段',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: '视频文件', extensions: ['mp4', 'mov', 'avi', 'mkv'] }]
+    });
+    if (!files || files.length === 0) return;
+    
+    window.showAutoEditModalLoading('➕ 正在导入补充视频片段并重新对齐，请稍候...');
+
+    // Helper to get normalized folder path
+    const getNormalizedDir = (p) => {
+        const clean = p.replace(/\\/g, '/');
+        const idx = clean.lastIndexOf('/');
+        return idx !== -1 ? clean.substring(0, idx) : '';
+    };
+
+    // 1. Calculate the majority directory of the current files
+    let majorityDir = '';
+    if (autoEditFiles.length > 0) {
+        const counts = {};
+        autoEditFiles.forEach(f => {
+            const d = getNormalizedDir(f.path);
+            if (d) counts[d] = (counts[d] || 0) + 1;
+        });
+        let maxCount = 0;
+        for (const [d, count] of Object.entries(counts)) {
+            if (count > maxCount) {
+                maxCount = count;
+                majorityDir = d;
+            }
+        }
+        if (!majorityDir && autoEditFiles.length > 0) {
+            majorityDir = getNormalizedDir(autoEditFiles[0].path);
+        }
+    }
+
+    const addedFiles = [];
+    const skippedFiles = [];
+
+    // 2. Process each file
+    for (const filePath of files) {
+        const baseName = filePath.split(/[/\\]/).pop();
+        const fileDir = getNormalizedDir(filePath);
+
+        // Check if exact source path is already in the list
+        const isExactDuplicate = autoEditFiles.some(f => f.path.replace(/\\/g, '/') === filePath.replace(/\\/g, '/'));
+        if (isExactDuplicate) {
+            skippedFiles.push(baseName);
+            continue;
+        }
+
+        let finalPath = filePath;
+        // If the directory differs from the majority directory, copy it
+        if (majorityDir && fileDir !== majorityDir) {
+            const copyResult = await window.electronAPI.apiCall('media/copy-file', {
+                srcPath: filePath,
+                destDir: majorityDir,
+                destFileName: baseName
+            });
+            if (copyResult && copyResult.success && copyResult.data.path) {
+                finalPath = copyResult.data.path;
+            }
+        }
+
+        // Check if the copied final path is already in the list
+        const isFinalDuplicate = autoEditFiles.some(f => f.path.replace(/\\/g, '/') === finalPath.replace(/\\/g, '/'));
+        if (isFinalDuplicate) {
+            const finalBase = finalPath.split(/[/\\]/).pop();
+            skippedFiles.push(finalBase);
+            continue;
+        }
+
+        addedFiles.push({
+            name: finalPath.split(/[/\\]/).pop(),
+            path: finalPath,
+            status: '',
+            error: null
+        });
+    }
+
+    // 3. Show feedback for duplicates
+    if (skippedFiles.length > 0) {
+        showToast(`⚠️ 已跳过重复视频: ${skippedFiles.join(', ')}`, 'warning', 6000);
+    }
+
+    if (addedFiles.length === 0) {
+        // Re-run anyway to restore the nuclear warning modal
+        startAutoEditByScript(true);
+        return;
+    }
+
+    if (targetLineIdx !== undefined && targetLineIdx !== null && targetLineIdx !== '') {
+        // Find correct insertion index in autoEditFiles based on targetLineIdx
+        let insertIndex = autoEditFiles.length;
+        const mismatches = window.autoEditLastMismatches;
+        
+        const filePositions = autoEditFiles.map((f, idx) => {
+            const m = mismatches?.find(x => x.clipPath.replace(/\\/g, '/') === f.path.replace(/\\/g, '/'));
+            return {
+                index: idx,
+                line: (m && m.scriptStartLine !== -1 && m.scriptStartLine !== undefined) ? m.scriptStartLine : 999999
+            };
+        });
+        
+        const nextFileIdx = filePositions.findIndex(p => p.line > targetLineIdx);
+        if (nextFileIdx !== -1) {
+            insertIndex = nextFileIdx;
+        }
+        
+        autoEditFiles.splice(insertIndex, 0, ...addedFiles);
+    } else {
+        autoEditFiles.push(...addedFiles);
+        autoEditFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    }
+    renderAutoEditFiles();
+    
+    // Close modals safely
+    const reportModal = document.getElementById('ae-report-dialog-overlay');
+    if (reportModal) reportModal.remove();
+    
+    // Re-run
+    startAutoEditByScript(true);
+};
+
+function parseMarkdownToHtml(md) {
+    let html = String(md || '');
+    
+    // Escape HTML first to prevent XSS issues but keep our rendering safe
+    html = html.replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
+    
+    // Restore safe inline diff HTML tags
+    html = html.replace(/&lt;del style=&quot;([\s\S]*?)&quot;&gt;([\s\S]*?)&lt;\/del&gt;/g, '<del style="$1">$2</del>');
+    html = html.replace(/&lt;ins style=&quot;([\s\S]*?)&quot;&gt;([\s\S]*?)&lt;\/ins&gt;/g, '<ins style="$1">$2</ins>');
+    html = html.replace(/&lt;details( open)?&gt;/g, '<details$1>');
+    html = html.replace(/&lt;\/details&gt;/g, '</details>');
+    html = html.replace(/&lt;summary&gt;/g, '<summary>');
+    html = html.replace(/&lt;\/summary&gt;/g, '</summary>');
+    html = html.replace(/&lt;b&gt;/g, '<b>');
+    html = html.replace(/&lt;\/b&gt;/g, '</b>');
+
+    // Parse replace clip action tag
+    html = html.replace(/\[action:replace-clip\|path:(.*?)\|index:(\d+)\]/g, (m, filePath, index) => {
+        const safePath = filePath.replace(/\\/g, '\\\\');
+        return `<div style="display:inline-block;margin:4px 8px 6px 14px;"><button class="btn btn-secondary" onclick="window.replaceAutoEditClip('${safePath}', ${index})" style="font-size:11px;padding:3px 10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;border-radius:5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.2;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(239,68,68,0.22)'" onmouseout="this.style.background='rgba(239,68,68,0.12)'">🔄 替换此片段并重新对齐</button></div>`;
+    });
+
+    // Parse re-transcribe clip action tag
+    html = html.replace(/\[action:retranscribe-clip\|path:(.*?)\|index:(\d+)\]/g, (m, filePath, index) => {
+        const safePath = filePath.replace(/\\/g, '\\\\');
+        return `<div style="display:inline-block;margin:4px 8px 6px 0;"><button class="btn btn-secondary" onclick="window.retranscribeAutoEditClip('${safePath}', ${index})" style="font-size:11px;padding:3px 10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);color:#818cf8;border-radius:5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.2;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.22)'" onmouseout="this.style.background='rgba(99,102,241,0.12)'">🎙️ 重录/重新转录此片段</button></div>`;
+    });
+
+    // Parse add supplementary clip action tag
+    html = html.replace(/\[action:add-supplementary-clip(?:\|line:(\d+))?\]/g, (m, lineIdx) => {
+        const lineArg = lineIdx !== undefined ? parseInt(lineIdx, 10) : '';
+        return `<div style="display:inline-block;margin:4px 8px 6px 14px;"><button class="btn btn-secondary" onclick="window.addSupplementaryClip(${lineArg})" style="font-size:11px;padding:3px 10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);color:#4ade80;border-radius:5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.2;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(16,185,129,0.22)'" onmouseout="this.style.background='rgba(16,185,129,0.12)'">➕ 补充视频片段并重新对齐</button></div>`;
+    });
+
+    // Parse video path button
+    html = html.replace(/-\s+\*\*视频路径\*\*:\s+`(.*?)`(\s+\[time:([\d\.]+),([\d\.]+)\])?/g, (m, filePath, hasTime, start, end) => {
+        const safePath = filePath.replace(/\\/g, '\\\\');
+        const startVal = start ? parseFloat(start) : 0;
+        const endVal = end ? parseFloat(end) : 0;
+        return `<div style="margin:6px 0;padding-left:14px;position:relative;"><button class="btn btn-secondary" onclick="window.playVideoClip('${safePath}', ${startVal}, ${endVal})" style="font-size:11px;padding:3px 10px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);color:#60a5fa;border-radius:5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.2;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(59,130,246,0.22)'" onmouseout="this.style.background='rgba(59,130,246,0.12)'">▶️ 播放当前片段</button></div>`;
+    });
+    
+    // Parse triple backticks code blocks
+    html = html.replace(/&lt;!--\s*slide\s*--&gt;/g, '');
+    html = html.replace(/```(?:text)?([\s\S]*?)```/g, (m, code) => {
+        return `<pre style="background:#070714;padding:12px;border-radius:8px;overflow-x:auto;color:#a5b4fc;font-family:'Courier New',Courier,monospace;font-size:12px;line-height:1.5;margin:8px 0;border:1px solid rgba(255,255,255,0.05);white-space:pre-wrap;word-break:break-all;">${code.trim()}</pre>`;
+    });
+    
+    // Parse headers
+    html = html.replace(/^#\s+(.*?)$/gm, '<h2 style="font-size:18px;font-weight:700;color:#fff;margin:16px 0 10px 0;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:6px;">$1</h2>');
+    html = html.replace(/^##\s+(.*?)$/gm, '<h3 style="font-size:14px;font-weight:600;color:#e8ecff;margin:14px 0 8px 0;border-left:3px solid var(--accent);padding-left:8px;">$1</h3>');
+    html = html.replace(/^###\s+(.*?)$/gm, '<h4 style="font-size:13px;font-weight:600;color:#a5b4fc;margin:12px 0 6px 0;">$1</h4>');
+    
+    // Parse bold text
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;font-weight:600;">$1</strong>');
+    
+    // Parse inline code
+    html = html.replace(/`(.*?)`/g, '<code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px;color:#ff9e9e;">$1</code>');
+    
+    // Parse list items
+    html = html.replace(/^-\s+(.*?)$/gm, '<div style="margin:4px 0;padding-left:14px;position:relative;line-height:1.5;"><span style="position:absolute;left:2px;color:var(--accent);">•</span>$1</div>');
+    
+    // Parse dividers
+    html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:16px 0;" />');
+    
+    // Format line breaks for general paragraphs (preserving already converted block tags)
+    const lines = html.split('\n');
+    const processedLines = lines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '<div style="height:8px;"></div>';
+        if (trimmed.startsWith('<h') || trimmed.startsWith('<div') || trimmed.startsWith('<pre') || trimmed.startsWith('<hr') || trimmed.startsWith('</pre>') || trimmed.startsWith('<details') || trimmed.startsWith('</details>') || trimmed.startsWith('<summary') || trimmed.startsWith('</summary>')) {
+            return line;
+        }
+        return `<p style="margin:6px 0;line-height:1.6;color:#c7cfeb;">${line}</p>`;
+    });
+    
+    return processedLines.join('\n');
+}
+
+function _showReportDialog(reportText, reportPath) {
+    const modal = document.createElement('div');
+    modal.id = 'ae-report-dialog-overlay';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+
+    const content = document.createElement('div');
+    content.style.cssText = 'background:#13132a;width:720px;max-height:80%;border-radius:14px;padding:24px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 20px 60px rgba(0,0,0,0.6);display:flex;flex-direction:column;gap:16px;color:#e8ecff;';
+
+    const htmlContent = parseMarkdownToHtml(reportText);
+
+    content.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:12px;">
+            <span style="font-size:24px;">📊</span>
+            <div style="flex:1;">
+                <h3 style="margin:0;color:#e8ecff;font-size:16px;font-weight:700;">文案与视频音频对齐报告</h3>
+                <div style="font-size:11px;color:#8b95c0;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${reportPath}">报告文件: ${reportPath}</div>
+            </div>
+            <button id="ae-report-dialog-close" style="border:none;background:rgba(255,255,255,0.06);color:#999;border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer;line-height:1;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='#999';">关闭</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding-right:8px;font-size:13px;" class="scroll-container">
+            ${htmlContent}
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;">
+            <button id="ae-report-dialog-folder" class="btn btn-secondary" style="font-size:12px;padding:6px 14px;">📁 打开输出文件夹</button>
+            <button id="ae-report-dialog-confirm" class="btn btn-primary" style="font-size:12px;padding:6px 18px;">好的</button>
+        </div>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    const closeBtn = content.querySelector('#ae-report-dialog-close');
+    const confirmBtn = content.querySelector('#ae-report-dialog-confirm');
+    const folderBtn = content.querySelector('#ae-report-dialog-folder');
+
+    const destroy = () => {
+        document.body.removeChild(modal);
+    };
+
+    closeBtn.onclick = destroy;
+    confirmBtn.onclick = destroy;
+    folderBtn.onclick = () => {
+        if (window.electronAPI?.showItemInFolder) {
+            window.electronAPI.showItemInFolder(reportPath);
+        }
+        destroy();
+    };
+
+    modal.onclick = (e) => {
+        if (e.target === modal) destroy();
+    };
+}
+
+window.viewAutoEditReport = viewAutoEditReport;
+
+function showAutoEditResultFile(index) {
+    const item = autoEditResultFiles[index];
+    if (item?.path && window.electronAPI?.showItemInFolder) {
+        window.electronAPI.showItemInFolder(item.path);
+    }
+}
+
+function openAutoEditOutputDir() {
+    if (autoEditOutputDir && window.electronAPI?.showItemInFolder) {
+        window.electronAPI.showItemInFolder(autoEditOutputDir);
+    } else {
+        showToast('还没有输出目录', 'info');
+    }
+}
+
+async function sendAutoEditResultToReels(result = null, options = {}) {
+    const data = result || autoEditLastResult;
+    if (!data?.output_path || !data?.srt_path) {
+        showToast('还没有可送入批量 Reels 的自动剪辑结果', 'error');
+        return;
+    }
+    if (typeof window.reelsCreateTaskFromAutoEditResult !== 'function') {
+        showToast('批量 Reels 接收函数未加载，请先打开批量 Reels 页面后再试', 'error');
+        return;
+    }
+
+    try {
+        const task = await window.reelsCreateTaskFromAutoEditResult(data);
+        if (typeof openPanelByName === 'function') openPanelByName('batch-reels');
+        if (!options.silent) {
+            showToast(`已送入批量 Reels: ${task?.fileName || '自动剪辑任务'}`, 'success');
+        }
+    } catch (error) {
+        showToast(`送入批量 Reels 失败: ${escapeHtml(error.message)}`, 'error');
+        throw error;
+    }
+}
+
+function openAutoEditFromReels() {
+    if (typeof openPanelByName === 'function') openPanelByName('media');
+    if (typeof switchMediaSubtab === 'function') switchMediaSubtab('media-autoedit');
+
+    document.querySelectorAll('.media-sidebar .sidebar-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.subtab === 'media-autoedit');
+    });
+
+    const sendCheckbox = document.getElementById('autoedit-send-reels');
+    if (sendCheckbox) sendCheckbox.checked = true;
+}
+
 // ==================== 批量剪辑模块 ====================
 
 let batchCutFilePath = '';
@@ -12226,8 +14566,8 @@ function batchCutUpdateSubtitle(rowIdx, colIdx, value) {
 
 // HTML 转义辅助
 function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // 更新行数据
@@ -13555,7 +15895,7 @@ function _renderBatchTxtTable() {
     const startNum = parseInt(document.getElementById('batchtxt-start-num')?.value || '1', 10) || 1;
     const padding = parseInt(document.getElementById('batchtxt-padding')?.value || '2', 10);
 
-    const escHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     listEl.innerHTML = _batchTxtCells.map((cell, i) => {
         const num = startNum + i;
@@ -14245,7 +16585,7 @@ function _renderBatchRenameList() {
         return;
     }
 
-    const escHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     listEl.innerHTML = _batchRenameFiles.map((f, i) => {
         const newName = _calculateNewName(f, i);
@@ -14318,7 +16658,1147 @@ async function startBatchRename() {
     }
 }
 
-// 初始化批量重命名模块
+// 初始化批量重命名模块与音频检测对齐模块
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(_initBatchRename, 200);
+    setTimeout(initAudioMatchFileInputs, 200);
 });
+
+// ==================== 音频检测与对齐模块 ====================
+let amOriginalPath = '';
+let amConvertedPath = '';
+let amOriginalBuffer = null;
+let amConvertedBuffer = null;
+let amAlignedBuffer = null;
+let amAudioContext = null;
+let amOriginalEnvelope = null;
+let amConvertedEnvelope = null;
+let amSegments = [];
+let amCurrentPlaySources = [];
+let amOffsetMs = 0;
+let amPlaybackTime = 0;
+let amPlayheadAnimationId = null;
+let amPlaybackStartOffset = 0;
+let amPlaybackStartTimeInContext = 0;
+let amCurrentPlayType = null;
+
+function toArrayBuffer(buf) {
+    if (!buf) return null;
+    if (buf instanceof ArrayBuffer) {
+        return buf;
+    }
+    if (ArrayBuffer.isView(buf)) {
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    }
+    if (buf.type === 'Buffer' && Array.isArray(buf.data)) {
+        return new Uint8Array(buf.data).buffer;
+    }
+    if (buf.buffer instanceof ArrayBuffer) {
+        return buf.buffer;
+    }
+    return null;
+}
+
+// 2阶 IIR 带通滤波器，限制频率在人声区间 200Hz - 3400Hz，过滤环境背景音乐(BGM)、低频交流声和高频噪声
+function bandpassFilter(samples, sampleRate) {
+    const output = new Float32Array(samples.length);
+    const dt = 1.0 / sampleRate;
+    const rcLP = 1.0 / (2.0 * Math.PI * 3400);
+    const alphaLP = dt / (rcLP + dt);
+    const rcHP = 1.0 / (2.0 * Math.PI * 200);
+    const alphaHP = rcHP / (rcHP + dt);
+    
+    let lpVal = 0;
+    let hpVal = 0;
+    let prevIn = 0;
+    
+    for (let i = 0; i < samples.length; i++) {
+        // 低通滤波器 3400Hz
+        lpVal = lpVal + alphaLP * (samples[i] - lpVal);
+        // 高通滤波器 200Hz (作用于低通结果上)
+        hpVal = alphaHP * (hpVal + lpVal - prevIn);
+        prevIn = lpVal;
+        output[i] = hpVal;
+    }
+    return output;
+}
+
+function initAudioMatchFileInputs() {
+    const origInput = document.getElementById('am-original-input');
+    const convInput = document.getElementById('am-converted-input');
+    if (origInput) {
+        origInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                amOriginalPath = window.electronAPI?.getFilePath?.(file) || file.path || '';
+                document.getElementById('am-original-path').value = amOriginalPath || file.name;
+            }
+        });
+    }
+    if (convInput) {
+        convInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                amConvertedPath = window.electronAPI?.getFilePath?.(file) || file.path || '';
+                document.getElementById('am-converted-path').value = amConvertedPath || file.name;
+            }
+        });
+    }
+
+    // 拖拽支持
+    const origCard = document.getElementById('am-original-card');
+    const convCard = document.getElementById('am-converted-card');
+    const mediaExts = ['.mp4', '.mov', '.mkv', '.wav', '.mp3', '.m4a'];
+
+    if (origCard) {
+        origCard.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            origCard.style.borderColor = '#a78bfa';
+            origCard.style.background = 'rgba(167, 139, 250, 0.08)';
+        });
+        origCard.addEventListener('dragleave', () => {
+            origCard.style.borderColor = 'rgba(255,255,255,0.15)';
+            origCard.style.background = 'rgba(255,255,255,0.02)';
+        });
+        origCard.addEventListener('drop', (e) => {
+            e.preventDefault();
+            origCard.style.borderColor = 'rgba(255,255,255,0.15)';
+            origCard.style.background = 'rgba(255,255,255,0.02)';
+            
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                const matched = mediaExts.some(ext => file.name.toLowerCase().endsWith(ext));
+                if (matched) {
+                    amOriginalPath = window.electronAPI?.getFilePath?.(file) || file.path || '';
+                    document.getElementById('am-original-path').value = amOriginalPath || file.name;
+                    showToast('已拖入并加载原始音频/视频', 'success');
+                } else {
+                    showToast('不支持的文件格式，仅支持 mp4, mov, mkv, wav, mp3, m4a', 'warning');
+                }
+            }
+        });
+    }
+
+    if (convCard) {
+        convCard.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            convCard.style.borderColor = '#60a5fa';
+            convCard.style.background = 'rgba(96, 165, 250, 0.08)';
+        });
+        convCard.addEventListener('dragleave', () => {
+            convCard.style.borderColor = 'rgba(255,255,255,0.15)';
+            convCard.style.background = 'rgba(255,255,255,0.02)';
+        });
+        convCard.addEventListener('drop', (e) => {
+            e.preventDefault();
+            convCard.style.borderColor = 'rgba(255,255,255,0.15)';
+            convCard.style.background = 'rgba(255,255,255,0.02)';
+            
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                const matched = mediaExts.some(ext => file.name.toLowerCase().endsWith(ext));
+                if (matched) {
+                    amConvertedPath = window.electronAPI?.getFilePath?.(file) || file.path || '';
+                    document.getElementById('am-converted-path').value = amConvertedPath || file.name;
+                    showToast('已拖入并加载变声后音频/视频', 'success');
+                } else {
+                    showToast('不支持的文件格式，仅支持 mp4, mov, mkv, wav, mp3, m4a', 'warning');
+                }
+            }
+        });
+    }
+
+    // 点击波形图跳转播放轴支持
+    const origCanvas = document.getElementById('am-canvas-original');
+    const convCanvas = document.getElementById('am-canvas-converted');
+    const diffCanvas = document.getElementById('am-canvas-diff');
+
+    const handleCanvasClick = (e, canvasEl) => {
+        if (!amOriginalBuffer) return;
+        const rect = canvasEl.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const w = rect.width;
+        const clickRatio = Math.max(0, Math.min(1, x / w));
+        const clickedTime = clickRatio * amOriginalBuffer.duration;
+
+        // 如果正在播放，停止并从点击的时刻重新开始播放当前类型
+        if (amCurrentPlayType) {
+            playAudioMatchAudio(amCurrentPlayType, clickedTime);
+        } else {
+            // 否则仅更新播放时间并重画界面线
+            amPlaybackTime = clickedTime;
+            drawAudioMatchWaveforms();
+        }
+    };
+
+    if (origCanvas) {
+        origCanvas.addEventListener('click', (e) => handleCanvasClick(e, origCanvas));
+    }
+    if (convCanvas) {
+        convCanvas.addEventListener('click', (e) => handleCanvasClick(e, convCanvas));
+    }
+    if (diffCanvas) {
+        diffCanvas.addEventListener('click', (e) => handleCanvasClick(e, diffCanvas));
+    }
+}
+
+async function selectAudioMatchFile(type) {
+    const filters = [{ name: '媒体文件', extensions: ['mp4', 'mov', 'mkv', 'wav', 'mp3', 'm4a'] }];
+    if (window.electronAPI?.selectFiles) {
+        const files = await window.electronAPI.selectFiles({
+            filters,
+            multiple: false,
+            title: type === 'original' ? '选择原始音视频' : '选择变声后音视频'
+        });
+        if (files && files.length > 0) {
+            const filePath = files[0];
+            if (type === 'original') {
+                amOriginalPath = filePath;
+                document.getElementById('am-original-path').value = filePath;
+            } else {
+                amConvertedPath = filePath;
+                document.getElementById('am-converted-path').value = filePath;
+            }
+        }
+    } else {
+        const input = document.getElementById(type === 'original' ? 'am-original-input' : 'am-converted-input');
+        if (input) input.click();
+    }
+}
+
+async function runAudioMatchAnalysis() {
+    if (!amOriginalPath || !amConvertedPath) {
+        showToast('请先选择两个音频/视频文件', 'error');
+        return;
+    }
+
+    // 重置播放轴状态
+    amPlaybackTime = 0;
+    amCurrentPlayType = null;
+    cancelPlayheadAnimation();
+
+    const statusSec = document.getElementById('am-status-section');
+    const statusText = document.getElementById('am-status-text');
+    const progressBarInner = document.querySelector('#am-progress-bar .progress-bar-inner');
+    
+    statusSec.classList.remove('hidden');
+    progressBarInner.style.width = '10%';
+    statusText.textContent = '读取原始音频中...';
+
+    try {
+        if (!amAudioContext) {
+            amAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        const origData = await window.electronAPI.readFileBuffer(amOriginalPath);
+        progressBarInner.style.width = '30%';
+        statusText.textContent = '解码原始音频中...';
+        
+        const origArrayBuf = toArrayBuffer(origData);
+        if (!origArrayBuf) throw new Error('无法转换原始音频数据为 ArrayBuffer');
+        amOriginalBuffer = await amAudioContext.decodeAudioData(origArrayBuf);
+
+        progressBarInner.style.width = '45%';
+        statusText.textContent = '读取变声音频中...';
+        const convData = await window.electronAPI.readFileBuffer(amConvertedPath);
+        progressBarInner.style.width = '60%';
+        statusText.textContent = '解码变声音频中...';
+        
+        const convArrayBuf = toArrayBuffer(convData);
+        if (!convArrayBuf) throw new Error('无法转换变声音频数据为 ArrayBuffer');
+        amConvertedBuffer = await amAudioContext.decodeAudioData(convArrayBuf);
+
+        progressBarInner.style.width = '80%';
+        statusText.textContent = '正在计算音频特征包络...';
+
+        amOriginalEnvelope = extractEnvelope(amOriginalBuffer, 100);
+        amConvertedEnvelope = extractEnvelope(amConvertedBuffer, 100);
+
+        statusText.textContent = '正在计算频谱包络对齐偏置...';
+        // 动态计算最大偏置搜索范围，最大支持15秒（1500帧）
+        const maxLagFrames = Math.min(1500, Math.floor(Math.min(amOriginalEnvelope.length, amConvertedEnvelope.length) * 0.9));
+        const crossCorr = computeCrossCorrelation(amOriginalEnvelope, amConvertedEnvelope, maxLagFrames);
+        amOffsetMs = Math.round(crossCorr.bestLag * 10);
+
+        // 动态设置滑动条的最大/最小范围
+        const maxOffsetLimit = Math.round(Math.min(amOriginalBuffer.duration, amConvertedBuffer.duration) * 0.8 * 1000);
+        const rangeEl = document.getElementById('am-offset-range');
+        if (rangeEl) {
+            rangeEl.min = -maxOffsetLimit;
+            rangeEl.max = maxOffsetLimit;
+        }
+
+        document.getElementById('am-offset-range').value = amOffsetMs;
+        document.getElementById('am-offset-val-text').textContent = `${amOffsetMs} ms`;
+
+        detectSpeechSegments();
+        drawAudioMatchWaveforms();
+
+        document.getElementById('am-btn-autoalign').disabled = false;
+        document.getElementById('am-btn-export').disabled = true;
+        document.getElementById('am-play-aligned').disabled = true;
+
+        progressBarInner.style.width = '100%';
+        statusText.textContent = '分析对比完成！';
+        setTimeout(() => statusSec.classList.add('hidden'), 1000);
+
+        document.getElementById('am-visualizer-section').classList.remove('hidden');
+        document.getElementById('am-results-section').classList.remove('hidden');
+
+        const driftText = amOffsetMs !== 0 ? `检测到整体时间漂移: ${amOffsetMs} ms` : '音轨完美对齐，无时间偏移';
+        document.getElementById('am-align-info').textContent = `${driftText} (匹配度 ${Math.round(crossCorr.maxVal * 100)}%)`;
+
+        showToast('音频特征分析完成', 'success');
+    } catch (e) {
+        console.error('Audio Match Analysis failed:', e);
+        statusText.textContent = `❌ 失败: ${e.message}`;
+        progressBarInner.style.background = 'var(--error)';
+        showToast(`分析失败: ${e.message}`, 'error');
+    }
+}
+
+function extractEnvelope(audioBuffer, framesPerSec) {
+    const rawChData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    
+    // 应用带通滤波器，保留 200Hz - 3400Hz 的人声频率区间，过滤 BGM 低音和高频噪音
+    const chData = bandpassFilter(rawChData, sampleRate);
+    
+    const samplesPerFrame = Math.round(sampleRate / framesPerSec);
+    const numFrames = Math.ceil(chData.length / samplesPerFrame);
+    const envelope = new Float32Array(numFrames);
+
+    for (let f = 0; f < numFrames; f++) {
+        const startIdx = f * samplesPerFrame;
+        const endIdx = Math.min(startIdx + samplesPerFrame, chData.length);
+        let sum = 0;
+        for (let i = startIdx; i < endIdx; i++) {
+            sum += chData[i] * chData[i];
+        }
+        envelope[f] = Math.sqrt(sum / (endIdx - startIdx || 1));
+    }
+
+    // 1. 平滑处理 (Moving Average)
+    const smoothEnv = new Float32Array(numFrames);
+    const win = 3;
+    for (let i = 0; i < numFrames; i++) {
+        let sum = 0;
+        let count = 0;
+        for (let j = Math.max(0, i - win); j <= Math.min(numFrames - 1, i + win); j++) {
+            sum += envelope[j];
+            count++;
+        }
+        smoothEnv[i] = sum / count;
+    }
+
+    // 2. 去除环境噪音底噪 (减去第5百分位数)
+    const sortedVals = [...smoothEnv].sort((a, b) => a - b);
+    const noiseFloor = sortedVals[Math.floor(smoothEnv.length * 0.05)] || 0;
+    for (let i = 0; i < numFrames; i++) {
+        smoothEnv[i] = Math.max(0, smoothEnv[i] - noiseFloor);
+    }
+
+    // 3. 归一化到 [0, 1] 区间，消除绝对音量差异，极大地提高频谱形状匹配精度
+    let maxVal = 0;
+    for (let i = 0; i < numFrames; i++) {
+        if (smoothEnv[i] > maxVal) maxVal = smoothEnv[i];
+    }
+    if (maxVal > 0) {
+        for (let i = 0; i < numFrames; i++) {
+            smoothEnv[i] /= maxVal;
+        }
+    }
+
+    return smoothEnv;
+}
+
+function computeCrossCorrelation(env1, env2, maxLagFrames) {
+    let bestLag = 0;
+    let maxVal = -1;
+
+    // 使用去均值皮尔逊相关系数 (Pearson Correlation Coefficient) 进行全局对齐，去除直流偏置
+    for (let lag = -maxLagFrames; lag <= maxLagFrames; lag++) {
+        let count = 0;
+        let sum1 = 0;
+        let sum2 = 0;
+
+        // 1. 第一轮循环：计算当前重叠范围内的总和，用于算均值
+        for (let t = 0; t < env1.length; t++) {
+            const t2 = t + lag;
+            if (t2 >= 0 && t2 < env2.length) {
+                sum1 += env1[t];
+                sum2 += env2[t2];
+                count++;
+            }
+        }
+
+        if (count < 50) continue; // 要求至少 500ms 重叠
+
+        const mean1 = sum1 / count;
+        const mean2 = sum2 / count;
+
+        // 2. 第二轮循环：计算去均值的余弦相似度
+        let sumCross = 0;
+        let sum1Sq = 0;
+        let sum2Sq = 0;
+
+        for (let t = 0; t < env1.length; t++) {
+            const t2 = t + lag;
+            if (t2 >= 0 && t2 < env2.length) {
+                const v1 = env1[t] - mean1;
+                const v2 = env2[t2] - mean2;
+                sumCross += v1 * v2;
+                sum1Sq += v1 * v1;
+                sum2Sq += v2 * v2;
+            }
+        }
+
+        if (sum1Sq > 0 && sum2Sq > 0) {
+            const val = sumCross / Math.sqrt(sum1Sq * sum2Sq);
+            if (val > maxVal) {
+                maxVal = val;
+                bestLag = lag;
+            }
+        }
+    }
+
+    return { bestLag, maxVal };
+}
+
+function detectSpeechSegments() {
+    if (!amOriginalEnvelope) return;
+    
+    // 归一化后，VAD threshold 使用 0.06 极为稳定
+    const threshold = 0.06;
+    const minSilenceFrames = 30; // 300ms 停顿切分句子
+    const minSpeechFrames = 15;  // 150ms 最小语音长度
+    
+    amSegments = [];
+    let inSpeech = false;
+    let speechStart = 0;
+    let silenceCount = 0;
+
+    for (let i = 0; i < amOriginalEnvelope.length; i++) {
+        const v = amOriginalEnvelope[i];
+        if (v >= threshold) {
+            if (!inSpeech) {
+                inSpeech = true;
+                speechStart = i;
+            }
+            silenceCount = 0;
+        } else {
+            if (inSpeech) {
+                silenceCount++;
+                if (silenceCount >= minSilenceFrames) {
+                    const speechEnd = i - silenceCount + 1;
+                    if (speechEnd - speechStart >= minSpeechFrames) {
+                        amSegments.push({
+                            startFrame: speechStart,
+                            endFrame: speechEnd,
+                            startTime: speechStart * 0.01,
+                            endTime: speechEnd * 0.01
+                        });
+                    }
+                    inSpeech = false;
+                }
+            }
+        }
+    }
+    
+    if (inSpeech) {
+        const speechEnd = amOriginalEnvelope.length;
+        if (speechEnd - speechStart >= minSpeechFrames) {
+            amSegments.push({
+                startFrame: speechStart,
+                endFrame: speechEnd,
+                startTime: speechStart * 0.01,
+                endTime: speechEnd * 0.01
+            });
+        }
+    }
+
+    const resultsList = document.getElementById('am-results-list');
+    resultsList.innerHTML = '';
+
+    let mismatchCount = 0;
+    let totalSegments = amSegments.length;
+
+    amSegments.forEach((seg, idx) => {
+        const offsetFrames = Math.round(amOffsetMs / 10);
+        const alignedStartFrame = seg.startFrame + offsetFrames;
+        
+        const segOrig = amOriginalEnvelope.slice(seg.startFrame, seg.endFrame + 1);
+
+        // 局部滑动相关搜索：限制在紧凑的 ±1.5 秒 (±150 帧) 以内，防止误匹配到其他句子
+        // 并使用去均值的皮尔逊相关系数，以确保比对精度
+        let bestLocalCorr = -1;
+        let bestLocalLag = 0;
+        const maxLocalLag = 150; 
+
+        for (let lag = -maxLocalLag; lag <= maxLocalLag; lag++) {
+            let count = 0;
+            let sum1 = 0;
+            let sum2 = 0;
+            
+            for (let j = 0; j < segOrig.length; j++) {
+                const convIdx = alignedStartFrame + j + lag;
+                if (convIdx >= 0 && convIdx < amConvertedEnvelope.length) {
+                    sum1 += segOrig[j];
+                    sum2 += amConvertedEnvelope[convIdx];
+                    count++;
+                }
+            }
+            
+            if (count < 10) continue; // 至少需要有 100ms 重叠
+            
+            const mean1 = sum1 / count;
+            const mean2 = sum2 / count;
+            
+            let sCross = 0, sOrigSq = 0, sConvSq = 0;
+            for (let j = 0; j < segOrig.length; j++) {
+                const convIdx = alignedStartFrame + j + lag;
+                if (convIdx >= 0 && convIdx < amConvertedEnvelope.length) {
+                    const v1 = segOrig[j] - mean1;
+                    const v2 = amConvertedEnvelope[convIdx] - mean2;
+                    sCross += v1 * v2;
+                    sOrigSq += v1 * v1;
+                    sConvSq += v2 * v2;
+                }
+            }
+            
+            if (sOrigSq > 0 && sConvSq > 0) {
+                const corr = sCross / Math.sqrt(sOrigSq * sConvSq);
+                if (corr > bestLocalCorr) {
+                    bestLocalCorr = corr;
+                    bestLocalLag = lag;
+                }
+            }
+        }
+
+        // 最终匹配到的实际变声音频中的起始位置
+        const matchedStartFrame = alignedStartFrame + bestLocalLag;
+        const matchedEndFrame = matchedStartFrame + segOrig.length;
+
+        // 计算目标变声音频在这个实际对齐的时间段内的平均能量
+        let sumConv = 0;
+        let count = 0;
+        const checkStart = Math.max(0, matchedStartFrame);
+        const checkEnd = Math.min(amConvertedEnvelope.length - 1, matchedEndFrame);
+        for (let f = checkStart; f <= checkEnd; f++) {
+            sumConv += amConvertedEnvelope[f];
+            count++;
+        }
+        const avgEnergyConv = sumConv / (count || 1);
+
+        let status = 'match';
+        let statusText = '';
+        let color = '';
+        
+        // 局部对于全局偏差的毫秒值
+        const driftMs = bestLocalLag * 10;
+
+        // 判定条件：
+        // 1. 平均能量过低 (即目标音轨在该片段是静音，说明漏变了)
+        // 2. 皮尔逊相关系数过低 (小于 0.45，说明人声波形趋势完全对不上，很可能是其他句子或噪音)
+        // 3. 局部偏移漂移过大 (大于 400ms，说明时间线严重撕裂，也是未对齐的体现)
+        if (avgEnergyConv < 0.02) {
+            status = 'mismatch';
+            statusText = '❌ 变声片段缺失或完全静音';
+            color = '#f87171';
+            mismatchCount++;
+        } else if (bestLocalCorr < 0.45) {
+            status = 'mismatch';
+            statusText = `❌ 频谱内容不匹配 (相似度 ${Math.round(bestLocalCorr * 100)}%)`;
+            color = '#f87171';
+            mismatchCount++;
+        } else if (Math.abs(driftMs) > 400) {
+            status = 'mismatch';
+            statusText = `❌ 严重时间错位: ${driftMs > 0 ? '+' : ''}${driftMs} ms (相似度 ${Math.round(bestLocalCorr * 100)}%)`;
+            color = '#f87171';
+            mismatchCount++;
+        } else if (Math.abs(driftMs) > 80) { // 局部偏移在 80ms - 400ms 之间，属于微小漂移
+            status = 'drift';
+            statusText = `⚠️ 局部时间漂移: ${driftMs > 0 ? '+' : ''}${driftMs} ms (相似度 ${Math.round(bestLocalCorr * 100)}%)`;
+            color = '#fb923c';
+        } else {
+            status = 'match';
+            statusText = `✅ 正常对齐 (相似度 ${Math.round(bestLocalCorr * 100)}%)`;
+            color = '#34d399';
+        }
+
+        seg.status = status;
+        seg.correlation = bestLocalCorr;
+        seg.avgEnergyConv = avgEnergyConv;
+        // 保存该句子的最佳绝对偏移量 (在 converted 轨中的帧偏移)
+        seg.localLag = offsetFrames + bestLocalLag; 
+
+        const item = document.createElement('div');
+        item.style.cssText = `display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.02); border-left:4px solid ${color}; border-radius:4px; font-size:12px;`;
+        item.innerHTML = `
+            <div>
+                <span style="font-weight:bold; color:#e8ecff;">片段 #${idx + 1} (${seg.startTime.toFixed(2)}s - ${seg.endTime.toFixed(2)}s)</span>
+                <span style="margin-left:12px; color:#a3aed0;">${statusText}</span>
+            </div>
+            <div style="font-family:monospace; color:#8b95c0;">相似度: ${Math.round(bestLocalCorr * 100)}%</div>
+        `;
+        resultsList.appendChild(item);
+    });
+
+    if (totalSegments === 0) {
+        resultsList.innerHTML = '<div style="color:#8b95c0; font-size:12px; text-align:center; padding:12px;">未检测到明显的语音片段</div>';
+    }
+}
+
+function drawAudioMatchWaveforms() {
+    if (!amOriginalBuffer || !amConvertedBuffer) return;
+
+    const drawWave = (canvasId, buffer, offsetMs = 0) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.parentElement.clientWidth;
+        canvas.width = w;
+        canvas.height = 80;
+        
+        ctx.clearRect(0, 0, w, 80);
+        
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath();
+        ctx.moveTo(0, 40);
+        ctx.lineTo(w, 40);
+        ctx.stroke();
+
+        const chData = buffer.getChannelData(0);
+        const sampleRate = buffer.sampleRate;
+        const totalDuration = buffer.duration;
+        const offsetSec = offsetMs / 1000;
+
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = canvasId.includes('original') ? '#a78bfa' : '#60a5fa';
+        ctx.beginPath();
+
+        const step = Math.ceil(chData.length / w);
+        for (let x = 0; x < w; x++) {
+            const time = (x / w) * totalDuration;
+            const actualTime = time - offsetSec;
+            if (actualTime < 0 || actualTime > totalDuration) continue;
+            
+            const idx = Math.floor(actualTime * sampleRate);
+            if (idx >= 0 && idx < chData.length) {
+                let min = 1.0, max = -1.0;
+                const endStep = Math.min(idx + step, chData.length);
+                for (let k = idx; k < endStep; k++) {
+                    const val = chData[k];
+                    if (val < min) min = val;
+                    if (val > max) max = val;
+                }
+                const y1 = 40 + min * 35;
+                const y2 = 40 + max * 35;
+                ctx.moveTo(x, y1);
+                ctx.lineTo(x, y2);
+            }
+        }
+        ctx.stroke();
+
+        // 绘制播放轴红线
+        if (amOriginalBuffer) {
+            const playheadX = (amPlaybackTime / amOriginalBuffer.duration) * w;
+            if (playheadX >= 0 && playheadX <= w) {
+                ctx.strokeStyle = '#f43f5e';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playheadX, 0);
+                ctx.lineTo(playheadX, 80);
+                ctx.stroke();
+            }
+        }
+    };
+
+    drawWave('am-canvas-original', amOriginalBuffer, 0);
+    drawWave('am-canvas-converted', amConvertedBuffer, amOffsetMs);
+
+    const diffCanvas = document.getElementById('am-canvas-diff');
+    if (diffCanvas) {
+        const ctx = diffCanvas.getContext('2d');
+        const w = diffCanvas.parentElement.clientWidth;
+        diffCanvas.width = w;
+        diffCanvas.height = 30;
+        ctx.clearRect(0, 0, w, 30);
+
+        const totalDuration = amOriginalBuffer.duration;
+
+        amSegments.forEach(seg => {
+            const x1 = (seg.startTime / totalDuration) * w;
+            const x2 = (seg.endTime / totalDuration) * w;
+            const width = x2 - x1;
+
+            let color = 'rgba(16, 185, 129, 0.35)';
+            if (seg.status === 'mismatch') {
+                color = 'rgba(239, 68, 68, 0.45)';
+            } else if (seg.status === 'drift') {
+                color = 'rgba(245, 158, 11, 0.45)';
+            }
+
+            ctx.fillStyle = color;
+            ctx.fillRect(x1, 0, width, 30);
+
+            ctx.strokeStyle = color.replace('0.35', '0.8').replace('0.45', '0.8');
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x1, 0, width, 30);
+        });
+
+        // 绘制播放轴红线
+        const playheadX = (amPlaybackTime / totalDuration) * w;
+        if (playheadX >= 0 && playheadX <= w) {
+            ctx.strokeStyle = '#f43f5e';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(playheadX, 0);
+            ctx.lineTo(playheadX, 30);
+            ctx.stroke();
+        }
+    }
+}
+
+function updateAudioMatchManualOffset(val) {
+    amOffsetMs = val;
+    const txt = document.getElementById('am-offset-val-text');
+    if (txt) txt.textContent = `${val} ms`;
+    const rng = document.getElementById('am-offset-range');
+    if (rng) rng.value = val;
+    detectSpeechSegments();
+    drawAudioMatchWaveforms();
+}
+
+function adjustAudioMatchManualOffset(delta) {
+    const range = document.getElementById('am-offset-range');
+    if (!range) return;
+    const newVal = Math.max(parseInt(range.min), Math.min(parseInt(range.max), amOffsetMs + delta));
+    updateAudioMatchManualOffset(newVal);
+}
+
+function resetAudioMatchManualOffset() {
+    updateAudioMatchManualOffset(0);
+}
+
+async function runAudioMatchAutoAlign() {
+    if (!amOriginalBuffer || !amConvertedBuffer) return;
+
+    const statusSec = document.getElementById('am-status-section');
+    const statusText = document.getElementById('am-status-text');
+    const progressBarInner = document.querySelector('#am-progress-bar .progress-bar-inner');
+    
+    statusSec.classList.remove('hidden');
+    progressBarInner.style.width = '20%';
+    statusText.textContent = '正在执行自动剪辑拼接对齐...';
+
+    try {
+        const sr = amOriginalBuffer.sampleRate;
+        const totalSamples = amOriginalBuffer.length;
+        const channels = amOriginalBuffer.numberOfChannels;
+        
+        amAlignedBuffer = amAudioContext.createBuffer(channels, totalSamples, sr);
+        const fallbackOriginal = document.getElementById('am-opt-fallback-voice').checked;
+
+        for (let ch = 0; ch < channels; ch++) {
+            const origData = amOriginalBuffer.getChannelData(ch);
+            const convData = amConvertedBuffer.getChannelData(ch < amConvertedBuffer.numberOfChannels ? ch : 0);
+            const alignedData = amAlignedBuffer.getChannelData(ch);
+
+            alignedData.fill(0);
+
+            amSegments.forEach(seg => {
+                const origStart = Math.floor(seg.startTime * sr);
+                const origEnd = Math.floor(seg.endTime * sr);
+
+                if (seg.status === 'mismatch' && !fallbackOriginal) {
+                    return;
+                }
+
+                if (seg.status === 'mismatch' && fallbackOriginal) {
+                    for (let i = origStart; i < origEnd; i++) {
+                        if (i >= 0 && i < totalSamples) {
+                            alignedData[i] = origData[i];
+                        }
+                    }
+                    return;
+                }
+
+                // 局部分段精确微调对齐：直接使用该句子计算出来的最匹配绝对对齐位移
+                const segmentOffsetMs = (seg.localLag || 0) * 10;
+                const offsetSamples = Math.round((segmentOffsetMs / 1000) * sr);
+                
+                for (let i = origStart; i < origEnd; i++) {
+                    const convIdx = i + offsetSamples;
+                    if (i >= 0 && i < totalSamples) {
+                        if (convIdx >= 0 && convIdx < convData.length) {
+                            alignedData[i] = convData[convIdx];
+                        } else if (fallbackOriginal) {
+                            alignedData[i] = origData[i];
+                        }
+                    }
+                }
+            });
+
+            if (fallbackOriginal) {
+                let speechMask = new Uint8Array(totalSamples);
+                amSegments.forEach(seg => {
+                    const origStart = Math.floor(seg.startTime * sr);
+                    const origEnd = Math.floor(seg.endTime * sr);
+                    for (let i = origStart; i < origEnd; i++) {
+                        if (i >= 0 && i < totalSamples) speechMask[i] = 1;
+                    }
+                });
+
+                for (let i = 0; i < totalSamples; i++) {
+                    if (speechMask[i] === 0) {
+                        alignedData[i] = origData[i];
+                    }
+                }
+            }
+        }
+
+        progressBarInner.style.width = '80%';
+        statusText.textContent = '音频对齐拼接成功！';
+
+        document.getElementById('am-btn-export').disabled = false;
+        document.getElementById('am-play-aligned').disabled = false;
+
+        progressBarInner.style.width = '100%';
+        setTimeout(() => statusSec.classList.add('hidden'), 1000);
+        showToast('音轨对齐剪辑拼接成功，现在可以试听或导出！', 'success');
+    } catch (e) {
+        console.error('Audio Match Auto Align failed:', e);
+        statusText.textContent = `❌ 失败: ${e.message}`;
+        progressBarInner.style.background = 'var(--error)';
+        showToast(`对齐失败: ${e.message}`, 'error');
+    }
+}
+
+function startPlayheadAnimation(startOffset) {
+    cancelPlayheadAnimation();
+    amPlaybackStartOffset = startOffset;
+    amPlaybackStartTimeInContext = amAudioContext.currentTime;
+
+    function update() {
+        if (!amCurrentPlayType) return;
+        const elapsed = amAudioContext.currentTime - amPlaybackStartTimeInContext;
+        amPlaybackTime = amPlaybackStartOffset + elapsed;
+        
+        const maxDur = amOriginalBuffer ? amOriginalBuffer.duration : 0;
+        if (amPlaybackTime >= maxDur) {
+            amPlaybackTime = 0; // 播放结束复位到起点
+            stopAudioMatchAudio();
+            return;
+        }
+
+        drawAudioMatchWaveforms();
+        amPlayheadAnimationId = requestAnimationFrame(update);
+    }
+    amPlayheadAnimationId = requestAnimationFrame(update);
+}
+
+function cancelPlayheadAnimation() {
+    if (amPlayheadAnimationId) {
+        cancelAnimationFrame(amPlayheadAnimationId);
+        amPlayheadAnimationId = null;
+    }
+}
+
+function playAudioMatchAudio(type, startOffset = null) {
+    stopAudioMatchAudio();
+
+    if (!amAudioContext) {
+        amAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    if (startOffset === null) {
+        startOffset = amPlaybackTime; // 默认从当前播放轴位置播放
+    }
+
+    const maxDur = amOriginalBuffer ? amOriginalBuffer.duration : 0;
+    if (startOffset < 0 || startOffset >= maxDur) {
+        startOffset = 0;
+    }
+
+    amCurrentPlayType = type;
+    amPlaybackTime = startOffset;
+
+    if (type === 'both') {
+        if (!amOriginalBuffer || !amConvertedBuffer) {
+            amCurrentPlayType = null;
+            return;
+        }
+        try {
+            const now = amAudioContext.currentTime;
+            
+            const srcOrig = amAudioContext.createBufferSource();
+            srcOrig.buffer = amOriginalBuffer;
+            srcOrig.connect(amAudioContext.destination);
+
+            const srcConv = amAudioContext.createBufferSource();
+            srcConv.buffer = amConvertedBuffer;
+            srcConv.connect(amAudioContext.destination);
+
+            // 应用当前滑动条对应的全局对齐偏移（单位：秒）来让两路音频重合播放
+            const offsetSec = amOffsetMs / 1000;
+            
+            // 原音轨直接从 startOffset 开始播
+            srcOrig.start(now, startOffset);
+
+            // 变声音轨需要根据偏移量定位
+            const convOffset = startOffset - offsetSec;
+            if (convOffset >= 0) {
+                srcConv.start(now, convOffset);
+            } else {
+                srcConv.start(now - convOffset, 0);
+            }
+
+            amCurrentPlaySources.push(srcOrig, srcConv);
+
+            const btn = document.getElementById('am-play-both');
+            if (btn) {
+                btn.textContent = '⏸️ 正在对比播放';
+                btn.style.borderColor = 'var(--success)';
+            }
+
+            let endedCount = 0;
+            const onEndedHandler = () => {
+                endedCount++;
+                if (endedCount >= 2) {
+                    stopAudioMatchAudio();
+                }
+            };
+            srcOrig.onended = onEndedHandler;
+            srcConv.onended = onEndedHandler;
+
+            startPlayheadAnimation(startOffset);
+        } catch (e) {
+            showToast(`播放失败: ${e.message}`, 'error');
+            amCurrentPlayType = null;
+        }
+        return;
+    }
+
+    let buffer = null;
+    if (type === 'original') buffer = amOriginalBuffer;
+    else if (type === 'converted') buffer = amConvertedBuffer;
+    else if (type === 'aligned') buffer = amAlignedBuffer;
+
+    if (!buffer) {
+        amCurrentPlayType = null;
+        return;
+    }
+
+    try {
+        const src = amAudioContext.createBufferSource();
+        src.buffer = buffer;
+        src.connect(amAudioContext.destination);
+        src.start(amAudioContext.currentTime, startOffset);
+
+        amCurrentPlaySources.push(src);
+
+        const btn = document.getElementById(
+            type === 'original' ? 'am-play-orig' : (type === 'converted' ? 'am-play-conv' : 'am-play-aligned')
+        );
+        if (btn) {
+            btn.textContent = '⏸️ 正在播放';
+            btn.style.borderColor = 'var(--success)';
+        }
+        
+        src.onended = () => {
+            stopAudioMatchAudio();
+        };
+
+        startPlayheadAnimation(startOffset);
+    } catch (e) {
+        showToast(`播放失败: ${e.message}`, 'error');
+        amCurrentPlayType = null;
+    }
+}
+
+function stopAudioMatchAudio() {
+    amCurrentPlayType = null;
+    cancelPlayheadAnimation();
+
+    if (amCurrentPlaySources && amCurrentPlaySources.length > 0) {
+        amCurrentPlaySources.forEach(src => {
+            try { src.stop(); } catch (_) {}
+        });
+        amCurrentPlaySources = [];
+    }
+    const o = document.getElementById('am-play-orig');
+    if (o) { o.textContent = '🔊 试听原音'; o.style.borderColor = ''; }
+    const c = document.getElementById('am-play-conv');
+    if (c) { c.textContent = '🔊 试听变声'; c.style.borderColor = ''; }
+    const a = document.getElementById('am-play-aligned');
+    if (a) { a.textContent = '🔊 试听对齐后'; a.style.borderColor = ''; }
+    const b = document.getElementById('am-play-both');
+    if (b) { b.textContent = '🔊 同时对比试听'; b.style.borderColor = ''; }
+
+    drawAudioMatchWaveforms();
+}
+
+async function exportAudioMatchResult() {
+    if (!amAlignedBuffer) {
+        showToast('请先执行自动对齐', 'error');
+        return;
+    }
+
+    const statusSec = document.getElementById('am-status-section');
+    const statusText = document.getElementById('am-status-text');
+    const progressBarInner = document.querySelector('#am-progress-bar .progress-bar-inner');
+    
+    statusSec.classList.remove('hidden');
+    progressBarInner.style.width = '10%';
+    statusText.textContent = '正在生成无损 WAV 编码数据...';
+
+    try {
+        const wavArrayBuffer = bufferToWav(amAlignedBuffer);
+        progressBarInner.style.width = '40%';
+        statusText.textContent = '正在保存临时对齐音频...';
+
+        const tempWavPath = await window.electronAPI.saveRenderedAudio(wavArrayBuffer);
+        
+        const isVideo = /\.(mp4|mov|mkv|avi|wmv|flv|webm)$/i.test(amOriginalPath);
+        const originalDir = amOriginalPath.substring(0, amOriginalPath.lastIndexOf('/') + 1) || amOriginalPath.substring(0, amOriginalPath.lastIndexOf('\\') + 1);
+        const originalName = amOriginalPath.substring(amOriginalPath.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '') || amOriginalPath.substring(amOriginalPath.lastIndexOf('\\') + 1).replace(/\.[^.]+$/, '');
+        
+        progressBarInner.style.width = '60%';
+        
+        if (isVideo) {
+            statusText.textContent = '正在利用 FFmpeg 合成音视频并替换音轨...';
+            const outputPath = originalDir + originalName + '_aligned_voice.mp4';
+            
+            const response = await apiFetch(`${API_BASE}/media/replace-audio`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    video_path: amOriginalPath,
+                    audio_path: tempWavPath,
+                    output_path: outputPath
+                })
+            });
+            
+            const result = await response.json();
+            if (response.ok && result.success) {
+                progressBarInner.style.width = '100%';
+                statusText.textContent = '导出完成！';
+                showToast(`对齐视频成功导出到: ${outputPath}`, 'success');
+                window.electronAPI?.showItemInFolder?.(outputPath);
+            } else {
+                throw new Error(result.error || '替换音轨失败');
+            }
+        } else {
+            statusText.textContent = '正在转换音频格式并导出...';
+            const ext = amOriginalPath.substring(amOriginalPath.lastIndexOf('.') + 1).toLowerCase();
+            const formatMode = ['mp3', 'wav', 'm4a'].includes(ext) ? ext : 'mp3';
+            const outputPath = originalDir + originalName + '_aligned_voice.' + formatMode;
+            
+            const response = await apiFetch(`${API_BASE}/media/convert`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    files: [tempWavPath],
+                    mode: formatMode,
+                    output_dir: originalDir
+                })
+            });
+            
+            const result = await response.json();
+            if (response.ok && result.files && result.files.length > 0) {
+                progressBarInner.style.width = '100%';
+                statusText.textContent = '导出完成！';
+                showToast(`对齐音频已导出到原始目录`, 'success');
+                window.electronAPI?.showItemInFolder?.(result.files[0]);
+            } else {
+                throw new Error(result.message || '转换音频失败');
+            }
+        }
+        
+        setTimeout(() => statusSec.classList.add('hidden'), 1000);
+    } catch (e) {
+        console.error('Export aligned media failed:', e);
+        statusText.textContent = `❌ 导出失败: ${e.message}`;
+        progressBarInner.style.background = 'var(--error)';
+        showToast(`导出失败: ${e.message}`, 'error');
+    }
+}
+
+// WAV Encoder Helpers
+function bufferToWav(buffer) {
+    const numOfChan = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const format = 1;
+    const bitDepth = 16;
+    
+    let result;
+    if (numOfChan === 2) {
+        result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+    } else {
+        result = buffer.getChannelData(0);
+    }
+    
+    return writeWavFile(result, numOfChan, sampleRate, format, bitDepth);
+}
+
+function interleave(inputL, inputR) {
+    const length = inputL.length + inputR.length;
+    const result = new Float32Array(length);
+    let index = 0;
+    let inputIndex = 0;
+    
+    while (index < length) {
+        result[index++] = inputL[inputIndex];
+        result[index++] = inputR[inputIndex];
+        inputIndex++;
+    }
+    return result;
+}
+
+function writeWavFile(samples, numOfChan, sampleRate, format, bitDepth) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, format, true);
+    view.setUint16(22, numOfChan, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numOfChan * 2, true);
+    view.setUint16(32, numOfChan * 2, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    
+    floatTo16BitPCM(view, 44, samples);
+    
+    return buffer;
+}
+
+function floatTo16BitPCM(output, offset, input) {
+    for (let i = 0; i < input.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+}
+
+function writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+    }
+}
+
+// Expose functions to window
+window.selectAudioMatchFile = selectAudioMatchFile;
+window.runAudioMatchAnalysis = runAudioMatchAnalysis;
+window.runAudioMatchAutoAlign = runAudioMatchAutoAlign;
+window.exportAudioMatchResult = exportAudioMatchResult;
+window.updateAudioMatchManualOffset = updateAudioMatchManualOffset;
+window.adjustAudioMatchManualOffset = adjustAudioMatchManualOffset;
+window.resetAudioMatchManualOffset = resetAudioMatchManualOffset;
+window.playAudioMatchAudio = playAudioMatchAudio;
+window.stopAudioMatchAudio = stopAudioMatchAudio;

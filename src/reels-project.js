@@ -19,7 +19,7 @@ const REELS_TASK_EXTRA_FIELDS = [
     'txtPath', 'txtContent', 'ttsText', 'ttsVoiceId', 'aiScript', 'aligned',
     'exportName', 'status', 'error',
     'bgScale', 'bgX', 'bgY', 'bgFlipH', 'bgFlipV', 'bgDurScale', 'audioDurScale',
-    'bgMode', 'bgClipPool', 'bgTransition', 'bgTransDur',
+    'bgMode', 'bgClipPool', 'bgTransition', 'bgTransDur', 'bgClipSettings', 'bgMinClipDur', 'bgMaxClipDur',
     'bgmPath', 'bgmVolume', 'bgVideoVolume',
     'bgmMode', 'bgmClipPool', 'bgmClipActivePool', 'bgmClipOrder',
     'contentVideoPath', 'contentVideoTrimStart', 'contentVideoTrimEnd',

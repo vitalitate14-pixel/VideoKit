@@ -157,7 +157,7 @@ const REELS_ANIMATION_PRESETS = {
         anim_in_duration: 0.24,
         anim_out_type: 'fade',
         anim_out_duration: 0.2,
-        word_pop_random_min_scale: 0.86,
+        word_pop_random_min_scale: 0.7,
         word_pop_random_max_scale: 1.34,
         word_pop_random_duration: 0.24,
         word_pop_random_unread_opacity: 0.0,
@@ -352,6 +352,45 @@ function _initReelsModule() {
     };
     bindMix(voiceVolumeEl);
     bindMix(bgVolumeEl);
+    _initExportSettingSliders();
+    if (bgVolumeEl) {
+        const bgVolumeRangeGlobalEl = document.getElementById('reels-bg-volume-range-global');
+        const syncInheritedBgVolumeUI = () => {
+            const task = (typeof _getSelectedTask === 'function') ? _getSelectedTask() : null;
+            const hasCustomBgVol = task && task.bgVideoVolume != null && parseFloat(task.bgVideoVolume) !== 100;
+            if (hasCustomBgVol) return;
+            const value = _getGlobalBgVolumePercent();
+            const range = document.getElementById('reels-bg-volume-range');
+            const num = document.getElementById('reels-bg-volume-num');
+            if (range) {
+                range.value = value;
+                range.dataset.isCustom = 'false';
+            }
+            if (num) {
+                num.value = value;
+                num.dataset.isCustom = 'false';
+            }
+        };
+        bgVolumeEl.addEventListener('input', syncInheritedBgVolumeUI);
+        bgVolumeEl.addEventListener('change', syncInheritedBgVolumeUI);
+        if (bgVolumeRangeGlobalEl) {
+            bgVolumeRangeGlobalEl.addEventListener('input', syncInheritedBgVolumeUI);
+            bgVolumeRangeGlobalEl.addEventListener('change', syncInheritedBgVolumeUI);
+        }
+    }
+
+    // ── 任务级背景音量控制自定义标记 ──
+    const bgVolRange = document.getElementById('reels-bg-volume-range');
+    const bgVolNum = document.getElementById('reels-bg-volume-num');
+    if (bgVolRange && bgVolNum) {
+        const markCustom = () => {
+            bgVolRange.dataset.isCustom = 'true';
+            bgVolNum.dataset.isCustom = 'true';
+            _applyPreviewAudioMix();
+        };
+        bgVolRange.addEventListener('input', markCustom);
+        bgVolNum.addEventListener('input', markCustom);
+    }
 
     // ── 混响 / 立体声控件 ──
     const reverbIds = ['reels-reverb-enabled', 'reels-reverb-preset', 'reels-reverb-mix', 'reels-stereo-width', 'reels-audio-fx-target'];
@@ -1945,7 +1984,7 @@ function _readStyleFromUI() {
 
         // Stroke
         use_stroke: chk('reels-use-stroke'),
-        color_outline: val('reels-stroke-color') || '#000000',
+        color_outline: val('reels-stroke-color') || '#3E2723',
         border_width: num('reels-stroke-width', 3),
         opacity_outline: 255,
 
@@ -2005,6 +2044,8 @@ function _readStyleFromUI() {
         wrap_lines: 2,
         wrap_left: 0,
         wrap_right: 0,
+        random_position_use_layout_range: val('reels-anim-in') === 'word_random_position',
+        random_position_height_percent: num('reels-random-position-height', 35),
         line_spacing: num('reels-line-spacing', 1.2),
         rotation: num('reels-rotation', 0),
 
@@ -2045,7 +2086,7 @@ function _readStyleFromUI() {
         metronome_bpm: num('reels-metro-bpm', 120),
         letter_jump_scale: num('reels-jump-scale', 1.5),
         letter_jump_duration: 0.2,
-        word_pop_random_min_scale: num('reels-word-pop-min', 0.86),
+        word_pop_random_min_scale: num('reels-word-pop-min', 0.7),
         word_pop_random_max_scale: num('reels-word-pop-max', 1.34),
         word_pop_random_duration: num('reels-word-pop-dur', 0.22),
         word_pop_random_pulse_min_scale: num('reels-word-pop-pulse-min', 1.08),
@@ -2053,6 +2094,9 @@ function _readStyleFromUI() {
         word_pop_random_pulse_duration: num('reels-word-pop-pulse-dur', 0.22),
         word_pop_random_unread_opacity: num('reels-word-pop-unread-opacity', 0.0),
         word_pop_random_read_opacity: num('reels-word-pop-read-opacity', 1.0),
+        random_word_spacing: num('reels-random-word-spacing', 0),
+        random_line_spacing: num('reels-random-line-spacing', 0),
+        random_spacing_seed: num('reels-random-spacing-seed', 1),
         only_show_active_word: chk('reels-only-show-active-word'),
         flash_color: val('reels-flash-color') || '#FFFFFF',
         flash_duration: 0.1,
@@ -2102,8 +2146,8 @@ function _readStyleFromUI() {
         scatter_seed: num('reels-scatter-seed', 1),
         scatter_min_scale: num('reels-scatter-min-scale', 0.8),
         scatter_max_scale: num('reels-scatter-max-scale', 1.5),
-        scatter_min_rotate: num('reels-scatter-min-rotate', -10),
-        scatter_max_rotate: num('reels-scatter-max-rotate', 10),
+        scatter_min_rotate: num('reels-scatter-min-rotate', 0),
+        scatter_max_rotate: num('reels-scatter-max-rotate', 0),
     };
 
     // === Merge with existing hidden state (auto_color_rules etc.) ===
@@ -2319,7 +2363,7 @@ function _writeStyleToUI(style) {
     set('reels-color-text', style.color_text || '#FFFFFF');
     set('reels-color-high', style.color_high || '#FFD700');
     setChk('reels-use-stroke', style.use_stroke !== false);
-    set('reels-stroke-color', style.color_outline || '#000000');
+    set('reels-stroke-color', style.color_outline || '#3E2723');
     set('reels-stroke-width', style.border_width || 3);
     setChk('reels-stroke-expand', style.stroke_expand_enabled);
     set('reels-se-layers', style.stroke_expand_layers || 3);
@@ -2363,6 +2407,8 @@ function _writeStyleToUI(style) {
     set('reels-pos-x', Math.round((style.pos_x || 0.5) * 100));
     set('reels-pos-y', Math.round((style.pos_y || 0.5) * 100));
     set('reels-wrap-width', style.wrap_width_percent || 90);
+    set('reels-random-position-height', style.random_position_height_percent || 35);
+    set('reels-random-position-height-range', style.random_position_height_percent || 35);
     set('reels-line-spacing', style.line_spacing ?? 4);
     set('reels-rotation', style.rotation || 0);
     setChk('reels-adv-textbox', style.advanced_textbox_enabled);
@@ -2395,6 +2441,11 @@ function _writeStyleToUI(style) {
     set('reels-glow-color', style.holy_glow_color || '#FFFFAA');
     set('reels-glow-radius', style.holy_glow_radius || 6);
     set('reels-blur-max', style.blur_sharp_max || 20);
+    set('reels-random-word-spacing', style.random_word_spacing || 0);
+    set('reels-random-word-spacing-range', style.random_word_spacing || 0);
+    set('reels-random-line-spacing', style.random_line_spacing || 0);
+    set('reels-random-line-spacing-range', style.random_line_spacing || 0);
+    set('reels-random-spacing-seed', style.random_spacing_seed || 1);
     setChk('reels-only-show-active-word', style.only_show_active_word);
 
     // Scrolling lyrics mode
@@ -2424,14 +2475,18 @@ function _writeStyleToUI(style) {
     set('reels-scatter-max-words', style.scatter_max_words ?? 3);
     set('reels-scatter-accum-prob', style.scatter_accum_prob ?? 0.5);
     set('reels-scatter-area-left', style.scatter_area_left ?? 15);
+    set('reels-scatter-area-left-range', style.scatter_area_left ?? 15);
     set('reels-scatter-area-right', style.scatter_area_right ?? 85);
+    set('reels-scatter-area-right-range', style.scatter_area_right ?? 85);
     set('reels-scatter-area-top', style.scatter_area_top ?? 25);
+    set('reels-scatter-area-top-range', style.scatter_area_top ?? 25);
     set('reels-scatter-area-bottom', style.scatter_area_bottom ?? 75);
+    set('reels-scatter-area-bottom-range', style.scatter_area_bottom ?? 75);
     set('reels-scatter-seed', style.scatter_seed ?? 1);
     set('reels-scatter-min-scale', style.scatter_min_scale ?? 0.8);
     set('reels-scatter-max-scale', style.scatter_max_scale ?? 1.5);
-    set('reels-scatter-min-rotate', style.scatter_min_rotate ?? -10);
-    set('reels-scatter-max-rotate', style.scatter_max_rotate ?? 10);
+    set('reels-scatter-min-rotate', style.scatter_min_rotate ?? 0);
+    set('reels-scatter-max-rotate', style.scatter_max_rotate ?? 0);
 
     // Sync _reelsState.style so hidden props survive
     _reelsState.style = Object.assign({}, _reelsState.style || {}, style);
@@ -2529,10 +2584,11 @@ function reelsUpdatePreview() {
     _reelsState.hookPhase = inHookPhase;
 
     const contentTime = Math.max(0, totalTime - coverDur - hookDur);
+    let multiClips = null;
     if (_selectedTask && _selectedTask.bgMode === 'multi' && !inCoverPhase && !inHookPhase) {
-        _syncPreviewMultiBackground(_selectedTask, contentTime);
-        bgImg = _reelsState._previewBgImage;
-        hasBgImg = bgImg && bgImg.complete && bgImg.naturalWidth > 0;
+        multiClips = _syncPreviewMultiBackground(_selectedTask, contentTime);
+        bgImg = null;
+        hasBgImg = false;
     }
 
     // ── 准备内容视频源 (以防作为毛玻璃背景或前景使用) ──
@@ -2605,7 +2661,7 @@ function reelsUpdatePreview() {
             const alpha = 1.0 - (timeToEnd / transitionDur);
             ctx.save();
             ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
-            _drawVideoCover(ctx, video, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask.bgFlipH, _selectedTask.bgFlipV);
+            _drawVideoCover(ctx, video, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask?.bgFlipH || false, _selectedTask?.bgFlipV || false);
             ctx.restore();
         }
     } else if (_selectedTask && _selectedTask.contentVideoBlurBg && cvDrawSource && cvW > 0) {
@@ -2618,7 +2674,7 @@ function reelsUpdatePreview() {
         const blurVal = _selectedTask.contentVideoBlur != null ? _selectedTask.contentVideoBlur : 40;
         const brightnessVal = (_selectedTask.contentVideoBrightness != null ? _selectedTask.contentVideoBrightness : 60) / 100;
         ctx.filter = `blur(${blurVal}px) brightness(${brightnessVal})`;
-        _drawCroppedVideoCover(ctx, cvDrawSource, cropX, cropY, cropW, cropH, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask.bgFlipH, _selectedTask.bgFlipV);
+        _drawCroppedVideoCover(ctx, cvDrawSource, cropX, cropY, cropW, cropH, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask?.bgFlipH || false, _selectedTask?.bgFlipV || false);
         ctx.restore();
 
         // Draw global mask if enabled
@@ -2629,13 +2685,22 @@ function reelsUpdatePreview() {
             ctx.fillRect(0, 0, w, h);
             ctx.restore();
         }
+    } else if (_selectedTask && _selectedTask.bgMode === 'multi' && !inCoverPhase && !inHookPhase) {
+        _drawPreviewMultiBackground(ctx, w, h, _bgScalePct, _bgXPct, _bgYPct, multiClips);
+        if (style.global_mask_enabled) {
+            ctx.save();
+            ctx.globalAlpha = style.global_mask_opacity ?? 0.5;
+            ctx.fillStyle = style.global_mask_color || '#000000';
+            ctx.fillRect(0, 0, w, h);
+            ctx.restore();
+        }
     } else if (video && video.src && video.readyState >= 1 && video.videoWidth > 0) {
-        _drawVideoCover(ctx, video, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask.bgFlipH, _selectedTask.bgFlipV);
+        _drawVideoCover(ctx, video, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask?.bgFlipH || false, _selectedTask?.bgFlipV || false);
         const fadeFrame = _calcPreviewLoopFadeFrame();
         if (fadeFrame && fadeFrame.video && fadeFrame.video.readyState >= 2) {
             ctx.save();
             ctx.globalAlpha = fadeFrame.alpha;
-            _drawVideoCover(ctx, fadeFrame.video, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask.bgFlipH, _selectedTask.bgFlipV);
+            _drawVideoCover(ctx, fadeFrame.video, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask?.bgFlipH || false, _selectedTask?.bgFlipV || false);
             ctx.restore();
         }
 
@@ -2649,7 +2714,7 @@ function reelsUpdatePreview() {
         }
     } else if (hasBgImg) {
         // Draw image background using cover mode
-        _drawVideoCover(ctx, bgImg, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask.bgFlipH, _selectedTask.bgFlipV);
+        _drawVideoCover(ctx, bgImg, w, h, _bgScalePct, _bgXPct, _bgYPct, _selectedTask?.bgFlipH || false, _selectedTask?.bgFlipV || false);
 
         // Draw global mask if enabled
         if (style.global_mask_enabled) {
@@ -2935,6 +3000,37 @@ function _drawSubtitlePreviewRange(ctx, style, canvasW, canvasH) {
     ctx.strokeStyle = 'rgba(0, 224, 255, 0.9)';
     ctx.fillStyle = 'rgba(0, 224, 255, 0.08)';
 
+    if (style.anim_in_type === 'word_random_position' && style.random_position_use_layout_range !== false) {
+        const cx = (typeof style.pos_x === 'number' && style.pos_x <= 1) ? style.pos_x * canvasW : (style.pos_x || canvasW / 2);
+        const cy = (typeof style.pos_y === 'number' && style.pos_y <= 1) ? style.pos_y * canvasH : (style.pos_y || canvasH * 0.5);
+        const rangeW = Math.max(20, Math.min(120, parseFloat(style.wrap_width_percent) || 70)) / 100 * canvasW;
+        const rangeH = Math.max(10, Math.min(100, parseFloat(style.random_position_height_percent) || 35)) / 100 * canvasH;
+        const x = cx - rangeW / 2;
+        const y = cy - rangeH / 2;
+
+        ctx.strokeStyle = 'rgba(255, 196, 64, 0.95)';
+        ctx.fillStyle = 'rgba(255, 196, 64, 0.10)';
+        ctx.strokeRect(x, y, rangeW, rangeH);
+        ctx.fillRect(x, y, rangeW, rangeH);
+
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255, 196, 64, 0.55)';
+        ctx.beginPath();
+        ctx.moveTo(cx, y);
+        ctx.lineTo(cx, y + rangeH);
+        ctx.moveTo(x, cy);
+        ctx.lineTo(x + rangeW, cy);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255, 196, 64, 0.95)';
+        ctx.font = '14px sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`随机区域 ${Math.round(style.wrap_width_percent || 70)}% x ${Math.round(style.random_position_height_percent || 35)}%`, x + 8, y + 8);
+        ctx.restore();
+        return;
+    }
+
     if (style.advanced_textbox_enabled) {
         const x = parseFloat(style.advanced_textbox_x) || 0;
         const y = parseFloat(style.advanced_textbox_y) || 0;
@@ -2976,14 +3072,26 @@ function _drawSubtitlePreviewRange(ctx, style, canvasW, canvasH) {
 
 function _normalizeWatermarkPath(pathValue) {
     if (!pathValue) return '';
+    if (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function') {
+        try {
+            const u = window.electronAPI.toFileUrl(pathValue);
+            if (u) return u;
+        } catch (e) {
+            console.error('Failed to normalize watermark path with toFileUrl:', e);
+        }
+    }
     if (/^file:\/\//i.test(pathValue)) {
         return pathValue;
     }
-    if (/^[a-zA-Z]:\\/.test(pathValue)) {
-        return `file:///${pathValue.replace(/\\/g, '/')}`;
+    if (/^[a-zA-Z]:[/\\]/.test(pathValue)) {
+        const replaced = pathValue.replace(/\\/g, '/');
+        const parts = replaced.split('/');
+        const drive = parts[0];
+        const rest = parts.slice(1).map(encodeURIComponent).join('/');
+        return `file:///${drive}/${rest}`;
     }
     if (pathValue.startsWith('/')) {
-        return `file://${pathValue}`;
+        return `file://${pathValue.split('/').map(p => p === '' ? '' : encodeURIComponent(p)).join('/')}`;
     }
     return pathValue;
 }
@@ -3844,7 +3952,8 @@ window._getEffectiveBgmPath = _getEffectiveBgmPath;
 function _getPreviewMultiClipPool(task) {
     if (!task || task.bgMode !== 'multi') return [];
     const pool = _getEffectiveBgClipPool(task).filter(p => p && _reelsFileExists(p));
-    if ((task.bgClipOrder || 'random') !== 'random' || pool.length <= 1) return pool;
+    const isRandom = task.bgClipOrder === 'random' || task.bgClipOrder === 'random_align';
+    if (!isRandom || pool.length <= 1) return pool;
 
     const seedText = `${task.id || task.fileName || ''}|${pool.join('|')}`;
     let seed = 2166136261;
@@ -3861,101 +3970,670 @@ function _getPreviewMultiClipPool(task) {
     return shuffled;
 }
 
-function _getPreviewMultiClipDuration(path, videoEl, task) {
+function _calculatePreviewSegments(task) {
+    const pool = _getPreviewMultiClipPool(task);
+    if (pool.length === 0) return [];
+
     const bgDurFactor = (task && task.bgDurScale ? task.bgDurScale : 100) / 100;
-    if (_isImagePath(path)) return 5 * bgDurFactor;
-    if (videoEl && videoEl.dataset && videoEl.dataset.multiBgPath === path && isFinite(videoEl.duration) && videoEl.duration > 0) {
-        return Math.max(0.5, videoEl.duration * bgDurFactor);
+    const videoEl = document.getElementById('reels-preview-video');
+
+    const poolClips = pool.map(path => {
+        let start = 0;
+        let end = null;
+        if (task.bgClipSettings && task.bgClipSettings[path]) {
+            if (task.bgClipSettings[path].trimStart != null) start = parseFloat(task.bgClipSettings[path].trimStart) || 0;
+            if (task.bgClipSettings[path].trimEnd != null) end = parseFloat(task.bgClipSettings[path].trimEnd) || null;
+        }
+
+        let dur = 5;
+        if (!_isImageFile(path)) {
+            if (end != null && end > 0) {
+                dur = end - start;
+            } else {
+                if (videoEl && videoEl.dataset && videoEl.dataset.multiBgPath === path && isFinite(videoEl.duration) && videoEl.duration > 0) {
+                    dur = videoEl.duration - start;
+                } else {
+                    dur = 5;
+                }
+            }
+        }
+        return {
+            path,
+            isImage: _isImageFile(path),
+            trimStart: start,
+            trimEnd: end,
+            baseDuration: Math.max(0.5, dur) * bgDurFactor
+        };
+    });
+
+    const isCardingMode = task.bgClipOrder === 'random_align' || task.bgClipOrder === 'sequence_align';
+    const segments = task.segments || [];
+
+    const audioEl = document.getElementById('reels-preview-audio');
+    let totalDur = 15;
+    if (audioEl && audioEl.src && isFinite(audioEl.duration) && audioEl.duration > 0) {
+        totalDur = audioEl.duration;
+    } else {
+        totalDur = poolClips.reduce((sum, c) => sum + c.baseDuration, 0);
     }
-    return 5 * bgDurFactor;
+    const audioDurScale = (task && task.audioDurScale ? task.audioDurScale : 100) / 100;
+    if (audioEl && audioEl.src && audioDurScale !== 1.0) {
+        totalDur = totalDur * audioDurScale;
+    }
+
+    const result = [];
+    if (isCardingMode && segments.length > 0) {
+        const cutPoints = [0];
+        const candidates = [];
+        const preSwitchOffset = 0.2;
+        const bgMinClipDur = task.bgMinClipDur !== undefined ? task.bgMinClipDur : 5;
+        const bgMaxClipDur = task.bgMaxClipDur !== undefined ? task.bgMaxClipDur : 7;
+
+        for (const seg of segments) {
+            const endVal = parseFloat(seg.end);
+            if (!isNaN(endVal) && endVal > 0) {
+                const shiftedPt = Math.max(0.1, endVal - preSwitchOffset);
+                if (shiftedPt < totalDur) {
+                    candidates.push(shiftedPt);
+                }
+            }
+        }
+        const getSentenceBoundaries = (segs, originalText) => {
+            const strongBoundaries = new Set();
+            const weakBoundaries = new Set();
+            if (!segs || segs.length === 0) return { strongBoundaries, weakBoundaries };
+            
+            const lastIdx = segs.length - 1;
+            strongBoundaries.add(lastIdx);
+
+            const sentencePunct = new Set([
+                '。', '！', '？', '，', '、', '；', '：', 
+                '.', '!', '?', ',', ';', ':', '\n', '\r', 
+                '…', '—', '“', '”', '‘', '’', '（', '）', 
+                '(', ')', '[', ']', '【', '】'
+            ]);
+            const strongPunct = new Set(['。', '！', '？', '.', '!', '?', '\n', '\r', '…', '—']);
+
+            segs.forEach((seg, i) => {
+                const txt = String(seg.edited_text || seg.text || '').trim();
+                if (txt && sentencePunct.has(txt[txt.length - 1])) {
+                    const char = txt[txt.length - 1];
+                    if (strongPunct.has(char)) {
+                        strongBoundaries.add(i);
+                    } else {
+                        weakBoundaries.add(i);
+                    }
+                }
+            });
+
+            if (!originalText) return { strongBoundaries, weakBoundaries };
+
+            const rawChars = Array.from(originalText);
+            const cleanOriginalText = [];
+            const cleanToRawMap = [];
+            for (let i = 0; i < rawChars.length; i++) {
+                const char = rawChars[i];
+                if (!/\s/.test(char) && !sentencePunct.has(char)) {
+                    cleanToRawMap.push(i);
+                    cleanOriginalText.push(char);
+                }
+            }
+            const cleanOrigStr = cleanOriginalText.join('');
+
+            let accumulatedCleanText = "";
+            for (let idx = 0; idx < segs.length; idx++) {
+                const segVal = segs[idx].edited_text || segs[idx].text || "";
+                const cleanSegText = String(segVal)
+                    .replace(/\s+/g, '')
+                    .split('')
+                    .filter(c => !sentencePunct.has(c))
+                    .join('');
+
+                accumulatedCleanText += cleanSegText;
+                if (accumulatedCleanText.length === 0) continue;
+
+                const matchIdx = cleanOrigStr.toLowerCase().indexOf(accumulatedCleanText.toLowerCase());
+                if (matchIdx !== -1) {
+                    const endCleanIdx = matchIdx + accumulatedCleanText.length - 1;
+                    const endRawIdx = cleanToRawMap[endCleanIdx];
+                    if (endRawIdx !== undefined) {
+                        let isBoundary = false;
+                        let matchedChar = '';
+                        let k = endRawIdx + 1;
+                        for (; k < rawChars.length; k++) {
+                            const nextChar = rawChars[k];
+                            if (sentencePunct.has(nextChar)) {
+                                isBoundary = true;
+                                matchedChar = nextChar;
+                                break;
+                            }
+                            if (!/\s/.test(nextChar)) {
+                                break;
+                            }
+                        }
+                        if (k === rawChars.length) {
+                            isBoundary = true;
+                        }
+                        if (isBoundary) {
+                            if (k === rawChars.length || strongPunct.has(matchedChar)) {
+                                strongBoundaries.add(idx);
+                            } else {
+                                weakBoundaries.add(idx);
+                            }
+                        }
+                    }
+                }
+            }
+            return { strongBoundaries, weakBoundaries };
+        };
+
+        const originalScript = task.ttsText || task.aiScript || task.txtContent || "";
+        const { strongBoundaries, weakBoundaries } = getSentenceBoundaries(segments, originalScript);
+
+        const strongCandidates = [];
+        const weakCandidates = [];
+        const allCandidates = [];
+
+        segments.forEach((seg, idx) => {
+            const endVal = parseFloat(seg.end);
+            if (!isNaN(endVal) && endVal > 0) {
+                const shiftedPt = Math.max(0.1, endVal - preSwitchOffset);
+                if (shiftedPt < totalDur) {
+                    allCandidates.push(shiftedPt);
+                    if (strongBoundaries.has(idx)) {
+                        strongCandidates.push(shiftedPt);
+                    } else if (weakBoundaries.has(idx)) {
+                        weakCandidates.push(shiftedPt);
+                    }
+                }
+            }
+        });
+
+        const sortedStrongCands = Array.from(new Set(strongCandidates)).sort((a, b) => a - b);
+        const sortedWeakCands = Array.from(new Set(weakCandidates)).sort((a, b) => a - b);
+        const sortedAllCands = Array.from(new Set(allCandidates)).sort((a, b) => a - b);
+
+        const preferredSplit = Math.max(1.0, bgMinClipDur > 0 ? Math.min(bgMaxClipDur, bgMinClipDur + 1) : 5);
+        const minOk = Math.max(1.0, bgMinClipDur - 1.0);
+        const maxOk = bgMaxClipDur + 1.0;
+        let lastCut = 0;
+        let candIdx = 0;
+
+        while (candIdx < sortedAllCands.length) {
+            const remainingAll = sortedAllCands.filter(pt => pt > lastCut + 0.01);
+            if (remainingAll.length === 0) break;
+
+            const remainingStrong = sortedStrongCands.filter(pt => pt > lastCut + 0.01);
+            const remainingWeak = sortedWeakCands.filter(pt => pt > lastCut + 0.01);
+
+            let bestPt = null;
+            // 1. 优先寻找区间内的强标点
+            for (let i = 0; i < remainingStrong.length; i++) {
+                const pt = remainingStrong[i];
+                const dist = pt - lastCut;
+                if (dist >= minOk && dist <= maxOk) {
+                    if (bestPt === null || Math.abs(dist - preferredSplit) < Math.abs(bestPt - lastCut - preferredSplit)) {
+                        bestPt = pt;
+                    }
+                }
+            }
+
+            // 2. 如果没有强标点，寻找弱标点
+            if (bestPt === null) {
+                for (let i = 0; i < remainingWeak.length; i++) {
+                    const pt = remainingWeak[i];
+                    const dist = pt - lastCut;
+                    if (dist >= minOk && dist <= maxOk) {
+                        if (bestPt === null || Math.abs(dist - preferredSplit) < Math.abs(bestPt - lastCut - preferredSplit)) {
+                            bestPt = pt;
+                        }
+                    }
+                }
+            }
+
+            if (bestPt !== null) {
+                cutPoints.push(bestPt);
+                lastCut = bestPt;
+                const idx = sortedAllCands.indexOf(bestPt);
+                candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+            } else {
+                const hasExceedingStrong = remainingStrong.some(pt => pt - lastCut > maxOk);
+                const hasExceedingWeak = remainingWeak.some(pt => pt - lastCut > maxOk);
+                
+                if (hasExceedingStrong || hasExceedingWeak) {
+                    const smallerStrong = remainingStrong.filter(pt => pt - lastCut < minOk);
+                    const smallerWeak = remainingWeak.filter(pt => pt - lastCut < minOk);
+                    
+                    if (smallerStrong.length > 0) {
+                        const latestSmaller = smallerStrong[smallerStrong.length - 1];
+                        cutPoints.push(latestSmaller);
+                        lastCut = latestSmaller;
+                        const idx = sortedAllCands.indexOf(latestSmaller);
+                        candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                    } else if (smallerWeak.length > 0) {
+                        const latestSmaller = smallerWeak[smallerWeak.length - 1];
+                        cutPoints.push(latestSmaller);
+                        lastCut = latestSmaller;
+                        const idx = sortedAllCands.indexOf(latestSmaller);
+                        candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                    } else {
+                        let bestWordPt = null;
+                        for (let i = 0; i < remainingAll.length; i++) {
+                            const pt = remainingAll[i];
+                            const dist = pt - lastCut;
+                            if (dist >= minOk && dist <= maxOk) {
+                                if (bestWordPt === null || Math.abs(dist - preferredSplit) < Math.abs(bestWordPt - lastCut - preferredSplit)) {
+                                    bestWordPt = pt;
+                                }
+                            }
+                        }
+                        
+                        if (bestWordPt !== null) {
+                            cutPoints.push(bestWordPt);
+                            lastCut = bestWordPt;
+                            const idx = sortedAllCands.indexOf(bestWordPt);
+                            candIdx = idx !== -1 ? idx + 1 : candIdx + 1;
+                        } else {
+                            const nextForcedCut = lastCut + preferredSplit;
+                            cutPoints.push(nextForcedCut);
+                            lastCut = nextForcedCut;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if (bgMaxClipDur > 0) {
+            while ((totalDur - lastCut) > bgMaxClipDur) {
+                const nextForcedCut = lastCut + preferredSplit;
+                cutPoints.push(nextForcedCut);
+                lastCut = nextForcedCut;
+            }
+        }
+        if (cutPoints.length > 1 && totalDur - cutPoints[cutPoints.length - 1] < 1.5) {
+            cutPoints[cutPoints.length - 1] = totalDur;
+        } else if (cutPoints[cutPoints.length - 1] < totalDur - 0.01) {
+            cutPoints.push(totalDur);
+        } else {
+            cutPoints[cutPoints.length - 1] = totalDur;
+        }
+
+        for (let idx = 0; idx < cutPoints.length - 1; idx++) {
+            const start = cutPoints[idx];
+            const end = cutPoints[idx + 1];
+            const dur = end - start;
+
+            const clip = poolClips[idx % poolClips.length];
+            result.push({
+                path: clip.path,
+                isImage: clip.isImage,
+                start,
+                end,
+                duration: dur,
+                trimStart: clip.trimStart,
+                speedFactor: bgDurFactor
+            });
+        }
+    } else {
+        let cursor = 0;
+        for (let i = 0; i < poolClips.length * 10; i++) {
+            const clip = poolClips[i % poolClips.length];
+            const start = cursor;
+            const end = cursor + clip.baseDuration;
+            result.push({
+                path: clip.path,
+                isImage: clip.isImage,
+                start,
+                end,
+                duration: clip.baseDuration,
+                trimStart: clip.trimStart,
+                speedFactor: bgDurFactor
+            });
+            cursor = end;
+            if (cursor >= totalDur) break;
+        }
+        if (result.length > 0) {
+            const last = result[result.length - 1];
+            if (last.end > totalDur) {
+                last.end = totalDur;
+                last.duration = last.end - last.start;
+            }
+        }
+    }
+    return result;
 }
 
-function _resolvePreviewMultiClipAtTime(task, timeSec) {
+async function _preFetchMultiBgDurations(task) {
+    if (!task || task.bgMode !== 'multi' || !Array.isArray(task.bgClipPool)) return;
+    if (!_reelsState._multiBgDurations) _reelsState._multiBgDurations = {};
     const pool = _getPreviewMultiClipPool(task);
-    if (pool.length === 0) return null;
+    for (const path of pool) {
+        if (_isImageFile(path)) continue;
+        if (_reelsState._multiBgDurations[path] > 0) continue;
+        if (window.electronAPI && typeof window.electronAPI.getMediaDuration === 'function') {
+            try {
+                const dur = await window.electronAPI.getMediaDuration(path);
+                if (dur > 0) {
+                    _reelsState._multiBgDurations[path] = dur;
+                    console.log(`[Preview] Loaded duration for ${path}: ${dur}s`);
+                }
+            } catch (e) {
+                console.error('[Preview] Failed to get duration for', path, e);
+            }
+        }
+    }
+    if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
+}
 
-    const videoEl = document.getElementById('reels-preview-video');
-    const durations = pool.map(path => _getPreviewMultiClipDuration(path, videoEl, task));
-    const total = durations.reduce((sum, dur) => sum + dur, 0) || pool.length * 5;
+function _getPreviewMultiClipDuration(path, videoEl, task) {
+    let start = 0;
+    let end = null;
+    if (task && task.bgClipSettings && task.bgClipSettings[path]) {
+        if (task.bgClipSettings[path].trimStart != null) start = parseFloat(task.bgClipSettings[path].trimStart) || 0;
+        if (task.bgClipSettings[path].trimEnd != null) end = parseFloat(task.bgClipSettings[path].trimEnd) || null;
+    }
+
+    let dur = 5;
+    if (!_isImageFile(path)) {
+        if (end != null && end > 0) {
+            dur = end - start;
+        } else {
+            if (_reelsState._multiBgDurations && _reelsState._multiBgDurations[path] > 0) {
+                dur = _reelsState._multiBgDurations[path] - start;
+            } else if (videoEl && videoEl.dataset && videoEl.dataset.multiBgPath === path && isFinite(videoEl.duration) && videoEl.duration > 0) {
+                dur = videoEl.duration - start;
+            } else {
+                dur = 5;
+            }
+        }
+    }
+    const bgDurFactor = (task && task.bgDurScale ? task.bgDurScale : 100) / 100;
+    return Math.max(0.5, dur) * bgDurFactor;
+}
+
+function _resolvePreviewMultiClipsAtTime(task, timeSec) {
+    const segments = _calculatePreviewSegments(task);
+    if (segments.length === 0) return null;
+
+    const total = segments[segments.length - 1].end;
     const loopTime = _isPreviewLoopEnabled() && total > 0
         ? (((timeSec || 0) % total) + total) % total
         : Math.min(timeSec || 0, Math.max(0, total - 0.001));
 
-    let cursor = 0;
-    for (let i = 0; i < pool.length; i++) {
-        const dur = durations[i] || 5;
-        if (loopTime < cursor + dur || i === pool.length - 1) {
-            return {
-                index: i,
-                path: pool[i],
-                isImage: _isImagePath(pool[i]),
-                localTime: Math.max(0, loopTime - cursor),
-                duration: dur,
-                totalDuration: total,
-            };
-        }
-        cursor += dur;
+    const seg = segments.find(s => loopTime >= s.start && loopTime < s.end) || segments[segments.length - 1];
+    const index = segments.indexOf(seg);
+
+    const bgTransition = task.bgTransition || 'crossfade';
+    const bgTransDur = task.bgTransDur || 0.5;
+    const tDur = bgTransition !== 'none' ? bgTransDur : 0;
+
+    let inTransition = false;
+    let transitionProgress = 0;
+    let prevSeg = null;
+
+    if (tDur > 0 && index > 0 && loopTime >= seg.start && loopTime < seg.start + tDur) {
+        inTransition = true;
+        transitionProgress = (loopTime - seg.start) / tDur;
+        prevSeg = segments[index - 1];
     }
-    return null;
+
+    const getLocalTime = (s, time) => {
+        const timeInSeg = time - s.start;
+        return s.trimStart + timeInSeg / s.speedFactor;
+    };
+
+    return {
+        current: {
+            index,
+            path: seg.path,
+            isImage: seg.isImage,
+            localTime: getLocalTime(seg, loopTime),
+            duration: seg.duration
+        },
+        transition: inTransition ? {
+            index: index - 1,
+            path: prevSeg.path,
+            isImage: prevSeg.isImage,
+            localTime: getLocalTime(prevSeg, loopTime),
+            duration: prevSeg.duration,
+            progress: transitionProgress,
+            type: bgTransition
+        } : null,
+        totalDuration: total
+    };
+}
+
+function _syncPreviewMultiPlayers(task, clips) {
+    const video = document.getElementById('reels-preview-video');
+    const fadeVideo = _ensurePreviewFadeVideo(video);
+    if (!video || !fadeVideo) return;
+
+    const bgDurScale = task.bgDurScale || 100;
+    const bgDurFactor = bgDurScale / 100;
+    const targetPlaybackRate = (bgDurFactor !== 0) ? 1.0 / bgDurFactor : 1.0;
+
+    const audio = document.getElementById('reels-preview-audio');
+    const shouldPlay = !!_reelsState.mockPlaying || !!(audio && audio.src && !audio.paused);
+
+    const cfg = _getPreviewAudioMixConfig();
+    const effectiveBgGain = _getEffectiveBgVolumePercent(task, cfg.bgGain * 100) / 100;
+
+    const syncPlayer = (player, path, localTime) => {
+        const url = _toPlayablePath(path, null);
+        if (player.src !== url || player.dataset.multiPath !== path) {
+            player.pause();
+            player.src = url;
+            player.dataset.multiPath = path;
+            player.load();
+        }
+        player.playbackRate = targetPlaybackRate;
+        player.preservesPitch = true;
+
+        const targetTime = player.duration > 0 ? Math.min(localTime, Math.max(0, player.duration - 0.03)) : localTime;
+        if (player.readyState >= 1 && Math.abs((player.currentTime || 0) - targetTime) > 0.25) {
+            try { player.currentTime = targetTime; } catch (_) { }
+        }
+
+        // Apply volume/muted status on every sync, especially after load()
+        const ctx = _reelsState._audioCtx;
+        const useWebAudio = !!(ctx && _reelsState._gainNodes);
+        const vol = effectiveBgGain;
+        if (useWebAudio && _reelsState._gainNodes.has(player)) {
+            const gainNode = _reelsState._gainNodes.get(player);
+            gainNode.gain.setValueAtTime(vol, ctx.currentTime);
+            player.volume = vol > 0 ? 1.0 : 0;
+            player.muted = vol <= 0.0001;
+        } else {
+            player.volume = Math.min(1.0, vol);
+            player.muted = vol <= 0.0001;
+        }
+
+        if (shouldPlay && player.paused) {
+            player.play().catch(() => { });
+        } else if (!shouldPlay && !player.paused) {
+            player.pause();
+        }
+    };
+
+    if (clips.transition) {
+        const outgoing = clips.transition;
+        const incoming = clips.current;
+
+        if (outgoing.isImage && incoming.isImage) {
+            video.pause();
+            fadeVideo.pause();
+        } else if (outgoing.isImage) {
+            video.style.display = 'block';
+            syncPlayer(video, incoming.path, incoming.localTime);
+            fadeVideo.pause();
+        } else if (incoming.isImage) {
+            video.style.display = 'block';
+            syncPlayer(video, outgoing.path, outgoing.localTime);
+            fadeVideo.pause();
+        } else {
+            video.style.display = 'block';
+            fadeVideo.style.display = 'block';
+
+            if (video.dataset.multiPath === outgoing.path) {
+                syncPlayer(video, outgoing.path, outgoing.localTime);
+                syncPlayer(fadeVideo, incoming.path, incoming.localTime);
+            } else if (fadeVideo.dataset.multiPath === outgoing.path) {
+                syncPlayer(fadeVideo, outgoing.path, outgoing.localTime);
+                syncPlayer(video, incoming.path, incoming.localTime);
+            } else {
+                syncPlayer(video, outgoing.path, outgoing.localTime);
+                syncPlayer(fadeVideo, incoming.path, incoming.localTime);
+            }
+        }
+    } else {
+        const current = clips.current;
+
+        if (current.isImage) {
+            video.pause();
+            fadeVideo.pause();
+        } else {
+            video.style.display = 'block';
+            if (fadeVideo.dataset.multiPath === current.path && !video.dataset.multiPath) {
+                syncPlayer(fadeVideo, current.path, current.localTime);
+                video.pause();
+            } else {
+                syncPlayer(video, current.path, current.localTime);
+                fadeVideo.pause();
+            }
+        }
+    }
+}
+
+function _drawPreviewMultiBackground(ctx, w, h, bgScale, bgX, bgY, clips) {
+    if (!clips) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, h);
+        return;
+    }
+    const task = _getSelectedTask();
+    const video = document.getElementById('reels-preview-video');
+    const fadeVideo = _reelsState.previewFadeVideo;
+
+    const getDrawSource = (clip) => {
+        if (clip.isImage) {
+            if (!_reelsState._multiBgImages) _reelsState._multiBgImages = {};
+            let img = _reelsState._multiBgImages[clip.path];
+            if (!img) {
+                img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => { if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview(); };
+                img.src = _toPlayablePath(clip.path, null);
+                _reelsState._multiBgImages[clip.path] = img;
+            }
+            return (img.complete && img.naturalWidth > 0) ? img : null;
+        } else {
+            if (video && video.dataset.multiPath === clip.path && video.readyState >= 1) {
+                return video;
+            }
+            if (fadeVideo && fadeVideo.dataset.multiPath === clip.path && fadeVideo.readyState >= 1) {
+                return fadeVideo;
+            }
+            return null;
+        }
+    };
+
+    const drawClip = (clip) => {
+        const src = getDrawSource(clip);
+        if (src) {
+            _drawVideoCover(ctx, src, w, h, bgScale, bgX, bgY, task?.bgFlipH || false, task?.bgFlipV || false);
+        } else {
+            ctx.fillStyle = '#1e1e1e';
+            ctx.fillRect(0, 0, w, h);
+        }
+    };
+
+    if (clips.transition) {
+        const outgoing = clips.transition;
+        const incoming = clips.current;
+        const progress = outgoing.progress;
+        const type = outgoing.type;
+
+        drawClip(outgoing);
+
+        ctx.save();
+        if (type === 'crossfade' || type === 'fade') {
+            ctx.globalAlpha = progress;
+            drawClip(incoming);
+        } else if (type === 'fade_black' || type === 'fadeblack') {
+            if (progress < 0.5) {
+                const alpha = progress * 2;
+                ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                ctx.fillRect(0, 0, w, h);
+            } else {
+                const alpha = (progress - 0.5) * 2;
+                ctx.globalAlpha = alpha;
+                drawClip(incoming);
+            }
+        } else if (type === 'fade_white' || type === 'fadewhite') {
+            if (progress < 0.5) {
+                const alpha = progress * 2;
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.fillRect(0, 0, w, h);
+            } else {
+                const alpha = (progress - 0.5) * 2;
+                ctx.globalAlpha = alpha;
+                drawClip(incoming);
+            }
+        } else if (type === 'slide_left' || type === 'slideleft') {
+            ctx.beginPath();
+            ctx.rect(w * (1 - progress), 0, w * progress, h);
+            ctx.clip();
+            drawClip(incoming);
+        } else if (type === 'slide_right' || type === 'slideright') {
+            ctx.beginPath();
+            ctx.rect(0, 0, w * progress, h);
+            ctx.clip();
+            drawClip(incoming);
+        } else if (type === 'wipe' || type === 'wipeleft') {
+            ctx.beginPath();
+            ctx.rect(0, 0, w * progress, h);
+            ctx.clip();
+            drawClip(incoming);
+        } else {
+            drawClip(incoming);
+        }
+        ctx.restore();
+    } else {
+        drawClip(clips.current);
+    }
+}
+
+function _resolvePreviewMultiClipAtTime(task, timeSec) {
+    const segments = _calculatePreviewSegments(task);
+    if (segments.length === 0) return null;
+
+    const total = segments[segments.length - 1].end;
+    const loopTime = _isPreviewLoopEnabled() && total > 0
+        ? (((timeSec || 0) % total) + total) % total
+        : Math.min(timeSec || 0, Math.max(0, total - 0.001));
+
+    const seg = segments.find(s => loopTime >= s.start && loopTime < s.end) || segments[segments.length - 1];
+    
+    const timeInSeg = loopTime - seg.start;
+    const localTime = seg.trimStart + timeInSeg / seg.speedFactor;
+
+    return {
+        index: segments.indexOf(seg),
+        path: seg.path,
+        isImage: seg.isImage,
+        localTime: localTime,
+        duration: seg.duration,
+        totalDuration: total
+    };
 }
 
 function _syncPreviewMultiBackground(task, contentTime) {
-    const clip = _resolvePreviewMultiClipAtTime(task, contentTime);
-    const video = document.getElementById('reels-preview-video');
-    if (!clip || !video) return null;
-
-    const taskId = task.id || task.fileName || String(_reelsState.selectedIdx);
-    const state = _reelsState.previewMultiBg || (_reelsState.previewMultiBg = {});
-    if (state.taskId !== taskId) {
-        state.taskId = taskId;
-        state.clipIndex = -1;
-        state.path = '';
-        state.image = null;
-    }
-
-    if (clip.isImage) {
-        video.pause();
-        video.removeAttribute('src');
-        video.dataset.multiBgPath = '';
-        _resetPreviewFadeVideo();
-        video.style.display = 'none';
-        if (state.path !== clip.path || !state.image) {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => { if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview(); };
-            img.src = _toPlayablePath(clip.path, null);
-            state.path = clip.path;
-            state.clipIndex = clip.index;
-            state.image = img;
-        }
-        _reelsState._previewBgImage = state.image;
-        return { ...clip, image: state.image };
-    }
-
-    _reelsState._previewBgImage = null;
-    const url = _toPlayablePath(clip.path, null);
-    if (state.path !== clip.path || video.dataset.multiBgPath !== clip.path || video.src !== url) {
-        video.pause();
-        video.src = url;
-        video.dataset.multiBgPath = clip.path;
-        video.load();
-        state.path = clip.path;
-        state.clipIndex = clip.index;
-        state.image = null;
-    }
-
-    const targetTime = video.duration > 0 ? Math.min(clip.localTime, Math.max(0, video.duration - 0.03)) : clip.localTime;
-    if (video.readyState >= 1 && Math.abs((video.currentTime || 0) - targetTime) > 0.25) {
-        try { video.currentTime = targetTime; } catch (_) { }
-    }
-    const audio = document.getElementById('reels-preview-audio');
-    const shouldPlay = !!_reelsState.mockPlaying || !!(audio && audio.src && !audio.paused);
-    if (shouldPlay && video.paused) {
-        video.play().catch(() => { });
-    } else if (!shouldPlay && !video.paused) {
-        video.pause();
-    }
-    return clip;
+    const clips = _resolvePreviewMultiClipsAtTime(task, contentTime);
+    if (!clips) return null;
+    _syncPreviewMultiPlayers(task, clips);
+    return clips;
 }
 
 /**
@@ -4137,6 +4815,10 @@ function _getPreviewDuration() {
     }
 
     if (task && task.bgMode === 'multi' && _getEffectiveBgClipPool(task).length > 0) {
+        const isCardingMode = task.bgClipOrder === 'random_align' || task.bgClipOrder === 'sequence_align';
+        if (isCardingMode && subDur > 0) {
+            return subDur + offsetDur;
+        }
         const pool = _getPreviewMultiClipPool(task);
         const multiDur = pool.reduce((sum, path) => {
             return sum + _getPreviewMultiClipDuration(path, video, task);
@@ -4175,14 +4857,77 @@ function _getPreviewLoopFadeConfig() {
     return { enabled, duration };
 }
 
+function _setExportSettingValue(id, val) {
+    const el = document.getElementById(id);
+    const rangeEl = document.getElementById(id + '-range') || (id === 'reels-bg-volume' ? document.getElementById('reels-bg-volume-range-global') : null);
+    const raw = val == null ? '' : String(val);
+    if (el) el.value = raw;
+    if (rangeEl) rangeEl.value = (id === 'reels-custom-duration' && raw === '') ? '0' : raw;
+}
+
+function _bindExportSliderNumber(id, opts = {}) {
+    const num = document.getElementById(id);
+    const range = document.getElementById(opts.rangeId || `${id}-range`);
+    if (!num || !range || range.dataset.bound === 'true') return;
+    range.dataset.bound = 'true';
+    const normalizeForRange = (value) => {
+        if (opts.blankOnZero && (value === '' || value == null)) return '0';
+        return String(value);
+    };
+    const normalizeForNumber = (value) => {
+        if (opts.blankOnZero && parseFloat(value) === 0) return '';
+        return String(value);
+    };
+    const fire = () => {
+        if (typeof opts.onChange === 'function') opts.onChange();
+    };
+    range.addEventListener('input', () => {
+        num.value = normalizeForNumber(range.value);
+        fire();
+    });
+    num.addEventListener('input', () => {
+        range.value = normalizeForRange(num.value);
+        fire();
+    });
+    range.value = normalizeForRange(num.value);
+}
+
+function _initExportSettingSliders() {
+    const refreshPreviewAudio = () => {
+        if (typeof _applyPreviewAudioMix === 'function') _applyPreviewAudioMix();
+    };
+    const refreshPreview = () => {
+        if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
+    };
+    _bindExportSliderNumber('reels-custom-duration', { blankOnZero: true });
+    _bindExportSliderNumber('reels-voice-volume', { onChange: refreshPreviewAudio });
+    _bindExportSliderNumber('reels-bg-volume', { rangeId: 'reels-bg-volume-range-global', onChange: refreshPreviewAudio });
+    _bindExportSliderNumber('reels-reverb-mix', { onChange: refreshPreviewAudio });
+    _bindExportSliderNumber('reels-stereo-width', { onChange: refreshPreviewAudio });
+    _bindExportSliderNumber('reels-loop-fade-dur', { onChange: refreshPreview });
+    _bindExportSliderNumber('reels-export-concurrency');
+}
+
 function _getPreviewAudioMixConfig() {
     let voiceVolume = parseFloat((document.getElementById('reels-voice-volume') || {}).value || '100');
-    let bgVolume = parseFloat((document.getElementById('reels-bg-volume') || {}).value || '100');
+    let bgVolume = _getGlobalBgVolumePercent();
     if (!Number.isFinite(voiceVolume)) voiceVolume = 100;
     if (!Number.isFinite(bgVolume)) bgVolume = 100;
     voiceVolume = Math.max(0, voiceVolume);
     bgVolume = Math.max(0, bgVolume);
     return { voiceGain: voiceVolume / 100, bgGain: bgVolume / 100 };
+}
+
+function _getGlobalBgVolumePercent() {
+    const bgVolumeEl = document.getElementById('reels-bg-volume');
+    const bgVolume = parseFloat(bgVolumeEl ? bgVolumeEl.value : '100');
+    return Number.isFinite(bgVolume) ? Math.max(0, bgVolume) : 100;
+}
+
+function _getEffectiveBgVolumePercent(task, globalBgVolume = _getGlobalBgVolumePercent()) {
+    const raw = task && task.bgVideoVolume != null ? parseFloat(task.bgVideoVolume) : NaN;
+    if (Number.isFinite(raw)) return Math.max(0, raw);
+    return Math.max(0, globalBgVolume);
 }
 
 function _applyPreviewAudioMix() {
@@ -4203,7 +4948,7 @@ function _applyPreviewAudioMix() {
     const hasVoice = !!(task && task.audioPath && audio && audio.src);
     // ── 计算有效音量（优先使用任务级覆盖，再回退到全局配置）──
     const effectiveVoiceGain = (task && task.voiceVolume != null) ? task.voiceVolume / 100 : cfg.voiceGain;
-    const effectiveBgGain = (task && task.bgVideoVolume != null) ? task.bgVideoVolume / 100 : cfg.bgGain;
+    const effectiveBgGain = _getEffectiveBgVolumePercent(task, cfg.bgGain * 100) / 100;
 
     if (audio) {
         const vol = hasVoice ? effectiveVoiceGain : 1.0;
@@ -4217,18 +4962,20 @@ function _applyPreviewAudioMix() {
             audio.muted = hasVoice ? (vol <= 0.0001) : false;
         }
     }
-    if (video) {
+    const players = [video, _reelsState.previewFadeVideo].filter(Boolean);
+    for (const p of players) {
         const vol = effectiveBgGain;
-        if (useWebAudio && _reelsState._gainNodes.has(video)) {
-            const gainNode = _reelsState._gainNodes.get(video);
+        if (useWebAudio && _reelsState._gainNodes.has(p)) {
+            const gainNode = _reelsState._gainNodes.get(p);
             gainNode.gain.setValueAtTime(vol, ctx.currentTime);
-            video.volume = vol > 0 ? 1.0 : 0;
-            video.muted = vol <= 0.0001;
+            p.volume = vol > 0 ? 1.0 : 0;
+            p.muted = vol <= 0.0001;
         } else {
-            video.volume = Math.min(1.0, vol);
-            video.muted = vol <= 0.0001;
+            p.volume = Math.min(1.0, vol);
+            p.muted = vol <= 0.0001;
         }
     }
+
 
     // ── 覆层视频 (Content Video) 音量 ──
     if (contentVideoEl && task) {
@@ -4348,7 +5095,8 @@ function _setupPreviewReverb() {
     const ctx = _reelsState._audioCtx;
 
     // Attach MediaElementSource for any new elements
-    const els = [audio, video, contentVideoEl, bgm].filter(Boolean);
+    const fadeVideo = _reelsState.previewFadeVideo;
+    const els = [audio, video, fadeVideo, contentVideoEl, bgm].filter(Boolean);
     for (const el of els) {
         if (!_reelsState._mediaSources.has(el)) {
             try {
@@ -4506,7 +5254,11 @@ function _resetPreviewFadeVideo() {
 }
 
 function _ensurePreviewFadeVideo(mainVideo) {
-    if (!mainVideo || !mainVideo.src) return null;
+    if (!mainVideo) return null;
+    const task = _getSelectedTask();
+    const isMulti = task && task.bgMode === 'multi';
+    if (!isMulti && !mainVideo.src) return null;
+
     if (!_reelsState.previewFadeVideo) {
         const fadeVideo = document.createElement('video');
         fadeVideo.id = 'reels-preview-video-fade';
@@ -4518,10 +5270,11 @@ function _ensurePreviewFadeVideo(mainVideo) {
         const host = document.getElementById('reels-preview-container') || document.body;
         host.appendChild(fadeVideo);
         _reelsState.previewFadeVideo = fadeVideo;
+        _applyPreviewAudioMix();
     }
 
     const fadeVideo = _reelsState.previewFadeVideo;
-    if (_reelsState.previewFadeVideoSrc !== mainVideo.src) {
+    if (!isMulti && _reelsState.previewFadeVideoSrc !== mainVideo.src) {
         fadeVideo.pause();
         fadeVideo.src = mainVideo.src;
         _reelsState.previewFadeVideoSrc = mainVideo.src;
@@ -4738,6 +5491,83 @@ function _getOrCreateTaskByBase(baseName, fallbackName = '') {
     _reelsState.tasks.push(task);
     return task;
 }
+
+async function reelsCreateTaskFromAutoEditResult(autoEditResult = {}, opts = {}) {
+    const videoPath = autoEditResult.output_path || autoEditResult.outputPath || '';
+    const srtPath = autoEditResult.srt_path || autoEditResult.srtPath || '';
+    if (!videoPath) throw new Error('缺少自动剪辑输出视频');
+    if (!srtPath) throw new Error('缺少自动剪辑输出字幕');
+
+    const baseName = _normalizeBaseName(
+        opts.baseName ||
+        String(videoPath).split(/[\\/]/).pop().replace(/\.[^.]+$/, '') ||
+        'auto_edit'
+    );
+    const task = (typeof _createEmptyTask === 'function') ? _createEmptyTask() : {
+        id: 'task_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now(),
+        bgPath: null,
+        bgSrcUrl: null,
+        audioPath: null,
+        srtPath: null,
+        segments: [],
+        videoPath: null,
+        srcUrl: null,
+    };
+
+    task.baseName = baseName || 'auto_edit';
+    task.fileName = `${task.baseName}.mp4`;
+    task.audioPath = null;
+    task.srtPath = srtPath;
+    task.aligned = true;
+    task.alignSource = 'auto_edit';
+    task._autoEditSource = true;
+
+    if (typeof _setTaskSingleBackground === 'function') {
+        _setTaskSingleBackground(task, videoPath, { clearBgSrcUrl: true });
+    } else {
+        task.bgPath = videoPath;
+        task.videoPath = videoPath;
+        task.bgSrcUrl = null;
+        task.srcUrl = null;
+    }
+
+    let srtContent = autoEditResult.srt_content || '';
+    if (!srtContent && window.electronAPI?.readFileText) {
+        srtContent = await window.electronAPI.readFileText(srtPath);
+    }
+    if (srtContent && typeof parseSRT === 'function') {
+        const rawSegs = parseSRT(srtContent).map(seg => ({ ...seg, _timeUnit: 'sec' }));
+        task.segments = window.ReelsSubtitleProcessor
+            ? ReelsSubtitleProcessor.srtToSegmentsWithWords(rawSegs)
+            : rawSegs;
+    } else if (Array.isArray(autoEditResult.segments)) {
+        task.segments = autoEditResult.segments
+            .filter(seg => seg && seg.script && Number.isFinite(Number(seg.duration)))
+            .reduce((acc, seg, i) => {
+                const start = acc.length ? acc[acc.length - 1].end : 0;
+                const end = start + Math.max(0.001, Number(seg.duration));
+                acc.push({ index: i + 1, start, end, text: seg.script, words: [] });
+                return acc;
+            }, []);
+    }
+
+    _reelsState.tasks.push(task);
+    _reelsState.selectedIdx = _reelsState.tasks.length - 1;
+
+    const workMode = document.getElementById('reels-work-mode');
+    if (workMode) {
+        workMode.value = 'voiced_bg';
+        if (typeof reelsOnWorkModeChange === 'function') reelsOnWorkModeChange();
+    }
+
+    if (typeof _renderBatchTable === 'function') _renderBatchTable();
+    if (typeof _renderTaskList === 'function') _renderTaskList();
+    if (typeof reelsSelectTask === 'function') reelsSelectTask(_reelsState.selectedIdx);
+    else if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
+
+    return task;
+}
+window.reelsCreateTaskFromAutoEditResult = reelsCreateTaskFromAutoEditResult;
 
 function _buildFileInfo(file) {
     const name = file.name || '';
@@ -5684,6 +6514,7 @@ function reelsSelectTask(idx) {
     _renderTaskList();
     const task = _reelsState.tasks[idx];
     if (!task) return;
+    _preFetchMultiBgDurations(task);
     const taskStyle = _resolveSubtitleStyleForTask(task);
     if (taskStyle) _writeStyleToUI(taskStyle);
     if (window.reelsSyncBackgroundTabUI) window.reelsSyncBackgroundTabUI(task);
@@ -7361,7 +8192,7 @@ async function reelsStartExport() {
     const useKaraoke = document.getElementById('reels-karaoke-hl');
     const karaokeHL = useKaraoke ? useKaraoke.checked : false;
     let voiceVolume = parseFloat((document.getElementById('reels-voice-volume') || {}).value || '100');
-    let bgVolume = parseFloat((document.getElementById('reels-bg-volume') || {}).value || '100');
+    let bgVolume = _getGlobalBgVolumePercent();
     if (!Number.isFinite(voiceVolume)) voiceVolume = 100;
     if (!Number.isFinite(bgVolume)) bgVolume = 100;
     voiceVolume = Math.max(0, voiceVolume);
@@ -7703,11 +8534,16 @@ async function reelsStartExport() {
                 const layeredResult = await window.reelsLayeredExport({
                     canvas: offCanvas,
                     style: taskStyle,
-                    segments: showSubtitle ? (task.segments || []) : [],
+                    segments: task.segments || [],
+                    originalScript: task.ttsText || task.aiScript || task.txtContent || "",
+                    showSubtitle: showSubtitle,
                     overlays: task.overlays || [],
                     backgroundPath: bgPath,
                     bgMode: task.bgMode || 'single',
                     bgClipPool: _getEffectiveBgClipPool(task),
+                    bgClipSettings: task.bgClipSettings || {},
+                    bgMinClipDur: task.bgMinClipDur !== undefined ? task.bgMinClipDur : 5,
+                    bgMaxClipDur: task.bgMaxClipDur !== undefined ? task.bgMaxClipDur : 7,
                     bgClipOrder: task.bgClipOrder || 'random',
                     bgClipSeed: task.id || task.fileName || '',
                     bgTransition: task.bgTransition || 'crossfade',
@@ -7730,8 +8566,8 @@ async function reelsStartExport() {
                     targetHeight: th,
                     fps: 30,
 
-                    voiceVolume: (workMode === 'voiced_bg' && !task.audioPath) ? (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100 : (task.voiceVolume != null ? task.voiceVolume : voiceVolume) / 100,
-                    bgVolume: (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100,
+                    voiceVolume: (workMode === 'voiced_bg' && !task.audioPath) ? _getEffectiveBgVolumePercent(task, bgVolume) / 100 : (task.voiceVolume != null ? task.voiceVolume : voiceVolume) / 100,
+                    bgVolume: _getEffectiveBgVolumePercent(task, bgVolume) / 100,
                     loopFade,
                     loopFadeDur,
                     customDuration: task.customDuration || customDuration || 0,
@@ -7825,13 +8661,16 @@ async function reelsStartExport() {
                                         }
 
                                         if (source === 'title') {
-                                            // 标题模式: 只保留第一个有 title_text 的 textcard 的标题
+                                            // 标题模式: 只保留第一个有 title_text 的 textcard 的标题，纯色蒙版作为背景保留
                                             for (const ov of taskOverlays) {
                                                 const isCard = !ov.type || ov.type === '' || ov.type === 'textcard';
+                                                const isSolidMask = ov.type === 'solid_mask';
                                                 if (isCard) {
                                                     ov.body_text = '';
                                                     ov.footer_text = '';
                                                     if (!ov.title_text) ov.disabled = true;
+                                                } else if (isSolidMask) {
+                                                    // 保持纯色蒙版启用
                                                 } else {
                                                     ov.disabled = true; // 标题模式不渲染非卡片覆层
                                                 }
@@ -8080,8 +8919,8 @@ async function reelsStartExport() {
                                 contentVideoBrightness: task.contentVideoBrightness != null ? task.contentVideoBrightness : 60,
                                 voicePath: voiceSource || null,
                                 targetWidth: tw, targetHeight: th, fps: 30,
-                                voiceVolume: (workMode === 'voiced_bg' && !task.audioPath) ? (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100 : (task.voiceVolume != null ? task.voiceVolume : voiceVolume) / 100,
-                                bgVolume: (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100,
+                                voiceVolume: (workMode === 'voiced_bg' && !task.audioPath) ? _getEffectiveBgVolumePercent(task, bgVolume) / 100 : (task.voiceVolume != null ? task.voiceVolume : voiceVolume) / 100,
+                                bgVolume: _getEffectiveBgVolumePercent(task, bgVolume) / 100,
                                 loopFade, loopFadeDur,
                                 bgmPath: _getEffectiveBgmPath(task, i) || '',
                                 bgmVolume: (task.bgmVolume != null ? task.bgmVolume : 10) / 100,
@@ -8128,12 +8967,17 @@ async function reelsStartExport() {
                 const wysiwygResult = await window.reelsWysiwygExport({
                     canvas: offCanvas,
                     style: taskStyle,
-                    segments: showSubtitle ? (task.segments || []) : [],
+                    segments: task.segments || [],
+                    originalScript: task.ttsText || task.aiScript || task.txtContent || "",
+                    showSubtitle: showSubtitle,
                     overlays: task.overlays || [],
                     backgroundPath: bgPath,
                     alphaOverlayBgPath: canUseAlpha ? bgPath : null,
                     bgMode: task.bgMode || 'single',
                     bgClipPool: _getEffectiveBgClipPool(task),
+                    bgClipSettings: task.bgClipSettings || {},
+                    bgMinClipDur: task.bgMinClipDur !== undefined ? task.bgMinClipDur : 5,
+                    bgMaxClipDur: task.bgMaxClipDur !== undefined ? task.bgMaxClipDur : 7,
                     bgClipOrder: task.bgClipOrder || 'random',
                     bgClipSeed: task.id || task.fileName || '',
                     bgTransition: task.bgTransition || 'crossfade',
@@ -8155,8 +8999,8 @@ async function reelsStartExport() {
                     targetHeight: th,
                     fps: 30,
                     // voiced_bg 模式: 背景音频作为主音轨，用 bgVolume 控制
-                    voiceVolume: (workMode === 'voiced_bg' && !task.audioPath) ? (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100 : (task.voiceVolume != null ? task.voiceVolume : voiceVolume) / 100,
-                    bgVolume: (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100,
+                    voiceVolume: (workMode === 'voiced_bg' && !task.audioPath) ? _getEffectiveBgVolumePercent(task, bgVolume) / 100 : (task.voiceVolume != null ? task.voiceVolume : voiceVolume) / 100,
+                    bgVolume: _getEffectiveBgVolumePercent(task, bgVolume) / 100,
                     loopFade,
                     loopFadeDur,
                     customDuration: task.customDuration || customDuration || 0,
@@ -8223,7 +9067,7 @@ async function reelsStartExport() {
                     loop_fade: loopFade,
                     loop_fade_dur: loopFadeDur,
                     voice_volume: voiceVolume / 100,
-                    bg_volume: (task.bgVideoVolume != null ? task.bgVideoVolume : bgVolume) / 100,
+                    bg_volume: _getEffectiveBgVolumePercent(task, bgVolume) / 100,
                     bgm_path: task.bgmPath || '',
                     bgm_volume: (task.bgmVolume != null ? task.bgmVolume : 10) / 100,
                 });
@@ -8492,7 +9336,7 @@ function collectCurrentProjectState() {
         suffix: (document.getElementById('reels-suffix') || {}).value || '_subtitled',
         namingMode: (document.getElementById('reels-export-naming-mode-outer') || {}).value || (document.getElementById('reels-naming-mode') || {}).value || localStorage.getItem('reels_naming_mode') || 'text',
         voiceVolume: parseFloat((document.getElementById('reels-voice-volume') || {}).value || '100') || 100,
-        bgVolume: parseFloat((document.getElementById('reels-bg-volume') || {}).value || '100') || 100,
+        bgVolume: _getGlobalBgVolumePercent(),
         useGPU: (document.getElementById('reels-use-gpu') || {}).checked || false,
         useMemoryDecoder: (document.getElementById('reels-use-memory-decoder') || {}).checked || false,
         previewLoop: (document.getElementById('reels-preview-loop') || {}).checked !== false,
@@ -8533,8 +9377,13 @@ function applyRestoredProject(result) {
     _reelsState._coverEditMode = false;
     _reelsState.selectedIdx = -1; // 标记为无选中，防止 reelsSelectTask 回写
 
-    // 恢复任务
-    _reelsState.tasks = Array.isArray(result.tasks) ? result.tasks : [];
+    // 恢复任务并自动清理 100% 的硬编码 bgVideoVolume，使其能够继承全局配置音量
+    _reelsState.tasks = Array.isArray(result.tasks) ? result.tasks.map(task => {
+        if (task && task.bgVideoVolume === 100) {
+            delete task.bgVideoVolume;
+        }
+        return task;
+    }) : [];
     _reelsState.selectedIdx = _reelsState.tasks.length > 0
         ? Math.max(0, Math.min(result.selectedIdx >= 0 ? result.selectedIdx : 0, _reelsState.tasks.length - 1))
         : -1;
@@ -8563,10 +9412,7 @@ function applyRestoredProject(result) {
     if (result.exportOpts) {
         const opts = result.exportOpts;
         const setVal = (id, val) => {
-            const el = document.getElementById(id);
-            if (el) el.value = val;
-            const rangeEl = document.getElementById(id + '-range');
-            if (rangeEl) rangeEl.value = val;
+            _setExportSettingValue(id, val);
         };
         const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
         if (opts.outputDir) setVal('reels-output-dir', opts.outputDir);
@@ -8621,8 +9467,12 @@ function applyRestoredProject(result) {
                 if (customDiv) customDiv.style.display = 'inline-flex';
                 const wInput = document.getElementById('reels-custom-width');
                 const hInput = document.getElementById('reels-custom-height');
+                const wRange = document.getElementById('reels-custom-width-range');
+                const hRange = document.getElementById('reels-custom-height-range');
                 if (wInput) wInput.value = tw;
                 if (hInput) hInput.value = th;
+                if (wRange) wRange.value = tw;
+                if (hRange) hRange.value = th;
             } else {
                 if (customDiv) customDiv.style.display = 'none';
             }
@@ -8686,7 +9536,7 @@ function reelsSaveProject() {
         suffix: (document.getElementById('reels-suffix') || {}).value || '_subtitled',
         namingMode: (document.getElementById('reels-export-naming-mode-outer') || {}).value || (document.getElementById('reels-naming-mode') || {}).value || localStorage.getItem('reels_naming_mode') || 'text',
         voiceVolume: parseFloat((document.getElementById('reels-voice-volume') || {}).value || '100') || 100,
-        bgVolume: parseFloat((document.getElementById('reels-bg-volume') || {}).value || '100') || 100,
+        bgVolume: _getGlobalBgVolumePercent(),
         useGPU: (document.getElementById('reels-use-gpu') || {}).checked || false,
         useMemoryDecoder: (document.getElementById('reels-use-memory-decoder') || {}).checked || false,
         previewLoop: (document.getElementById('reels-preview-loop') || {}).checked !== false,
@@ -8977,9 +9827,13 @@ window.reelsHandleResolutionChange = function(val) {
 window.reelsHandleCustomResolutionChange = function() {
     const wInput = document.getElementById('reels-custom-width');
     const hInput = document.getElementById('reels-custom-height');
+    const wRange = document.getElementById('reels-custom-width-range');
+    const hRange = document.getElementById('reels-custom-height-range');
     if (wInput && hInput) {
         const w = parseInt(wInput.value, 10) || 1080;
         const h = parseInt(hInput.value, 10) || 1920;
+        if (wRange) wRange.value = w;
+        if (hRange) hRange.value = h;
         _reelsUpdateResolution(w, h);
     }
 };
@@ -9122,9 +9976,19 @@ window.reelsSyncBackgroundTabUI = function(task) {
     document.getElementById('reels-bg-y-range').value = bgY;
 
     // 背景音量
-    const bgVol = task.bgVideoVolume != null ? task.bgVideoVolume : 100;
-    document.getElementById('reels-bg-volume-num').value = bgVol;
-    document.getElementById('reels-bg-volume-range').value = bgVol;
+    const globalBgVol = _getGlobalBgVolumePercent();
+    const hasCustomBgVol = task.bgVideoVolume != null && parseFloat(task.bgVideoVolume) !== 100;
+    const bgVol = hasCustomBgVol ? task.bgVideoVolume : globalBgVol;
+    const volumeRangeEl = document.getElementById('reels-bg-volume-range');
+    const volumeNumEl = document.getElementById('reels-bg-volume-num');
+    if (volumeRangeEl) {
+        volumeRangeEl.value = bgVol;
+        volumeRangeEl.dataset.isCustom = hasCustomBgVol ? 'true' : 'false';
+    }
+    if (volumeNumEl) {
+        volumeNumEl.value = bgVol;
+        volumeNumEl.dataset.isCustom = hasCustomBgVol ? 'true' : 'false';
+    }
 
     // 背景变速
     const bgDur = task.bgDurScale != null ? task.bgDurScale : 100;
@@ -9230,8 +10094,21 @@ window.reelsSaveBgConfigUI = function() {
     task.bgFlipH = document.getElementById('reels-bg-fliph-ui').checked;
     task.bgFlipV = document.getElementById('reels-bg-flipv-ui').checked;
     
-    const bgVolVal = parseInt(document.getElementById('reels-bg-volume-num').value);
-    task.bgVideoVolume = isNaN(bgVolVal) ? 100 : bgVolVal;
+    const bgVolRange = document.getElementById('reels-bg-volume-range');
+    const bgVolNum = document.getElementById('reels-bg-volume-num');
+    const bgVolVal = parseInt((bgVolNum || {}).value);
+
+    // If the user is directly interacting with the right panel volume inputs, force isCustom to 'true'
+    if (bgVolRange && bgVolNum && (document.activeElement === bgVolRange || document.activeElement === bgVolNum)) {
+        bgVolRange.dataset.isCustom = 'true';
+        bgVolNum.dataset.isCustom = 'true';
+    }
+
+    if (bgVolRange && bgVolRange.dataset.isCustom === 'true' && !isNaN(bgVolVal) && bgVolVal !== 100) {
+        task.bgVideoVolume = bgVolVal;
+    } else {
+        delete task.bgVideoVolume;
+    }
 
     task.bgDurScale = parseInt(document.getElementById('reels-bg-dur-scale-num').value) || 100;
 
@@ -9284,6 +10161,7 @@ window.reelsSaveBgConfigUI = function() {
         if (typeof _skipNextApply !== 'undefined') _skipNextApply = true;
         _renderBatchTable();
     }
+    if (typeof _applyPreviewAudioMix === 'function') _applyPreviewAudioMix();
     if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
     if (typeof window.reelsSaveHistory === 'function') window.reelsSaveHistory();
 };
@@ -9611,8 +10489,14 @@ window.reelsCopyBgToCvUI = function() {
 window.reelsResetParamUI = function(idPrefix, defaultValue) {
     const el = document.getElementById(idPrefix + '-num');
     const elRange = document.getElementById(idPrefix + '-range');
-    if (el) el.value = defaultValue;
-    if (elRange) elRange.value = defaultValue;
+    if (el) {
+        el.value = defaultValue;
+        if (idPrefix === 'reels-bg-volume') el.dataset.isCustom = 'false';
+    }
+    if (elRange) {
+        elRange.value = defaultValue;
+        if (idPrefix === 'reels-bg-volume') elRange.dataset.isCustom = 'false';
+    }
     window.reelsSaveBgConfigUI();
 };
 

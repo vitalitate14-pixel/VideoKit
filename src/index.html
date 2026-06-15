@@ -325,6 +325,7 @@
 
               <div class="sub-group-title">视频编辑</div>
               <button class="sidebar-item" data-action="subtab" data-subtab="media-batchcut">批量剪辑</button>
+              <button class="sidebar-item" data-action="subtab" data-subtab="media-autoedit">文案自动剪辑</button>
 
               <div class="sub-group-title">视频包装</div>
               <button class="sidebar-item" data-action="subtab" data-subtab="media-logo">Logo叠加</button>
@@ -336,12 +337,13 @@
               <div class="group-title">音频文件</div>
               
               <div class="sub-group-title">格式转换</div>
-              <button class="sidebar-item" data-action="format" data-mode="mp3">音频转 MP3</button>
+              <button class="sidebar-item" data-action="format" data-mode="mp3">提取音频 MP3</button>
               <button class="sidebar-item" data-action="format" data-mode="wav">音频转 WAV</button>
               <button class="sidebar-item" data-action="format" data-mode="audio_black">音频转黑屏 MP4</button>
 
               <div class="sub-group-title">音频编辑</div>
               <button class="sidebar-item" data-action="format" data-mode="audio_split">音频裁切分割</button>
+              <button class="sidebar-item" data-action="subtab" data-subtab="media-audiomatch">音频检测匹配</button>
 
               <div class="sub-group-title">音频增强</div>
               <button class="sidebar-item" data-action="format" data-mode="audio_fx">音频特效处理</button>
@@ -766,7 +768,7 @@
                   <input type="radio" name="format-mode" value="mp3">
                   <span class="mode-label">
                     <span class="mode-icon">🎧</span>
-                    <span class="mode-text">音频转 MP3</span>
+                    <span class="mode-text">提取音频 MP3</span>
                   </span>
                 </label>
                 <label class="mode-option">
@@ -988,6 +990,125 @@
                   <input type="checkbox" id="export-split-mp4" checked>
                   导出黑屏 MP4 (原始完整音频，不裁切)
                 </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== 音频检测匹配模块 ========== -->
+          <div id="media-audiomatch-subtab" class="subtab-content">
+            <div class="workbench-title-container">
+              <span class="workbench-title">音频检测与匹配对齐</span>
+              <span class="workbench-title-desc">比对变声音轨与原音轨的频谱与能量包络，检测变声质量并进行一键/手动精准对齐</span>
+            </div>
+            
+            <!-- 选择音视频文件 -->
+            <div class="form-section">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">🎵 导入对比音频/视频文件</h4>
+              <div class="params-grid" style="grid-template-columns: 1fr 1fr; gap: 20px;">
+                <!-- 原始音轨 -->
+                <div id="am-original-card" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.15); display:flex; flex-direction:column; gap:10px; cursor: pointer; transition: all 0.2s ease;">
+                  <span style="font-weight: bold; font-size: 13px; color: #a78bfa;">📁 1. 原始音视频 (原声音轨) <span style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-left: 6px;">(支持拖拽文件)</span></span>
+                  <div class="file-input-group">
+                    <input type="text" id="am-original-path" class="input file-path" placeholder="选择原配音或原视频" readonly style="flex:1;">
+                    <input type="file" id="am-original-input" class="hidden-file-input" accept=".mp4,.mov,.mkv,.wav,.mp3,.m4a">
+                    <button class="btn btn-secondary" onclick="selectAudioMatchFile('original')">选择</button>
+                  </div>
+                </div>
+                <!-- 变声后音轨 -->
+                <div id="am-converted-card" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.15); display:flex; flex-direction:column; gap:10px; cursor: pointer; transition: all 0.2s ease;">
+                  <span style="font-weight: bold; font-size: 13px; color: #60a5fa;">📁 2. 变声后音视频 (变声音轨) <span style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-left: 6px;">(支持拖拽文件)</span></span>
+                  <div class="file-input-group">
+                    <input type="text" id="am-converted-path" class="input file-path" placeholder="选择ElevenLabs变声后的文件" readonly style="flex:1;">
+                    <input type="file" id="am-converted-input" class="hidden-file-input" accept=".mp4,.mov,.mkv,.wav,.mp3,.m4a">
+                    <button class="btn btn-secondary" onclick="selectAudioMatchFile('converted')">选择</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 检测与对齐设置 -->
+            <div class="form-section">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">⚙️ 检测对齐参数与操作</h4>
+              <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; margin: 0;">
+                  <input type="checkbox" id="am-opt-fallback-voice" checked>
+                  <span>变声失败的片段自动保留原声（防止静音）</span>
+                </label>
+                <div style="display: flex; align-items: center; gap: 8px; margin-left: auto;">
+                  <button id="am-btn-analyze" class="btn btn-secondary" onclick="runAudioMatchAnalysis()" style="padding: 8px 18px;">🔍 开始分析对比</button>
+                  <button id="am-btn-autoalign" class="btn btn-primary" onclick="runAudioMatchAutoAlign()" disabled style="padding: 8px 18px;">⚡ 自动剪辑对齐</button>
+                  <button id="am-btn-export" class="btn btn-primary" onclick="exportAudioMatchResult()" disabled style="padding: 8px 18px; background: linear-gradient(135deg, #10b981, #047857); border-color: #10b981;">💾 导出并替换视频</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 状态 -->
+            <div id="am-status-section" class="form-section hidden" style="margin-top: 10px;">
+              <div class="status-box">
+                <span id="am-status-text" class="status-text">正在分析音频...</span>
+                <div id="am-progress-bar" class="progress-bar">
+                  <div class="progress-bar-inner" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 波形对比面板 -->
+            <div id="am-visualizer-section" class="form-section hidden" style="background: #0b0b1a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); padding: 16px; display:flex; flex-direction:column; gap:12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 16px; align-items: center;">
+                  <span style="font-weight: bold; font-size: 14px; color: #e8ecff;">📺 音轨波形与频谱差异对比</span>
+                  <span id="am-align-info" style="font-size: 12px; color: #a3aed0;"></span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <button class="btn btn-secondary btn-small" onclick="playAudioMatchAudio('original')" id="am-play-orig">🔊 试听原音</button>
+                  <button class="btn btn-secondary btn-small" onclick="playAudioMatchAudio('converted')" id="am-play-conv">🔊 试听变声</button>
+                  <button class="btn btn-secondary btn-small" onclick="playAudioMatchAudio('both')" id="am-play-both" style="background: rgba(167, 139, 250, 0.12); border-color: rgba(167, 139, 250, 0.35); color: #c4b5fd;">🔊 同时对比试听</button>
+                  <button class="btn btn-secondary btn-small" onclick="playAudioMatchAudio('aligned')" id="am-play-aligned" disabled>🔊 试听对齐后</button>
+                  <button class="btn btn-secondary btn-small" onclick="stopAudioMatchAudio()">⏹️ 停止</button>
+                </div>
+              </div>
+
+              <!-- 原音轨 Canvas -->
+              <div style="position: relative; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px solid rgba(255,255,255,0.03); padding: 8px;">
+                <span style="position: absolute; top: 8px; left: 8px; font-size: 10px; color: #a78bfa; font-weight: bold; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px;">1. 原始音轨 (Original)</span>
+                <canvas id="am-canvas-original" style="width: 100%; height: 80px; display: block;"></canvas>
+              </div>
+
+              <!-- 变声轨 Canvas -->
+              <div style="position: relative; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px solid rgba(255,255,255,0.03); padding: 8px;">
+                <span style="position: absolute; top: 8px; left: 8px; font-size: 10px; color: #60a5fa; font-weight: bold; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px;">2. 变声音轨 (Voice Changed)</span>
+                <canvas id="am-canvas-converted" style="width: 100%; height: 80px; display: block;"></canvas>
+              </div>
+
+              <!-- 差异状态对比条 -->
+              <div style="position: relative; background: rgba(0,0,0,0.6); border-radius: 6px; height: 30px; overflow: hidden; display: flex; align-items: center; border: 1px solid rgba(255,255,255,0.03);">
+                <span style="position: absolute; left: 8px; font-size: 10px; color: #fff; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.8); z-index:10;">3. 频谱能量包络对齐差异检测（绿色:一致 | 橙色:微移 | 红色:缺失）</span>
+                <canvas id="am-canvas-diff" style="width: 100%; height: 100%; display: block;"></canvas>
+              </div>
+
+              <!-- 手动对齐微调 -->
+              <div style="display:flex; align-items:center; gap:16px; background:rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border:1px solid rgba(255,255,255,0.04);">
+                <div style="display:flex; flex-direction:column; gap:4px; flex: 1;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size: 12px; font-weight:bold; color: #e8ecff;">🛠️ 手动对齐微调 (Manual Fine-Tune Offset)</span>
+                    <span id="am-offset-val-text" style="font-size: 12px; color: #ffcc44; font-weight:bold; font-family:monospace;">0 ms</span>
+                  </div>
+                  <input type="range" id="am-offset-range" min="-3000" max="3000" step="10" value="0" style="width: 100%;" oninput="updateAudioMatchManualOffset(parseInt(this.value))">
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary btn-small" onclick="adjustAudioMatchManualOffset(-50)">-50ms</button>
+                  <button class="btn btn-secondary btn-small" onclick="adjustAudioMatchManualOffset(-10)">-10ms</button>
+                  <button class="btn btn-secondary btn-small" onclick="adjustAudioMatchManualOffset(10)">+10ms</button>
+                  <button class="btn btn-secondary btn-small" onclick="adjustAudioMatchManualOffset(50)">+50ms</button>
+                  <button class="btn btn-secondary btn-small" onclick="resetAudioMatchManualOffset()">🔄 重置</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 检测结果列表 -->
+            <div id="am-results-section" class="form-section hidden">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">📊 详细检测报告与对齐点列表</h4>
+              <div id="am-results-list" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
               </div>
             </div>
           </div>
@@ -2022,6 +2143,195 @@
             </div>
           </div>
 
+          <!-- ========== 文案自动剪辑模块 ========== -->
+          <div id="media-autoedit-subtab" class="subtab-content">
+            <div class="workbench-title-container">
+              <span class="workbench-title">文案自动剪辑</span>
+              <span class="workbench-title-desc">每个片段自动匹配整段文案位置，裁切后按文案顺序拼接并生成最终字幕</span>
+            </div>
+
+            <div class="form-section">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">🎬 选择视频片段</h4>
+              <div class="file-input-group" id="autoedit-drop-zone"
+                style="border: 2px dashed var(--border-color); border-radius: 8px; padding: 16px; transition: all 0.2s;">
+                <input type="file" id="autoedit-video-input" class="hidden-file-input" multiple
+                  accept=".mp4,.mov,.mkv,.avi,.wmv,.flv,.webm,.m4v">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary"
+                    onclick="document.getElementById('autoedit-video-input').click()">选择多个片段</button>
+                  <button class="btn btn-secondary" onclick="clearAutoEditFiles()" style="font-size: 12px;">清空</button>
+                  <span class="hint">或直接拖拽视频片段到这里。默认会自动匹配片段在整段文案中的位置。</span>
+                </div>
+              </div>
+              <div id="autoedit-file-list"
+                style="margin-top: 10px; max-height: 180px; overflow-y: auto; background: var(--bg-tertiary); border-radius: 6px; padding: 8px;">
+                <p class="hint">请先选择视频片段。</p>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">📝 断行文案</h4>
+              <textarea id="autoedit-script" class="input" rows="10"
+                placeholder="粘贴最终成片文案，可按字幕节奏断行。系统会自动判断每个片段对应文案里的哪几行。例：&#10;今天我们先看第一段&#10;这里需要裁掉多余口误&#10;最后拼接成完整视频"
+                style="width: 100%; resize: vertical; line-height: 1.5;"></textarea>
+              <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
+                <span id="autoedit-script-count" class="hint" style="margin: 0;">0 行文案</span>
+                <button class="btn btn-secondary" onclick="clearAutoEditScript()" style="padding: 4px 10px; font-size: 12px;">清空文案</button>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">⚙️ 识别与裁切参数</h4>
+              <div class="param-row" style="flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>语言:</label>
+                  <select id="autoedit-language" class="select" style="width: 120px;">
+                    <option value="auto" selected>自动识别</option>
+                    <option value="zh">中文</option>
+                    <option value="en">英语</option>
+                    <option value="ja">日语</option>
+                    <option value="ko">韩语</option>
+                    <option value="es">西班牙语</option>
+                    <option value="pt">葡萄牙语</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>匹配:</label>
+                  <select id="autoedit-match-mode" class="select" style="width: 150px;">
+                    <option value="script" selected>整段文案自动匹配</option>
+                    <option value="line_per_clip">一行对应一个片段</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>工作流:</label>
+                  <select id="autoedit-workflow-mode" class="select" style="width: 130px;">
+                    <option value="cut_first" selected>先剪后合 (常规)</option>
+                    <option value="concat_first">先合后剪 (加速)</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>转场:</label>
+                  <select id="autoedit-transition-type" class="select" style="width: 120px;">
+                    <option value="none" selected>无转场</option>
+                    <option value="crossfade">交叉淡化</option>
+                    <option value="fade_black">黑场过渡</option>
+                    <option value="fade_white">白场过渡</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>转场时长:</label>
+                  <input type="number" id="autoedit-transition-duration" class="input input-small" value="0.35" min="0.05" max="3" step="0.05" style="width: 72px;">
+                  <span style="font-size: 11px; color: var(--text-muted);">秒</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>前留白:</label>
+                  <input type="number" id="autoedit-lead-pad" class="input input-small" value="0.04" min="0" max="2" step="0.01" style="width: 72px;">
+                  <span style="font-size: 11px; color: var(--text-muted);">秒</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>后留白:</label>
+                  <input type="number" id="autoedit-tail-pad" class="input input-small" value="0.08" min="0" max="2" step="0.01" style="width: 72px;">
+                  <span style="font-size: 11px; color: var(--text-muted);">秒</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>匹配阈值:</label>
+                  <input type="number" id="autoedit-min-score" class="input input-small" value="0.52" min="0.1" max="1" step="0.01" style="width: 72px;">
+                </div>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-burn-subtitles">
+                  烧录字幕
+                </label>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-export-mp3" checked>
+                  导出 Voice Changer MP3
+                </label>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-voicechanger-enabled">
+                  高级 Voice Changer
+                </label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>音色:</label>
+                  <input id="autoedit-voicechanger-voice" class="input input-small" list="autoedit-voicechanger-voices" placeholder="Voice ID" style="width: 180px;">
+                  <datalist id="autoedit-voicechanger-voices"></datalist>
+                  <button class="btn btn-secondary" onclick="loadAutoEditVoiceChangerVoices('main')" style="padding: 4px 10px; font-size: 12px;">加载音色</button>
+                </div>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-voicechanger-replace" checked>
+                  替换最终视频声音
+                </label>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-voicechanger-noise">
+                  变声前降噪
+                </label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>稳定度:</label>
+                  <input type="number" id="autoedit-voicechanger-stability" class="input input-small" value="0.5" min="0" max="1" step="0.05" style="width: 72px;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label>相似度:</label>
+                  <input type="number" id="autoedit-voicechanger-similarity" class="input input-small" value="0.75" min="0" max="1" step="0.05" style="width: 72px;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; min-width: 420px; flex: 1;">
+                  <input type="file" id="autoedit-manual-audio-input" class="hidden-file-input" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg">
+                  <label>手动变声音频:</label>
+                  <input id="autoedit-manual-audio-path" class="input input-small" placeholder="可选择已生成的新音频，用它替换最终视频声音" style="min-width: 220px; flex: 1;">
+                  <button class="btn btn-secondary" onclick="document.getElementById('autoedit-manual-audio-input').click()" style="padding: 4px 10px; font-size: 12px;">选择音频</button>
+                  <button class="btn btn-secondary" onclick="clearAutoEditManualAudio()" style="padding: 4px 10px; font-size: 12px;">清空</button>
+                </div>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-force-transcribe">
+                  重新转录
+                </label>
+                <label class="checkbox-label" style="margin: 0;">
+                  <input type="checkbox" id="autoedit-send-reels" checked>
+                  完成后送入批量 Reels
+                </label>
+              </div>
+              <p class="hint" style="margin-top: 8px;">需要已配置 Gladia API Key。断行默认用于最终字幕显示；只有选择“一行对应一个片段”时才把断行当作片段边界。</p>
+            </div>
+
+            <div class="form-section" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <button id="autoedit-start-btn" class="btn btn-primary" onclick="startAutoEditByScript()" style="min-width: 170px;">
+                🚀 开始文案自动剪辑
+              </button>
+              <button class="btn btn-secondary" onclick="openAutoEditOutputDir()" style="padding: 6px 12px; font-size: 12px;">
+                📁 打开输出目录
+              </button>
+              <button id="autoedit-main-view-report-btn" class="btn btn-secondary" onclick="viewAutoEditReport()" style="padding: 6px 12px; font-size: 12px; display: none; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); color: #4ade80;">
+                📊 查看对齐报告
+              </button>
+              <button id="autoedit-send-reels-btn" class="btn btn-secondary" onclick="sendAutoEditResultToReels()" style="padding: 6px 12px; font-size: 12px; display: none;">
+                🎬 送入批量 Reels
+              </button>
+              <span id="autoedit-status" class="status-text" style="font-size: 13px;">就绪</span>
+            </div>
+
+            <div id="autoedit-progress-section" class="form-section hidden">
+              <div class="status-box">
+                <span id="autoedit-progress-text" class="status-text">处理中...</span>
+                <div id="autoedit-progress-bar" class="progress-bar">
+                  <div class="progress-bar-inner" style="width: 0%; transition: width 0.3s;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="autoedit-result-section" class="form-section hidden">
+              <h4 style="margin-bottom: 12px; color: var(--text-secondary);">📊 自动剪辑结果</h4>
+              <div id="autoedit-result-list"
+                style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px; max-height: 360px; overflow-y: auto;">
+              </div>
+              <div style="margin-top: 12px; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+                <input type="file" id="autoedit-result-audio-input" class="hidden-file-input" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span style="font-weight: 600; color: var(--text-secondary);">换声后替换:</span>
+                  <input id="autoedit-result-audio-path" class="input input-small" placeholder="选择你换声后的新音频" style="min-width: 260px; flex: 1;">
+                  <button class="btn btn-secondary" onclick="document.getElementById('autoedit-result-audio-input').click()" style="padding: 5px 12px; font-size: 12px;">选择新音频</button>
+                  <button class="btn btn-primary" onclick="replaceAutoEditResultAudio()" style="padding: 5px 12px; font-size: 12px;">替换视频声音</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ========== 批量TXT导出 ========== -->
           <div id="media-batchtxt-subtab" class="subtab-content">
             <div class="workbench-title-container">
@@ -2984,6 +3294,9 @@
                   style="font-size:11px;padding:4px 8px;background:var(--accent);color:#000;font-weight:600;"
                   onclick="reelsToggleBatchTable()" title="打开批量文案表格管理">📊 批量表格</button>
                 <button class="btn btn-secondary"
+                  style="font-size:11px;padding:4px 8px;background:#255f85;color:#fff;font-weight:600;border:none;"
+                  onclick="openAutoEditFromReels()" title="按文案自动裁切片段，拼接后送入批量 Reels">✂️ 文案拼接</button>
+                <button class="btn btn-secondary"
                   style="font-size:11px;padding:4px 8px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600;border:none;"
                   onclick="openTemplateLibrary()" title="视频模板库 — 保存/加载工程模板">📂 模板库</button>
 
@@ -3272,7 +3585,7 @@
                       <div style="display:flex; gap:10px; align-items:center; min-width:0; flex-wrap:wrap;">
                         <label class="checkbox-label"><input type="checkbox" id="reels-use-stroke" checked
                             onchange="reelsUpdatePreview()"><span>启用</span></label>
-                        <input type="color" id="reels-stroke-color" value="#000000"
+                        <input type="color" id="reels-stroke-color" value="#3E2723"
                           style="width: 36px; height: 28px; border: none; cursor: pointer;"
                           onchange="reelsUpdatePreview()">
                         <label style="margin:0;">宽度:</label>
@@ -3794,6 +4107,14 @@
                       <span id="reels-wrap-width-label" style="font-size: 11px; display: none;">90%</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 4px;">
+                      <label>随机高度:</label>
+                      <input type="range" id="reels-random-position-height-range" min="10" max="100" value="35" style="width: 70px;"
+                        oninput="document.getElementById('reels-random-position-height').value=this.value; reelsUpdatePreview()" title="随机单词定位的垂直范围高度">
+                      <input type="number" id="reels-random-position-height" class="input input-small" value="35" min="10" max="100" style="width: 45px;"
+                        oninput="document.getElementById('reels-random-position-height-range').value=this.value; reelsUpdatePreview()" title="随机单词定位的垂直范围高度">
+                      <span style="font-size: 11px;">%</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 4px;">
                       <label>行距:</label>
                       <input type="range" id="reels-line-spacing-range" min="-10" max="40" value="4" style="width: 50px;" oninput="document.getElementById('reels-line-spacing').value=this.value; reelsUpdatePreview()">
                       <input type="number" id="reels-line-spacing" class="input input-small" value="4" min="-10"
@@ -3834,6 +4155,7 @@
                             <option value="letter_jump">逐字放大</option>
                             <option value="word_pop_random">逐词弹出(随机)</option>
                             <option value="word_pop_random_pulse">逐词弹出(回弹)</option>
+                            <option value="word_random_position">随机单词定位</option>
                             <option value="metronome">节奏逐词</option>
                             <option value="floating">漂浮</option>
                             <option value="bullet_reveal">逐行出现</option>
@@ -3936,8 +4258,8 @@
                       <div class="param-row" style="flex-wrap: wrap; gap: 8px; margin-top: 6px;">
                         <div style="display: flex; align-items: center; gap: 3px;">
                           <label>随机最小:</label>
-                          <input type="range" id="reels-word-pop-min-range" min="0.5" max="2.0" step="0.01" value="1.08" style="width: 50px;" oninput="document.getElementById('reels-word-pop-min').value=this.value; reelsUpdatePreview()">
-                          <input type="number" id="reels-word-pop-min" class="input input-small" value="1.08" step="0.01" min="0.5" max="2.0" style="width: 45px;" oninput="document.getElementById('reels-word-pop-min-range').value=this.value; reelsUpdatePreview()">
+                          <input type="range" id="reels-word-pop-min-range" min="0.5" max="2.0" step="0.01" value="0.7" style="width: 50px;" oninput="document.getElementById('reels-word-pop-min').value=this.value; reelsUpdatePreview()">
+                          <input type="number" id="reels-word-pop-min" class="input input-small" value="0.7" step="0.01" min="0.5" max="2.0" style="width: 45px;" oninput="document.getElementById('reels-word-pop-min-range').value=this.value; reelsUpdatePreview()">
                         </div>
                         <div style="display: flex; align-items: center; gap: 3px;">
                           <label>最大倍数:</label>
@@ -3963,6 +4285,22 @@
                         </div>
                       </div>
                       <div class="param-row" style="flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                          <label>随机词距:</label>
+                          <input type="range" id="reels-random-word-spacing-range" min="0" max="80" step="1" value="0" style="width: 50px;" oninput="document.getElementById('reels-random-word-spacing').value=this.value; reelsUpdatePreview()">
+                          <input type="number" id="reels-random-word-spacing" class="input input-small" value="0" min="0" max="80" style="width: 45px;" oninput="document.getElementById('reels-random-word-spacing-range').value=this.value; reelsUpdatePreview()">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                          <label>随机行距:</label>
+                          <input type="range" id="reels-random-line-spacing-range" min="0" max="120" step="1" value="0" style="width: 50px;" oninput="document.getElementById('reels-random-line-spacing').value=this.value; reelsUpdatePreview()">
+                          <input type="number" id="reels-random-line-spacing" class="input input-small" value="0" min="0" max="120" style="width: 45px;" oninput="document.getElementById('reels-random-line-spacing-range').value=this.value; reelsUpdatePreview()">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                          <label>间距种子:</label>
+                          <input type="number" id="reels-random-spacing-seed" class="input input-small" value="1" min="1" max="9999" style="width: 50px;" oninput="reelsUpdatePreview()">
+                        </div>
+                      </div>
+                      <div class="param-row" style="flex-wrap: wrap; gap: 8px; margin-top: 6px;">
                         <label class="checkbox-label" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
                           <input type="checkbox" id="reels-only-show-active-word" onchange="reelsUpdatePreview()">
                           <span>仅显示当前激活单词 (前后词均隐藏)</span>
@@ -3981,19 +4319,26 @@
                       </div>
                       <div class="param-row" style="flex-wrap: wrap; gap: 8px; margin-top: 6px;">
                         <div style="display: flex; align-items: center; gap: 3px;">
-                          <label>散射水平范围:</label>
-                          <input type="number" id="reels-scatter-area-left" class="input input-small" value="15" min="0" max="100" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="左边界比例（占视频宽度的百分比，默认15%）">
+                          <label>散射X范围:</label>
+                          <input type="range" id="reels-scatter-area-left-range" min="0" max="100" value="15" style="width: 54px;" oninput="document.getElementById('reels-scatter-area-left').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="左边界比例（占视频宽度的百分比）">
+                          <input type="number" id="reels-scatter-area-left" class="input input-small" value="15" min="0" max="100" style="width: 40px;" oninput="document.getElementById('reels-scatter-area-left-range').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="左边界比例（占视频宽度的百分比，默认15%）">
                           <span>%-</span>
-                          <input type="number" id="reels-scatter-area-right" class="input input-small" value="85" min="0" max="100" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="右边界比例（占视频宽度的百分比，默认85%）">
+                          <input type="range" id="reels-scatter-area-right-range" min="0" max="100" value="85" style="width: 54px;" oninput="document.getElementById('reels-scatter-area-right').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="右边界比例（占视频宽度的百分比）">
+                          <input type="number" id="reels-scatter-area-right" class="input input-small" value="85" min="0" max="100" style="width: 40px;" oninput="document.getElementById('reels-scatter-area-right-range').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="右边界比例（占视频宽度的百分比，默认85%）">
                           <span>%</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 3px;">
-                          <label>散射垂直范围:</label>
-                          <input type="number" id="reels-scatter-area-top" class="input input-small" value="25" min="0" max="100" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="上边界比例（占视频高度的百分比，默认25%）">
+                          <label>散射Y范围:</label>
+                          <input type="range" id="reels-scatter-area-top-range" min="0" max="100" value="25" style="width: 54px;" oninput="document.getElementById('reels-scatter-area-top').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="上边界比例（占视频高度的百分比）">
+                          <input type="number" id="reels-scatter-area-top" class="input input-small" value="25" min="0" max="100" style="width: 40px;" oninput="document.getElementById('reels-scatter-area-top-range').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="上边界比例（占视频高度的百分比，默认25%）">
                           <span>%-</span>
-                          <input type="number" id="reels-scatter-area-bottom" class="input input-small" value="75" min="0" max="100" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="下边界比例（占视频高度的百分比，默认75%）">
+                          <input type="range" id="reels-scatter-area-bottom-range" min="0" max="100" value="75" style="width: 54px;" oninput="document.getElementById('reels-scatter-area-bottom').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="下边界比例（占视频高度的百分比）">
+                          <input type="number" id="reels-scatter-area-bottom" class="input input-small" value="75" min="0" max="100" style="width: 40px;" oninput="document.getElementById('reels-scatter-area-bottom-range').value=this.value; if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="下边界比例（占视频高度的百分比，默认75%）">
                           <span>%</span>
                         </div>
+                      </div>
+                      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;line-height:1.4;">
+                        随机单词定位使用上方“位置X / 位置Y / 宽度 / 随机高度”的黄色参考框；散射X/Y范围仅用于随机散射卡片。
                       </div>
                       <div class="param-row" style="flex-wrap: wrap; gap: 8px; margin-top: 6px;">
                         <div style="display: flex; align-items: center; gap: 3px;">
@@ -4008,9 +4353,9 @@
                         </div>
                         <div style="display: flex; align-items: center; gap: 3px;">
                           <label>旋转度数范围:</label>
-                          <input type="number" id="reels-scatter-min-rotate" class="input input-small" value="-10" min="-180" max="180" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="最小倾斜角度（默认-10）">
+                          <input type="number" id="reels-scatter-min-rotate" class="input input-small" value="0" min="-180" max="180" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="最小倾斜角度（默认0）">
                           <span>-</span>
-                          <input type="number" id="reels-scatter-max-rotate" class="input input-small" value="10" min="-180" max="180" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="最大倾斜角度（默认10）">
+                          <input type="number" id="reels-scatter-max-rotate" class="input input-small" value="0" min="-180" max="180" style="width: 40px;" oninput="if(typeof reelsUpdatePreview==='function')reelsUpdatePreview();" title="最大倾斜角度（默认0）">
                           <span>°</span>
                         </div>
                       </div>
@@ -4643,6 +4988,8 @@
                 <span style="width:1px;height:16px;background:var(--border-color);margin:0 2px;display:inline-block;"></span>
                 <label style="display:flex;align-items:center;gap:4px;">
                   输出时长:
+                  <input type="range" id="reels-custom-duration-range" min="0" max="600" step="0.5"
+                    value="0" style="width:92px;" title="0=自动">
                   <input type="number" id="reels-custom-duration" class="input input-small" min="0" max="600" step="0.5"
                     value="" placeholder="自动" style="width:58px;font-size:11px;" title="留空=自动跟随音频时长，输入数字=自定义秒数">
                   <span style="font-size:11px;color:var(--text-secondary);">s</span>
@@ -4657,10 +5004,14 @@
               <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; padding:5px 0 4px; border-bottom:1px solid var(--border-color);">
                 <span style="font-size:10px; color:var(--text-muted); min-width:32px;">🔉</span>
                 <label>人声-音频层音量:</label>
+                <input type="range" id="reels-voice-volume-range" min="0" max="1000" step="1"
+                  value="100" style="width:110px;">
                 <input type="number" id="reels-voice-volume" class="input input-small" min="0" max="1000" step="1"
                   value="100" style="width:52px;font-size:11px;">
                 <span style="font-size:11px;color:var(--text-secondary);">%</span>
                 <label style="margin-left:6px;">背景层音量:</label>
+                <input type="range" id="reels-bg-volume-range-global" min="0" max="1000" step="1"
+                  value="100" style="width:110px;">
                 <input type="number" id="reels-bg-volume" class="input input-small" min="0" max="1000" step="1"
                   value="100" style="width:52px;font-size:11px;">
                 <span style="font-size:11px;color:var(--text-secondary);">%</span>
@@ -4681,12 +5032,16 @@
                 </select>
                 <label style="display:flex;align-items:center;gap:6px;font-size:11px;white-space:nowrap;">
                   混响量:
+                  <input type="range" id="reels-reverb-mix-range" min="0" max="100" step="5"
+                    value="15" style="width:82px;">
                   <input type="number" id="reels-reverb-mix" class="input input-small" min="0" max="100" step="5"
                     value="15" style="width:48px;font-size:11px;">%
                 </label>
                 <span style="width:1px;height:16px;background:var(--border-color);display:inline-block;"></span>
                 <label style="display:flex;align-items:center;gap:6px;font-size:11px;white-space:nowrap;">
                   立体声:
+                  <input type="range" id="reels-stereo-width-range" min="0" max="200" step="10"
+                    value="100" style="width:82px;">
                   <input type="number" id="reels-stereo-width" class="input input-small" min="0" max="200" step="10"
                     value="100" style="width:48px;font-size:11px;">%
                 </label>
@@ -4745,6 +5100,8 @@
                 </label>
                 <label style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
                   过渡时长:
+                  <input type="range" id="reels-loop-fade-dur-range" min="0.1" max="3" step="0.1"
+                    value="1" style="width:82px;">
                   <input type="number" id="reels-loop-fade-dur" class="input input-small" min="0.1" max="3" step="0.1"
                     value="1" style="width:48px;font-size:11px;">s
                 </label>
@@ -4773,11 +5130,15 @@
                 </label>
                 <div id="reels-custom-res-inputs" style="display:none; align-items:center; gap:4px; font-size:11px; white-space:nowrap;">
                   宽:
+                  <input type="range" id="reels-custom-width-range" min="100" max="8192" step="1" value="1080"
+                    style="width:80px;" oninput="document.getElementById('reels-custom-width').value=this.value; reelsHandleCustomResolutionChange()">
                   <input type="number" id="reels-custom-width" class="input input-small" min="100" max="8192" value="1080"
-                    style="width:48px;font-size:11px;" oninput="reelsHandleCustomResolutionChange()">
+                    style="width:48px;font-size:11px;" oninput="document.getElementById('reels-custom-width-range').value=this.value; reelsHandleCustomResolutionChange()">
                   高:
+                  <input type="range" id="reels-custom-height-range" min="100" max="8192" step="1" value="1920"
+                    style="width:80px;" oninput="document.getElementById('reels-custom-height').value=this.value; reelsHandleCustomResolutionChange()">
                   <input type="number" id="reels-custom-height" class="input input-small" min="100" max="8192" value="1920"
-                    style="width:48px;font-size:11px;" oninput="reelsHandleCustomResolutionChange()">
+                    style="width:48px;font-size:11px;" oninput="document.getElementById('reels-custom-height-range').value=this.value; reelsHandleCustomResolutionChange()">
                 </div>
                 <!-- 导出按钮推到右端 -->
                 <span style="flex:1;"></span>
@@ -4798,6 +5159,7 @@
                 <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;">
                   并发数:
 
+                  <input type="range" id="reels-export-concurrency-range" min="1" max="64" step="1" value="1" style="width:80px;">
                   <input type="number" id="reels-export-concurrency" class="input input-small" min="1" max="64" value="1" style="width:44px;font-size:11px;">
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;">
@@ -5163,7 +5525,7 @@
           <div class="form-section">
             <h3 class="section-title">关于</h3>
             <div class="about-info">
-              <p><strong>VideoKit</strong> <span id="app-version-display">v4.4.2</span></p>
+              <p><strong>VideoKit</strong> <span id="app-version-display">v4.4.3</span></p>
               <p>视频工具包-批量：音频生成-reels视频制作-多媒体转换</p>
               <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                 <button id="check-update-btn" class="btn btn-secondary" onclick="checkAppUpdate()"

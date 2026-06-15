@@ -392,12 +392,12 @@ function computeLetterJumpScale(currentTime, wordStart, wordEnd,
 
 /** Return scale factor for per-word print-in with deterministic random final size. */
 function computeWordRandomPopScale(currentTime, wordStart, wordEnd, wordIndex = 0, segStart = 0,
-    minScale = 0.86, maxScale = 1.34, animDuration = 0.22) {
+    minScale = 0.7, maxScale = 1.34, animDuration = 0.22) {
     const dt = currentTime - wordStart;
     if (dt < 0) return 0.0;
 
     const dur = Math.max(0.06, Number(animDuration) || 0.22);
-    const minS = Number(minScale) || 0.86;
+    const minS = Number(minScale) || 0.7;
     const maxS = Math.max(minS, Number(maxScale) || 1.34);
     const key = (Number(wordIndex) + 1.0) * 12.9898 + Number(segStart) * 78.233 + Number(wordStart) * 37.719;
     const rand = (Math.sin(key) * 43758.5453) % 1;

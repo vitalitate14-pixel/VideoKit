@@ -59,6 +59,75 @@ function request(method, urlPath, apiKey, body = null, timeout = 15000) {
     });
 }
 
+function applyAuthHeaders(headers, apiKey) {
+    if (apiKey === '__WEB_TOKEN__') {
+        const data = loadSettings();
+        const wt = data.web_token || {};
+        if (wt.xiApiKey) headers['xi-api-key'] = wt.xiApiKey;
+        if (wt.authorization) headers['Authorization'] = wt.authorization;
+        if (wt.cookie) headers['Cookie'] = wt.cookie;
+        headers['Origin'] = 'https://elevenlabs.io';
+        headers['Referer'] = 'https://elevenlabs.io/';
+        headers['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    } else {
+        headers['xi-api-key'] = apiKey;
+    }
+}
+
+function requestMultipart(urlPath, apiKey, parts = [], timeout = 300000) {
+    return new Promise((resolve, reject) => {
+        const url = new URL(API_BASE + urlPath);
+        const boundary = `----VideoKit${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+        const chunks = [];
+
+        for (const part of parts) {
+            chunks.push(Buffer.from(`--${boundary}\r\n`));
+            if (part.filePath) {
+                const filename = part.filename || path.basename(part.filePath);
+                const contentType = part.contentType || 'application/octet-stream';
+                chunks.push(Buffer.from(`Content-Disposition: form-data; name="${part.name}"; filename="${filename}"\r\n`));
+                chunks.push(Buffer.from(`Content-Type: ${contentType}\r\n\r\n`));
+                chunks.push(fs.readFileSync(part.filePath));
+                chunks.push(Buffer.from('\r\n'));
+            } else {
+                chunks.push(Buffer.from(`Content-Disposition: form-data; name="${part.name}"\r\n\r\n`));
+                chunks.push(Buffer.from(String(part.value ?? '')));
+                chunks.push(Buffer.from('\r\n'));
+            }
+        }
+        chunks.push(Buffer.from(`--${boundary}--\r\n`));
+
+        const body = Buffer.concat(chunks);
+        const headers = {
+            'Accept': 'audio/mpeg',
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': body.length,
+        };
+        applyAuthHeaders(headers, apiKey);
+
+        const options = {
+            hostname: url.hostname,
+            port: 443,
+            path: url.pathname + url.search,
+            method: 'POST',
+            headers,
+            timeout,
+        };
+
+        const req = https.request(options, (res) => {
+            const responseChunks = [];
+            res.on('data', c => responseChunks.push(c));
+            res.on('end', () => {
+                resolve({ status: res.statusCode, body: Buffer.concat(responseChunks), headers: res.headers });
+            });
+        });
+        req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+}
+
 function parseJSON(buf) {
     try { return JSON.parse(buf.toString()); } catch { return null; }
 }
@@ -460,6 +529,68 @@ async function requestTTSWithRotation(keys, voiceId, text, modelId, stability, o
     throw new Error(`所有 Key 均尝试失败 (共 ${keysToTry.length} 个)。最后错误: ${summary}`);
 }
 
+async function requestSpeechToSpeech(apiKey, voiceId, audioPath, opts = {}) {
+    if (!voiceId) throw new Error('缺少 ElevenLabs Voice ID');
+    if (!audioPath || !fs.existsSync(audioPath)) throw new Error('缺少要变声的音频文件');
+
+    const outputFormat = opts.outputFormat || 'mp3_44100_128';
+    const modelId = opts.modelId || 'eleven_multilingual_sts_v2';
+    const query = new URLSearchParams({ output_format: outputFormat });
+    if (opts.enableLogging === false) query.set('enable_logging', 'false');
+
+    const parts = [
+        { name: 'audio', filePath: audioPath, filename: path.basename(audioPath), contentType: 'audio/mpeg' },
+        { name: 'model_id', value: modelId },
+    ];
+    if (opts.voiceSettings) {
+        parts.push({ name: 'voice_settings', value: JSON.stringify(opts.voiceSettings) });
+    }
+    if (Number.isInteger(opts.seed)) {
+        parts.push({ name: 'seed', value: String(opts.seed) });
+    }
+    if (opts.removeBackgroundNoise === true) {
+        parts.push({ name: 'remove_background_noise', value: 'true' });
+    }
+
+    const res = await requestMultipart(`/speech-to-speech/${encodeURIComponent(voiceId)}?${query.toString()}`, apiKey, parts, opts.timeout || 600000);
+    if (res.status !== 200) {
+        const errInfo = parseElevenLabsError(res.status, res.body);
+        const classified = classifyError(errInfo);
+        const error = new Error(classified.userMessage);
+        error.classified = classified;
+        error.errInfo = errInfo;
+        throw error;
+    }
+    return res.body;
+}
+
+async function requestSpeechToSpeechWithRotation(keys, voiceId, audioPath, opts = {}) {
+    if (!keys || keys.length === 0) throw new Error('❌ 未配置 API Key，请先添加 ElevenLabs API Key');
+
+    const preferred = opts.keyIndex != null ? selectKey(keys, opts.keyIndex) : null;
+    const keysToTry = preferred ? [preferred, ...keys.filter(k => k !== preferred)] : [...keys];
+    let lastErr = null;
+
+    for (let i = 0; i < keysToTry.length; i++) {
+        const apiKey = keysToTry[i];
+        try {
+            const audio = await requestSpeechToSpeech(apiKey, voiceId, audioPath, opts);
+            return { audio, usedKey: apiKey };
+        } catch (e) {
+            lastErr = e;
+            const classified = e.classified || classifyError({ message: e.message, httpStatus: 0, detailStatus: '', detailCode: '' });
+            if (!classified.retryable) throw new Error(classified.userMessage || e.message);
+            const hasNext = i < keysToTry.length - 1;
+            console.log(`[ElevenLabs STS] Key${i + 1} 失败: ${classified.userMessage}${hasNext ? '，切换下一个 Key...' : ''}`);
+            if (classified.autoDisable) {
+                try { setKeyEnabled(apiKey, false, classified.category); } catch { }
+            }
+        }
+    }
+
+    throw lastErr || new Error('所有 ElevenLabs Key 均失败');
+}
+
 // ==================== 音色管理 ====================
 
 async function getVoices(apiKey, extended = false) {
@@ -704,7 +835,7 @@ async function generateSFX(apiKey, text, duration = null) {
 
 function buildTTSSavePath(text, outputFormat, tag, seqPrefix = '') {
     const ext = outputFormat.startsWith('mp3') ? '.mp3' : outputFormat.startsWith('pcm') ? '.wav' : '.mp3';
-    const sanitized = text.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 60).trim();
+    const sanitized = String(text || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 60).trim() || 'audio';
     const filename = seqPrefix ? `${seqPrefix}-${sanitized}-${tag}${ext}` : `${sanitized}-${tag}${ext}`;
     const downloadsDir = path.join(require('os').homedir(), 'Downloads');
     return path.join(downloadsDir, filename);
@@ -718,6 +849,8 @@ module.exports = {
     getSettingsPath,
     requestTTS,
     requestTTSWithRotation,
+    requestSpeechToSpeech,
+    requestSpeechToSpeechWithRotation,
     getVoices,
     searchVoices,
     addVoice,

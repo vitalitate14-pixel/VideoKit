@@ -18,7 +18,7 @@ async function refreshVWVoices() {
                 const catLabel = (typeof _voiceCategoryLabel === 'function')
                     ? _voiceCategoryLabel(v.category)
                     : (v.category === 'premade' ? '🆓 [免费]' : '💰 [付费]');
-                const cleanName = v.name.replace(/^\[[^\]]+\]\s*/, '');
+                const cleanName = String(v.name || '').replace(/^\[[^\]]+\]\s*/, '');
                 return `<option value="${v.voice_id}" data-category="${v.category || 'premade'}" data-full-voice-id="${v.voice_id}">${catLabel} ${cleanName} (${shortId})</option>`;
             }).join('');
 
@@ -265,7 +265,8 @@ function getStatusText(status) {
 }
 
 function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function vwGetFileName(filePath) {

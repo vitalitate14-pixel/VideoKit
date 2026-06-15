@@ -23,6 +23,11 @@ const DEFAULT_SUBTITLE_STYLE = {
     italic: false,
     letter_spacing: 0,
     word_spacing: 0,
+    random_word_spacing: 0,
+    random_line_spacing: 0,
+    random_spacing_seed: 1,
+    random_position_use_layout_range: false,
+    random_position_height_percent: 35,
 
     // ── Position ──
     pos_x: 0.5,       // 0~1 normalized (0.5 = center)
@@ -50,7 +55,7 @@ const DEFAULT_SUBTITLE_STYLE = {
     use_stroke: true,
     border_width: 3,
     opacity_outline: 1.0,
-    color_outline: '#000000',
+    color_outline: '#3E2723',
 
     // ── Dynamic highlight box ──
     karaoke_highlight: false,
@@ -97,7 +102,7 @@ const DEFAULT_SUBTITLE_STYLE = {
     bg_padding: 10,
     bg_radius: 8,
     color: '#FFFFFF',
-    stroke_color: '#000000',
+    stroke_color: '#3E2723',
     bg_color: '#000000',
 
     // ── Animation (Phase 1) ──
@@ -131,8 +136,8 @@ const DEFAULT_SUBTITLE_STYLE = {
     scatter_seed: 1,
     scatter_min_scale: 0.8,
     scatter_max_scale: 1.5,
-    scatter_min_rotate: -10,
-    scatter_max_rotate: 10,
+    scatter_min_rotate: 0,
+    scatter_max_rotate: 0,
     scatter_accum_prob: 0.5,
     scatter_area_left: 15,
     scatter_area_right: 85,
@@ -167,7 +172,7 @@ const DEFAULT_SUBTITLE_STYLE = {
     letter_jump_scale: 1.5,
     letter_jump_duration: 0.2,
     // Word pop random
-    word_pop_random_min_scale: 0.86,
+    word_pop_random_min_scale: 0.7,
     word_pop_random_max_scale: 1.34,
     word_pop_random_duration: 0.22,
     word_pop_random_unread_opacity: 0.0,
@@ -412,6 +417,37 @@ const BUILTIN_PRESETS = {
         use_stroke: false,
         anim_out_type: "none"
     },
+    "随机单词定位": {
+        anim_in_type: "word_random_position",
+        scatter_seed: 1,
+        scatter_min_scale: 0.95,
+        scatter_max_scale: 1.35,
+        scatter_min_rotate: 0,
+        scatter_max_rotate: 0,
+        scatter_area_left: 15,
+        scatter_area_right: 85,
+        scatter_area_top: 25,
+        scatter_area_bottom: 75,
+        random_position_use_layout_range: true,
+        random_position_height_percent: 40,
+        word_pop_random_duration: 0.16,
+        font_family: "Anton",
+        font_weight: 700,
+        color_text: "#FFFFFF",
+        color_high: "#FFFFFF",
+        fontsize: 82,
+        bold: true,
+        letter_spacing: 1,
+        use_stroke: true,
+        color_outline: "#000000",
+        border_width: 7,
+        use_box: false,
+        shadow_blur: 3,
+        color_shadow: "#000000",
+        pos_y: 0.5,
+        wrap_width_percent: 40,
+        anim_out_type: "none"
+    },
     "霓虹蓝粉渐变框": {
         font_family: "Segoe UI",
         font_weight: 900,
@@ -607,7 +643,7 @@ const PRESET_CATEGORIES = {
     '📝 基础字幕': ['默认白字','黄字黑边 (经典)','上滑入场','左滑入场','黑底白字 (新闻)'],
     '🎤 卡拉OK高亮': ['卡拉OK高亮','节奏逐词','闪光高亮','黑边_粉红高亮','黑边_薄荷高亮','黑边_电蓝高亮','极简纯文+电光青高亮','重金大字+强对比排版'],
     '🔥 逐词动态': ['逐个大小出字-55','逐个大小出字-45','逐个出字+红色动画','逐个出字大小-爆贴','蓝底白字+动感回弹','黄线框高亮_逐词弹出','撞色黄底框高亮','紫色动态底框','逐字放大','逐词弹出(随机大小)','逐词弹出(随机回弹)','Hormozi 风格字幕'],
-    '✨ 特殊动画': ['打字机模式','逐行出现','悬浮漂移','霓虹多层描边','滚动歌词_粉高亮','圣光降临','阴影沉浸式','全屏打字机_金黄光标','随机分散气泡卡片','风驰幻影_白斜体'],
+    '✨ 特殊动画': ['打字机模式','逐行出现','悬浮漂移','霓虹多层描边','滚动歌词_粉高亮','圣光降临','阴影沉浸式','全屏打字机_金黄光标','随机分散气泡卡片','随机单词定位','风驰幻影_白斜体'],
     '💫 阴影发光': ['软阴影_青字高亮','硬阴影_黄字高亮','纯白发光字','粉红发光字','硬阴影_黄白斜体','红橙渐变_硬阴影','霓虹双色发光'],
 };
 

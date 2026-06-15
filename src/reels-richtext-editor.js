@@ -372,7 +372,7 @@ class ReelsRichTextEditor {
                     <input type="number" class="rt-select rt-se-box-opacity" title="背景透明度 0-255，0=无背景，255=完全不透明" min="0" max="255" step="1" style="width:54px;" placeholder="0" value="0">
                 </div>
                 <div class="rte-tool-group">
-                    <input type="color" class="rt-color-picker rt-se-outline-color" title="整段描边颜色" value="#000000">
+                    <input type="color" class="rt-color-picker rt-se-outline-color" title="整段描边颜色" value="#3E2723">
                     <select class="rt-select rt-se-outline-width" title="整段描边宽度" style="width:62px;">
                         <option value="0">无边</option>
                         <option value="2">2px</option>
@@ -435,7 +435,7 @@ class ReelsRichTextEditor {
                 </div>
                 <div class="rte-tool-group">
                     <input type="color" class="rt-color-picker rt-sel-color" title="文字颜色" value="#ff0000">
-                    <input type="color" class="rt-color-picker rt-stroke-color" title="描边颜色" value="#000000">
+                    <input type="color" class="rt-color-picker rt-stroke-color" title="描边颜色" value="#3E2723">
                     <select class="rt-select rt-sel-stroke" title="描边宽度" style="width:56px;">
                         <option value="">描边</option>
                         <option value="0">无</option>
@@ -628,7 +628,7 @@ class ReelsRichTextEditor {
         if (boxOpacity) boxOpacity.value = String(o.box_opacity ?? o.opacity_bg ?? 0);
         const seBoxRadius = this.popup.querySelector('.rt-se-box-radius');
         if (seBoxRadius) seBoxRadius.value = o.box_radius !== undefined ? String(o.box_radius) : '';
-        if (outlineColor) outlineColor.value = o.color_outline || '#000000';
+        if (outlineColor) outlineColor.value = o.color_outline || '#3E2723';
         if (outlineWidth) outlineWidth.value = String(o.border_width ?? 0);
         if (segFont) {
             const fontVal = o.font_family || this.baseStyle.font_family || segFont.value || '';
@@ -678,7 +678,7 @@ class ReelsRichTextEditor {
         this.editorEl.style.backgroundColor = bgOpacity > 0 ? this._hexToRgba(s.color_bg || s.bg_color || '#000000', Math.min(1, bgOpacity / 255)) : '';
         this.editorEl.style.borderRadius = bgOpacity > 0 ? `${s.box_radius || 4}px` : '';
         this.editorEl.style.webkitTextStroke = (s.use_stroke !== false && (parseFloat(s.border_width) || 0) > 0)
-            ? `${Math.max(1, (parseFloat(s.border_width) || 0) / 2)}px ${s.color_outline || '#000000'}`
+            ? `${Math.max(1, (parseFloat(s.border_width) || 0) / 2)}px ${s.color_outline || '#3E2723'}`
             : '';
 
         if (bgOpacity > 0) {
@@ -866,7 +866,7 @@ class ReelsRichTextEditor {
         const seOutlineWidth = this.popup.querySelector('.rt-se-outline-width');
         if (seOutlineWidth) seOutlineWidth.addEventListener('change', (e) => {
             const val = parseInt(e.target.value, 10) || 0;
-            this._setStyleOverride({ use_stroke: val > 0, border_width: val, color_outline: this.popup.querySelector('.rt-se-outline-color')?.value || '#000000' });
+            this._setStyleOverride({ use_stroke: val > 0, border_width: val, color_outline: this.popup.querySelector('.rt-se-outline-color')?.value || '#3E2723' });
         });
         const seBold = this.popup.querySelector('.rt-se-bold');
         if (seBold) seBold.addEventListener('click', () => {

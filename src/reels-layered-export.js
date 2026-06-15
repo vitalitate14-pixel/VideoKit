@@ -174,14 +174,19 @@ async function reelsLayeredExport(params) {
         canvas,
         style,
         segments,
+        originalScript = '',
         overlays: taskOverlays,
         backgroundPath,
         bgMode = 'single',
         bgClipPool = [],
+        bgClipSettings = {},
+        bgMinClipDur = 5,
+        bgMaxClipDur = 7,
         bgClipOrder = 'random',
         bgClipSeed = '',
         bgTransition = 'crossfade',
         bgTransDur = 0.5,
+        showSubtitle = true,
         voicePath,
         outputDir,        // 输出基础目录
         taskName,         // 任务名（用于文件夹命名）
@@ -362,9 +367,9 @@ async function reelsLayeredExport(params) {
         }));
     }
 
-    // ═══ 阶段 1: FFmpeg 提取背景帧序列 ═══
     let framesDir = null;
     let totalBgFrames = 0;
+    let bgAudioPath = null;
 
     if (!contentVideoBlurBg) {
         log('阶段1: FFmpeg 预处理背景视频...');
@@ -374,6 +379,11 @@ async function reelsLayeredExport(params) {
             backgroundPath: isMultiClip ? null : backgroundPath,
             bgMode: isMultiClip ? 'multi' : 'single',
             bgClipPool: isMultiClip ? bgClipPool : [],
+            bgClipSettings: isMultiClip ? bgClipSettings : {},
+            bgMinClipDur: isMultiClip ? bgMinClipDur : 0,
+            bgMaxClipDur: isMultiClip ? bgMaxClipDur : 0,
+            segments: isMultiClip ? (segments || []) : [],
+            originalScript: isMultiClip ? (originalScript || '') : '',
             bgClipOrder: isMultiClip ? bgClipOrder : 'random',
             bgClipSeed: isMultiClip ? bgClipSeed : '',
             bgTransition: isMultiClip ? bgTransition : 'none',
@@ -398,6 +408,7 @@ async function reelsLayeredExport(params) {
         }
         framesDir = prepResult.framesDir;
         totalBgFrames = prepResult.frameCount;
+        bgAudioPath = prepResult.bgAudioPath || null;
         log(`背景帧: ${totalBgFrames} 帧`);
     } else {
         log('使用内容视频作为高斯模糊背景，跳过背景视频预处理');
@@ -638,7 +649,7 @@ async function reelsLayeredExport(params) {
             // ══════════════════════════════════════
             subtitleCtx.clearRect(0, 0, targetWidth, targetHeight);
 
-            if (segments && segments.length > 0) {
+            if (showSubtitle && segments && segments.length > 0) {
                 let activeSeg = segments.find(seg => t >= (seg.start || 0) && t <= (seg.end || 0));
                 // Scrolling/typewriter mode: find nearest segment during gaps
                 if (!activeSeg && (style.scrolling_mode || style.fullpage_typewriter) && segments.length > 0) {
@@ -707,9 +718,10 @@ async function reelsLayeredExport(params) {
         }
 
         // 导出背景音 MP3（如果背景是视频且有音轨）
-        if (backgroundPath && !_isLayeredImageFile(backgroundPath) && bgVolume > 0) {
+        const layeredBgPath = isMultiClip ? bgAudioPath : backgroundPath;
+        if (layeredBgPath && !_isLayeredImageFile(layeredBgPath) && bgVolume > 0) {
             const bgAudioResult = await window.electronAPI.exportAudioMp3({
-                inputPath: backgroundPath,
+                inputPath: layeredBgPath,
                 outputPath: `${layersDir}/bg_audio.mp3`,
                 volume: bgVolume,
             });
@@ -735,7 +747,7 @@ async function reelsLayeredExport(params) {
             audio: {
                 voice: voicePath ? 'audio.mp3' : null,
                 bgm: bgmPath ? 'bgm.mp3' : null,
-                bgAudio: (backgroundPath && !_isLayeredImageFile(backgroundPath) && bgVolume > 0) ? 'bg_audio.mp3' : null,
+                bgAudio: (layeredBgPath && !_isLayeredImageFile(layeredBgPath) && bgVolume > 0) ? 'bg_audio.mp3' : null,
             },
             createdAt: new Date().toISOString(),
         }, null, 2);

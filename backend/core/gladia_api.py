@@ -284,7 +284,10 @@ def get_json_result(transcribe_result, last_result, full_text, start_time):
         
     if 'prediction' in transcribe_result:
         prediction = transcribe_result['prediction']
-        if isinstance(prediction, list) and prediction:
+        if isinstance(prediction, list):
+            if not prediction:
+                print("转录结果 prediction 为空（可能是无声段落）")
+                return True
             for i, item in enumerate(prediction):
                 audio_start = item.get('time_begin', 0) + start_time
                 audio_end = item.get('time_end', 0) + start_time

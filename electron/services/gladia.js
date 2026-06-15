@@ -373,16 +373,34 @@ async function pollResult(apiKey, resultUrl, maxAttempts = 60, interval = 10000)
 function getJsonResult(transcribeResult, lastResult, fullTextList, startTime) {
     if (!transcribeResult) return false;
 
-    // v2 API 格式
-    const transcription = transcribeResult.result?.transcription || transcribeResult.transcription || {};
-    const utterances = transcription.utterances || [];
+    // Try to find the list of utterances / segments in various possible fields
+    let utterances = null;
 
-    if (utterances.length > 0) {
+    if (transcribeResult.result?.transcription?.utterances) {
+        utterances = transcribeResult.result.transcription.utterances;
+    } else if (Array.isArray(transcribeResult.results)) {
+        utterances = transcribeResult.results;
+    } else if (transcribeResult.transcription?.utterances) {
+        utterances = transcribeResult.transcription.utterances;
+    } else if (Array.isArray(transcribeResult.result?.transcription)) {
+        utterances = transcribeResult.result.transcription;
+    } else if (Array.isArray(transcribeResult.result?.utterances)) {
+        utterances = transcribeResult.result.utterances;
+    }
+
+    if (Array.isArray(utterances)) {
+        // If it's an empty array, it means successful transcription but no speech (silence).
+        // This is a valid result, not an error!
+        if (utterances.length === 0) {
+            console.log('转录结果为空（可能是无声段落/静音）');
+            return true;
+        }
+
         for (const item of utterances) {
-            const audioStart = (item.start || 0) + startTime;
-            const audioEnd = (item.end || 0) + startTime;
+            const audioStart = (item.start !== undefined ? item.start : item.time_begin || 0) + startTime;
+            const audioEnd = (item.end !== undefined ? item.end : item.time_end || 0) + startTime;
             const part = {
-                text: item.text || '',
+                text: item.text || item.transcription || '',
                 audio_start: audioStart,
                 audio_end: audioEnd,
                 duration: audioEnd - audioStart,
@@ -395,9 +413,9 @@ function getJsonResult(transcribeResult, lastResult, fullTextList, startTime) {
                 fullTextList.push(word);
                 part.words.push({
                     word,
-                    start: (wordInfo.start || 0) + startTime,
-                    end: (wordInfo.end || 0) + startTime,
-                    score: wordInfo.confidence || 0,
+                    start: (wordInfo.start !== undefined ? wordInfo.start : wordInfo.time_begin || 0) + startTime,
+                    end: (wordInfo.end !== undefined ? wordInfo.end : wordInfo.time_end || 0) + startTime,
+                    score: wordInfo.confidence !== undefined ? wordInfo.confidence : wordInfo.score || 0,
                 });
             }
             lastResult.push(part);
@@ -407,7 +425,12 @@ function getJsonResult(transcribeResult, lastResult, fullTextList, startTime) {
 
     // v1 API 格式 (prediction)
     const prediction = transcribeResult.prediction;
-    if (Array.isArray(prediction) && prediction.length > 0) {
+    if (Array.isArray(prediction)) {
+        if (prediction.length === 0) {
+            console.log('转录结果 prediction 为空（可能是无声段落）');
+            return true;
+        }
+
         for (const item of prediction) {
             const audioStart = (item.time_begin || 0) + startTime;
             const audioEnd = (item.time_end || 0) + startTime;
@@ -567,6 +590,15 @@ async function transcribeAudioFull(mediaPath, apiKeys, language, jsonPath, txtPa
         const txtDir = path.dirname(txtPath);
         fs.mkdirSync(txtDir, { recursive: true });
         fs.writeFileSync(txtPath, fullText, 'utf-8');
+    }
+
+    if (txtPath && audioPath && fs.existsSync(audioPath)) {
+        try {
+            const cacheWavPath = txtPath.replace('_autoedit.txt', '_autoedit.wav');
+            fs.copyFileSync(audioPath, cacheWavPath);
+        } catch (copyErr) {
+            console.error('保存提取的音频缓存失败:', copyErr);
+        }
     }
 
     // 清理临时文件

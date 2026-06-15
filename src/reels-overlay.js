@@ -274,6 +274,54 @@ function createTextCardOverlay(opts = {}) {
 }
 
 /**
+ * 创建纯色蒙版覆层对象。
+ */
+function createSolidMaskOverlay(opts = {}) {
+    return {
+        id: _overlayId(),
+        type: 'solid_mask',
+        x: opts.x ?? 85,
+        y: opts.y ?? 310,
+        w: opts.w ?? 910,
+        h: opts.h ?? 1300,
+        rotation: opts.rotation ?? 0,
+        opacity: opts.opacity ?? 255,
+        start: opts.start ?? 0,
+        end: opts.end ?? 9999,
+        // 背景/蒙版
+        card_color: opts.card_color || '#000000',
+        card_opacity: opts.card_opacity ?? 50,
+        // 四角圆角
+        radius_tl: opts.radius_tl ?? 0,
+        radius_tr: opts.radius_tr ?? 0,
+        radius_bl: opts.radius_bl ?? 0,
+        radius_br: opts.radius_br ?? 0,
+        // 全屏蒙版
+        fullscreen_mask: opts.fullscreen_mask ?? false,
+        // 磨砂模糊
+        card_blur_enabled: opts.card_blur_enabled ?? false,
+        card_blur_amount: opts.card_blur_amount ?? 10,
+        // 羽化
+        card_feather_enabled: opts.card_feather_enabled ?? false,
+        card_feather_dir: opts.card_feather_dir || 'bottom',
+        card_feather_start: opts.card_feather_start ?? 50,
+        card_feather_end: opts.card_feather_end ?? 100,
+        // 边框
+        card_border_enabled: opts.card_border_enabled ?? false,
+        card_border_sides: opts.card_border_sides || 'all',
+        card_border_color: opts.card_border_color || '#FFD700',
+        card_border_width: opts.card_border_width ?? 3,
+        card_border_style: opts.card_border_style || 'solid',
+        card_border_opacity: opts.card_border_opacity ?? 100,
+        // 入/出场动画
+        anim_in_type: opts.anim_in_type || 'none',
+        anim_out_type: opts.anim_out_type || 'none',
+        anim_in_duration: opts.anim_in_duration || 0.3,
+        anim_out_duration: opts.anim_out_duration || 0.3,
+    };
+}
+
+/**
  * 创建滚动字幕覆层对象。
  * x/y/w/h 用作裁切区域（可见窗口），文本在其中滚动。
  */
@@ -925,6 +973,8 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
         _drawTextOverlay(ctx, ov, x, y, w, h, currentTime);
     } else if (ov.type === 'textcard') {
         _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime);
+    } else if (ov.type === 'solid_mask') {
+        _drawSolidMaskOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime);
     } else if (ov.type === 'scroll') {
         _drawScrollOverlay(ctx, ov, x, y, w, h, currentTime, canvasW, canvasH);
     } else if (ov.type === 'video') {
@@ -2257,7 +2307,188 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
         ctx.lineTo(x + w + 16, guideY_bot);
         ctx.strokeStyle = '#4c9eff';
         ctx.lineWidth = 1;
-        ctx.stroke();
+    }
+}
+
+/**
+ * 渲染纯色蒙版覆层。
+ */
+function _drawSolidMaskOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime) {
+    // 全屏蒙版模式
+    const isFullMask = (ov.fullscreen_mask === true || ov.fullscreen_mask === 1 || ov.fullscreen_mask === '1');
+    let maskX = x, maskY = y, maskW = w, maskH = h;
+    if (isFullMask) {
+        maskX = 0; maskY = 0; maskW = canvasW; maskH = canvasH;
+    }
+
+    // 入/出场动画
+    let animOpFactor = 1;
+    const inType = ov.anim_in_type || 'none';
+    const outType = ov.anim_out_type || 'none';
+    const start = parseFloat(ov.start || 0);
+    const end = parseFloat(ov.end || 0);
+
+    if (window.ReelsAnimEngine && (inType !== 'none' || outType !== 'none')) {
+        const inDur = inType !== 'none' ? parseFloat(ov.anim_in_duration || 0.3) : 0;
+        const outDur = outType !== 'none' ? parseFloat(ov.anim_out_duration || 0.3) : 0;
+        const { inProgress, outProgress } = ReelsAnimEngine.computeAnimProgress(
+            currentTime, start, end, inDur, outDur
+        );
+        if (inType === 'fade') animOpFactor *= inProgress;
+        if (outType === 'fade') animOpFactor *= outProgress;
+
+        if (inType === 'pop' || outType === 'pop') {
+            let popScale = 1;
+            if (inType === 'pop') popScale = Math.min(popScale, ReelsAnimEngine.computePopScale(inProgress));
+            if (outType === 'pop') popScale = Math.min(popScale, ReelsAnimEngine.computePopScale(outProgress));
+            if (popScale < 0.999) {
+                const pcx = x + w / 2, pcy = y + h / 2;
+                ctx.translate(pcx, pcy);
+                ctx.scale(popScale, popScale);
+                ctx.translate(-pcx, -pcy);
+            }
+        }
+
+        const slideTypes = ['slide_up', 'slide_down', 'slide_left', 'slide_right'];
+        if (slideTypes.includes(inType) || slideTypes.includes(outType)) {
+            let sdx = 0, sdy = 0;
+            if (slideTypes.includes(inType)) {
+                const [dx, dy] = ReelsAnimEngine.computeSlideOffset(inProgress, inType, 120);
+                sdx += dx; sdy += dy;
+            }
+            if (slideTypes.includes(outType)) {
+                const [dx, dy] = ReelsAnimEngine.computeSlideOffset(outProgress, outType, 120);
+                sdx += dx; sdy += dy;
+            }
+            ctx.translate(sdx, sdy);
+        }
+    }
+    ctx.globalAlpha *= animOpFactor;
+
+    // ── 磨砂模糊 (Frosted Glass) ──
+    if (ov.card_blur_enabled) {
+        const blurPx = Math.max(1, Math.min(40, parseFloat(ov.card_blur_amount ?? 10)));
+        ctx.save();
+        if (isFullMask) {
+            ctx.rect(maskX, maskY, maskW, maskH);
+        } else {
+            _roundRectIndividual(ctx, x, y, w, h,
+                ov.radius_tl || 0, ov.radius_tr || 0, ov.radius_br || 0, ov.radius_bl || 0);
+        }
+        ctx.clip();
+        ctx.filter = `blur(${blurPx}px)`;
+        ctx.drawImage(ctx.canvas, 0, 0);
+        ctx.filter = 'none';
+        ctx.restore();
+    }
+
+    // ── 绘制背景 ──
+    const cardAlpha = (ov.card_opacity ?? 50) / 100;
+    ctx.save();
+    ctx.globalAlpha = cardAlpha * ctx.globalAlpha;
+    
+    let fillStyle = ov.card_color || '#000000';
+    
+    // 羽化逻辑
+    if (ov.card_feather_enabled) {
+        const hexMatch = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fillStyle);
+        if (hexMatch) {
+            const r = parseInt(hexMatch[1], 16);
+            const g = parseInt(hexMatch[2], 16);
+            const b = parseInt(hexMatch[3], 16);
+            
+            const bx = isFullMask ? maskX : x;
+            const by = isFullMask ? maskY : y;
+            const bw = isFullMask ? maskW : w;
+            const bh = isFullMask ? maskH : h;
+            const cx = bx + bw / 2;
+            const cy = by + bh / 2;
+            
+            const dir = ov.card_feather_dir || 'bottom';
+            
+            const startRatio = (ov.card_feather_start ?? 50) / 100;
+            const endRatio = (ov.card_feather_end ?? 100) / 100;
+            
+            let grad;
+            
+            if (dir === 'radial') {
+                const radius = Math.sqrt(bw*bw + bh*bh) / 2;
+                grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+                grad.addColorStop(0, `rgba(${r},${g},${b},1)`);
+                grad.addColorStop(startRatio, `rgba(${r},${g},${b},1)`);
+                grad.addColorStop(endRatio, `rgba(${r},${g},${b},0)`);
+                if (endRatio < 1) grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+            } else {
+                let x0=bx, y0=by, x1=bx, y1=by;
+                if (dir === 'bottom') { y0=by; y1=by+bh; }
+                else if (dir === 'top') { y0=by+bh; y1=by; }
+                else if (dir === 'right') { x0=bx; x1=bx+bw; }
+                else if (dir === 'left') { x0=bx+bw; x1=bx; }
+                
+                grad = ctx.createLinearGradient(x0, y0, x1, y1);
+                grad.addColorStop(0, `rgba(${r},${g},${b},1)`);
+                grad.addColorStop(startRatio, `rgba(${r},${g},${b},1)`);
+                grad.addColorStop(endRatio, `rgba(${r},${g},${b},0)`);
+                if (endRatio < 1) grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+            }
+            fillStyle = grad;
+        }
+    }
+    
+    ctx.fillStyle = fillStyle;
+    if (isFullMask) {
+        ctx.fillRect(maskX, maskY, maskW, maskH);
+    } else {
+        _roundRectIndividual(ctx, x, y, w, h,
+            ov.radius_tl || 0, ov.radius_tr || 0, ov.radius_br || 0, ov.radius_bl || 0);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // ── 蒙版边框 ──
+    if (ov.card_border_enabled && !isFullMask) {
+        const borderW = parseFloat(ov.card_border_width ?? 3);
+        const borderOp = (ov.card_border_opacity ?? 100) / 100;
+        const borderStyle = ov.card_border_style || 'solid';
+        const borderSides = ov.card_border_sides || 'all';
+        ctx.save();
+        ctx.globalAlpha = borderOp * ctx.globalAlpha;
+        ctx.strokeStyle = ov.card_border_color || '#FFD700';
+        ctx.lineWidth = borderW;
+        ctx.lineJoin = 'round';
+        if (borderStyle === 'dashed') {
+            ctx.setLineDash([borderW * 4, borderW * 3]);
+        } else if (borderStyle === 'dotted') {
+            ctx.setLineDash([borderW, borderW * 2]);
+        } else {
+            ctx.setLineDash([]);
+        }
+
+        if (borderSides === 'all') {
+            _roundRectIndividual(ctx, x, y, w, h,
+                ov.radius_tl || 0, ov.radius_tr || 0, ov.radius_br || 0, ov.radius_bl || 0);
+            ctx.stroke();
+        } else {
+            ctx.beginPath();
+            if (borderSides === 'top' || borderSides === 'top-bottom') {
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + w, y);
+            }
+            if (borderSides === 'bottom' || borderSides === 'top-bottom') {
+                ctx.moveTo(x, y + h);
+                ctx.lineTo(x + w, y + h);
+            }
+            if (borderSides === 'left' || borderSides === 'left-right') {
+                ctx.moveTo(x, y);
+                ctx.lineTo(x, y + h);
+            }
+            if (borderSides === 'right' || borderSides === 'left-right') {
+                ctx.moveTo(x + w, y);
+                ctx.lineTo(x + w, y + h);
+            }
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
         ctx.restore();
     }
 }
@@ -3596,6 +3827,7 @@ const ReelsOverlay = {
     createTextOverlay,
     createImageOverlay,
     createTextCardOverlay,
+    createSolidMaskOverlay,
     createScrollOverlay,
     drawOverlay,
     splitBodyText,

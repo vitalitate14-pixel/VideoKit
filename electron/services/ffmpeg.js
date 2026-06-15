@@ -1748,6 +1748,7 @@ async function concatClips(opts = {}) {
         fps = 30,
         crf = 18,
         preset = 'fast',
+        skipNormalization = false,
     } = opts;
 
     const validClips = (clips || []).filter(p => p && fs.existsSync(p));
@@ -1761,29 +1762,33 @@ async function concatClips(opts = {}) {
 
     const normalized = [];
     try {
-        for (let i = 0; i < validClips.length; i++) {
-            const src = validClips[i];
-            const out = path.join(tmpDir, `clip_${String(i + 1).padStart(4, '0')}.mp4`);
-            const hasAudio = await hasAudioTrack(src);
-            const args = ['-y', '-i', src];
-            let filterComplex;
-            if (hasAudio) {
-                filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
-            } else {
-                args.push('-f', 'lavfi', '-i', 'anullsrc=cl=stereo:r=48000');
-                filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+        if (skipNormalization) {
+            normalized.push(...validClips);
+        } else {
+            for (let i = 0; i < validClips.length; i++) {
+                const src = validClips[i];
+                const out = path.join(tmpDir, `clip_${String(i + 1).padStart(4, '0')}.mp4`);
+                const hasAudio = await hasAudioTrack(src);
+                const args = ['-y', '-i', src];
+                let filterComplex;
+                if (hasAudio) {
+                    filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+                } else {
+                    args.push('-f', 'lavfi', '-i', 'anullsrc=cl=stereo:r=48000');
+                    filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},setsar=1[v];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+                }
+                args.push(
+                    '-filter_complex', filterComplex,
+                    '-map', '[v]', '-map', '[a]',
+                    '-c:v', 'libx264', '-crf', String(crf), '-preset', preset,
+                    '-c:a', 'aac', '-b:a', '192k',
+                    '-shortest',
+                    out
+                );
+                console.log(`[ConcatClips] 归一化 ${i + 1}/${validClips.length}: ${path.basename(src)}`);
+                await runCommand('ffmpeg', args, { timeout: Math.max(DEFAULT_TIMEOUT, 1800000) });
+                normalized.push(out);
             }
-            args.push(
-                '-filter_complex', filterComplex,
-                '-map', '[v]', '-map', '[a]',
-                '-c:v', 'libx264', '-crf', String(crf), '-preset', preset,
-                '-c:a', 'aac', '-b:a', '192k',
-                '-shortest',
-                out
-            );
-            console.log(`[ConcatClips] 归一化 ${i + 1}/${validClips.length}: ${path.basename(src)}`);
-            await runCommand('ffmpeg', args, { timeout: Math.max(DEFAULT_TIMEOUT, 1800000) });
-            normalized.push(out);
         }
 
         const listPath = path.join(tmpDir, 'concat_list.txt');
@@ -1806,6 +1811,150 @@ async function concatClips(opts = {}) {
             output_path: outputPath,
             clip_count: validClips.length,
             duration,
+        };
+    } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { }
+    }
+}
+
+function _mapXfadeTransition(transition) {
+    const map = {
+        crossfade: 'fade',
+        fade: 'fade',
+        fade_black: 'fadeblack',
+        fadeblack: 'fadeblack',
+        fade_white: 'fadewhite',
+        fadewhite: 'fadewhite',
+        slide_left: 'slideleft',
+        slide_right: 'slideright',
+        wipe_left: 'wipeleft',
+    };
+    return map[transition] || 'fade';
+}
+
+async function concatClipsWithTransitions(opts = {}) {
+    const {
+        clips = [],
+        outputPath,
+        targetWidth = 1080,
+        targetHeight = 1920,
+        fps = 30,
+        crf = 18,
+        preset = 'fast',
+        transition = 'crossfade',
+        transitionDuration = 0.35,
+        skipNormalization = false,
+    } = opts;
+
+    const validClips = (clips || []).filter(p => p && fs.existsSync(p));
+    if (validClips.length < 2) throw new Error('至少需要 2 个有效视频片段');
+    if (!outputPath) throw new Error('缺少输出路径');
+
+    const baseTransDur = Math.max(0, Math.min(3, parseFloat(transitionDuration) || 0));
+    if (!transition || transition === 'none' || baseTransDur <= 0.03) {
+        return await concatClips({ clips: validClips, outputPath, targetWidth, targetHeight, fps, crf, preset, skipNormalization });
+    }
+
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    const sessionId = crypto.randomBytes(4).toString('hex');
+    const tmpDir = path.join(os.tmpdir(), `videokit_concat_xfade_${sessionId}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    const normalized = [];
+    const durations = [];
+    try {
+        if (skipNormalization) {
+            normalized.push(...validClips);
+            for (const c of validClips) {
+                durations.push(await getDuration(c) || 0);
+            }
+        } else {
+            for (let i = 0; i < validClips.length; i++) {
+                const src = validClips[i];
+                const out = path.join(tmpDir, `clip_${String(i + 1).padStart(4, '0')}.mp4`);
+                const hasAudio = await hasAudioTrack(src);
+                const args = ['-y', '-i', src];
+                let filterComplex;
+                if (hasAudio) {
+                    filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},settb=AVTB,setsar=1[v];[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+                } else {
+                    args.push('-f', 'lavfi', '-i', 'anullsrc=cl=stereo:r=48000');
+                    filterComplex = `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},fps=${fps},settb=AVTB,setsar=1[v];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a]`;
+                }
+                args.push(
+                    '-filter_complex', filterComplex,
+                    '-map', '[v]', '-map', '[a]',
+                    '-c:v', 'libx264', '-crf', String(crf), '-preset', preset,
+                    '-c:a', 'aac', '-b:a', '192k',
+                    '-shortest',
+                    out
+                );
+                console.log(`[ConcatXfade] 归一化 ${i + 1}/${validClips.length}: ${path.basename(src)}`);
+                await runCommand('ffmpeg', args, { timeout: Math.max(DEFAULT_TIMEOUT, 1800000) });
+                normalized.push(out);
+                durations.push(await getDuration(out) || 0);
+            }
+        }
+
+        const transitionDurations = [];
+        for (let i = 1; i < normalized.length; i++) {
+            const tDur = Math.min(baseTransDur, durations[i - 1] * 0.45, durations[i] * 0.45);
+            transitionDurations.push(tDur > 0.05 ? tDur : 0);
+        }
+        if (transitionDurations.every(d => d <= 0)) {
+            return await concatClips({ clips: validClips, outputPath, targetWidth, targetHeight, fps, crf, preset });
+        }
+
+        const args = ['-y'];
+        normalized.forEach(p => args.push('-i', p));
+
+        const filters = [];
+        for (let i = 0; i < normalized.length; i++) {
+            filters.push(`[${i}:v]fps=${fps},settb=AVTB,setsar=1[v${i}]`);
+            filters.push(`[${i}:a]aformat=sample_rates=48000:channel_layouts=stereo[a${i}]`);
+        }
+
+        const xfadeName = _mapXfadeTransition(transition);
+        let videoLabel = 'v0';
+        let audioLabel = 'a0';
+        let timelineDur = durations[0] || 0;
+
+        for (let i = 1; i < normalized.length; i++) {
+            const tDur = transitionDurations[i - 1];
+            const outV = `vx${i}`;
+            const outA = `ax${i}`;
+            if (tDur > 0) {
+                const offset = Math.max(0.01, timelineDur - tDur);
+                filters.push(`[${videoLabel}][v${i}]xfade=transition=${xfadeName}:duration=${tDur.toFixed(3)}:offset=${offset.toFixed(3)}[${outV}]`);
+                filters.push(`[${audioLabel}][a${i}]acrossfade=d=${tDur.toFixed(3)}[${outA}]`);
+                timelineDur += (durations[i] || 0) - tDur;
+            } else {
+                filters.push(`[${videoLabel}][${audioLabel}][v${i}][a${i}]concat=n=2:v=1:a=1[${outV}][${outA}]`);
+                timelineDur += durations[i] || 0;
+            }
+            videoLabel = outV;
+            audioLabel = outA;
+        }
+
+        args.push(
+            '-filter_complex', filters.join(';'),
+            '-map', `[${videoLabel}]`,
+            '-map', `[${audioLabel}]`,
+            '-c:v', 'libx264', '-crf', String(crf), '-preset', preset,
+            '-c:a', 'aac', '-b:a', '192k',
+            outputPath
+        );
+        await runCommand('ffmpeg', args, { timeout: Math.max(DEFAULT_TIMEOUT, 1800000) });
+
+        const duration = await getDuration(outputPath);
+        return {
+            success: true,
+            outputPath,
+            output_path: outputPath,
+            clip_count: validClips.length,
+            duration,
+            transition,
+            transition_duration: baseTransDur,
         };
     } finally {
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { }
@@ -2014,4 +2163,6 @@ module.exports = {
     composeReel,
     concatVideo,
     concatClips,
+    concatClipsWithTransitions,
+    hasAudioTrack,
 };

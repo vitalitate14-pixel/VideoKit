@@ -158,6 +158,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('url-thumbnail-progress', (event, data) => callback(event, data));
     },
 
+    onAutoEditProgress: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('auto-edit-progress', handler);
+        return () => ipcRenderer.removeListener('auto-edit-progress', handler);
+    },
+
     // 在 Finder/Explorer 中高亮显示文件
     showItemInFolder: (filePath) => {
         ipcRenderer.invoke('show-item-in-folder', filePath).catch(() => {});

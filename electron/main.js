@@ -225,45 +225,10 @@ app.whenReady().then(async () => {
             }
 
             const fileUrl = pathToFileURL(resolved).href;
-            const rangeHeader = request.headers.get('Range');
-            if (rangeHeader) {
-                // 手动处理 Range 请求以确保视频 seek 可靠
-                const stat = fs.statSync(resolved);
-                const fileSize = stat.size;
-                const m = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-                if (m) {
-                    const start = parseInt(m[1], 10);
-                    const end = m[2] ? parseInt(m[2], 10) : Math.min(start + 1024 * 1024 - 1, fileSize - 1);
-                    const chunkSize = end - start + 1;
-                    const buf = Buffer.alloc(chunkSize);
-                    const fd = fs.openSync(resolved, 'r');
-                    fs.readSync(fd, buf, 0, chunkSize, start);
-                    fs.closeSync(fd);
-
-                    const ext = path.extname(resolved).toLowerCase();
-                    const mimeMap = {
-                        '.mp4':'video/mp4','.webm':'video/webm','.mkv':'video/x-matroska',
-                        '.avi':'video/x-msvideo','.mov':'video/quicktime','.m4v':'video/mp4',
-                        '.ts':'video/mp2t','.flv':'video/x-flv',
-                        '.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png',
-                        '.gif':'image/gif','.webp':'image/webp','.bmp':'image/bmp',
-                    };
-                    const contentType = mimeMap[ext] || 'application/octet-stream';
-
-                    return new Response(buf, {
-                        status: 206,
-                        headers: {
-                            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-                            'Accept-Ranges': 'bytes',
-                            'Content-Length': String(chunkSize),
-                            'Content-Type': contentType,
-                        }
-                    });
-                }
-            }
-
-            // 非 Range 请求: 用 net.fetch 委托给 file:// 协议
-            return net.fetch(fileUrl);
+            return net.fetch(fileUrl, {
+                method: request.method,
+                headers: request.headers
+            });
         } catch (e) {
             console.error('[local-media] Error:', e.message, 'File:', resolved);
             return new Response('Internal Error: ' + e.message, { status: 500 });

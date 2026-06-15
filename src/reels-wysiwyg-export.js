@@ -273,14 +273,19 @@ async function reelsWysiwygExport(params) {
         canvas,
         style,
         segments,
+        originalScript = '',
         overlays: taskOverlays,
         backgroundPath,
         bgMode = 'single',       // 'single' | 'multi'
         bgClipPool = [],         // 多素材池路径列表
+        bgClipSettings = {},     // 多素材剪辑设置
+        bgMinClipDur = 5,        // 最小卡点时长
+        bgMaxClipDur = 7,        // 最大卡点时长
         bgClipOrder = 'random',  // 'random' | 'sequence'
         bgClipSeed = '',         // 随机顺序种子，与预览保持一致
         bgTransition = 'crossfade', // 多素材转场类型
         bgTransDur = 0.5,        // 多素材转场时长(秒)
+        showSubtitle = true,
         voicePath,
         outputPath,
         targetWidth = 1080,
@@ -526,6 +531,7 @@ async function reelsWysiwygExport(params) {
     // ═══ 阶段 1: 让主进程用 FFmpeg 预处理背景 + 提取帧序列 ═══
     let framesDir = null;
     let totalBgFrames = 0;
+    let bgAudioPath = null;
     
     if (params.alphaOverlayBgPath) {
         log('⚡ Alpha Overlay 模式激活：全面跳过底图解压与多层内存搬运！');
@@ -545,6 +551,11 @@ async function reelsWysiwygExport(params) {
             backgroundPath: isMultiClip ? null : backgroundPath,
             bgMode: isMultiClip ? 'multi' : 'single',
             bgClipPool: isMultiClip ? bgClipPool : [],
+            bgClipSettings: isMultiClip ? bgClipSettings : {},
+            bgMinClipDur: isMultiClip ? bgMinClipDur : 0,
+            bgMaxClipDur: isMultiClip ? bgMaxClipDur : 0,
+            segments: isMultiClip ? (segments || []) : [],
+            originalScript: isMultiClip ? (originalScript || '') : '',
             bgClipOrder: isMultiClip ? bgClipOrder : 'random',
             bgClipSeed: isMultiClip ? bgClipSeed : '',
             bgTransition: isMultiClip ? bgTransition : 'none',
@@ -569,6 +580,7 @@ async function reelsWysiwygExport(params) {
         }
         framesDir = prepResult.framesDir;
         totalBgFrames = prepResult.frameCount;
+        bgAudioPath = prepResult.bgAudioPath || null;
         log(`背景帧提取完成: ${totalBgFrames} 帧 → ${framesDir}`);
         progress(18);
     }
@@ -649,10 +661,10 @@ async function reelsWysiwygExport(params) {
         voicePath,
         voiceVolume,
         bgVolume,
-        backgroundPath: isMultiClip ? null : backgroundPath,
+        backgroundPath: isMultiClip ? bgAudioPath : backgroundPath,
         alphaOverlayBgPath: params.alphaOverlayBgPath || null,
-        // Multi-clip mode: no bg audio (separate voice track). Single mode: check if bg has audio.
-        bgHasAudio: isMultiClip ? false : ((voicePath && backgroundPath && voicePath === backgroundPath) ? false : !_isImageFile(backgroundPath)),
+        // Multi-clip mode: use bgAudioPath if present. Single mode: check if bg has audio.
+        bgHasAudio: isMultiClip ? (!!bgAudioPath) : ((voicePath && backgroundPath && voicePath === backgroundPath) ? false : !_isImageFile(backgroundPath)),
         bgmPath: bgmPath || '',
         bgmVolume: bgmVolume || 0,
         bgScale: bgScale || 100,
@@ -903,18 +915,20 @@ async function reelsWysiwygExport(params) {
             }
 
             // ── 字幕（与预览完全相同的渲染器）──
-            let activeSeg = segments.find(seg => t >= (seg.start || 0) && t <= (seg.end || 0));
-            // Scrolling/typewriter mode: find nearest segment during gaps (same as preview logic)
-            if (!activeSeg && (style.scrolling_mode || style.fullpage_typewriter) && segments.length > 0) {
-                let best = segments[0];
-                for (const seg of segments) {
-                    if ((seg.start || 0) <= t) best = seg;
+            if (showSubtitle) {
+                let activeSeg = segments.find(seg => t >= (seg.start || 0) && t <= (seg.end || 0));
+                // Scrolling/typewriter mode: find nearest segment during gaps (same as preview logic)
+                if (!activeSeg && (style.scrolling_mode || style.fullpage_typewriter) && segments.length > 0) {
+                    let best = segments[0];
+                    for (const seg of segments) {
+                        if ((seg.start || 0) <= t) best = seg;
+                    }
+                    activeSeg = best;
                 }
-                activeSeg = best;
-            }
-            if (activeSeg) {
-                renderer.setContextSegments(segments);
-                renderer.renderSubtitle(style, activeSeg, t, targetWidth, targetHeight);
+                if (activeSeg) {
+                    renderer.setContextSegments(segments);
+                    renderer.renderSubtitle(style, activeSeg, t, targetWidth, targetHeight);
+                }
             }
 
             // ── AI 水印 ──

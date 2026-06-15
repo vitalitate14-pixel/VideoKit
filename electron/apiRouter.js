@@ -26,6 +26,7 @@ const { audioSubtitleSearchDifferentStrong } = require('./services/subtitleAlign
 const wav2lipService = require('./services/wav2lip');
 const geminiService = require('./services/gemini');
 const templateService = require('./services/templates');
+const autoEditService = require('./services/autoEdit');
 
 function normalizeNumbers(text) {
     if (!text) return '';
@@ -135,6 +136,65 @@ function buildRecognizedText(generationSubtitleArray, fallbackText = '') {
         if (Array.isArray(p.words)) return p.words.map(w => w.word).join(' ');
         return '';
     }).filter(Boolean).join('\n') || fallbackText || '';
+}
+
+async function runAutoEditByScript(data = {}, progressSender = null) {
+    const clips = Array.isArray(data.clips) ? data.clips : (Array.isArray(data.files) ? data.files : []);
+    if (clips.length === 0) throw new Error('缺少视频片段');
+    if (!data.script_text && !data.scriptText) throw new Error('缺少断行文案');
+
+    const gladiaKeysData = settingsService.loadGladiaKeys();
+    let gladiaKeys = gladiaKeysData.keys || [];
+    if (data.gladia_keys) {
+        if (Array.isArray(data.gladia_keys)) {
+            gladiaKeys = data.gladia_keys.map(k => typeof k === 'string' ? k.trim() : '').filter(Boolean);
+        } else if (typeof data.gladia_keys === 'string') {
+            try {
+                const parsed = JSON.parse(data.gladia_keys);
+                if (Array.isArray(parsed)) {
+                    gladiaKeys = parsed.map(k => typeof k === 'string' ? k.trim() : '').filter(Boolean);
+                }
+            } catch {}
+        }
+    }
+
+    return await autoEditService.autoEditByScript({
+        clips,
+        ignore_mismatch: data.ignore_mismatch === true || data.ignore_mismatch === 'true',
+        scriptText: data.script_text || data.scriptText,
+        outputDir: data.output_dir,
+        outputPath: data.output_path,
+        language: data.language || 'auto',
+        matchMode: data.match_mode || data.matchMode,
+        workflowMode: data.workflow_mode || data.workflowMode || 'cut_first',
+        gladiaKeys,
+        leadPad: data.lead_pad,
+        tailPad: data.tail_pad,
+        minScore: data.min_score,
+        burnSubtitles: data.burn_subtitles,
+        exportMp3: data.export_mp3,
+        voiceChangerEnabled: data.voice_changer_enabled,
+        voiceChangerVoiceId: data.voice_changer_voice_id,
+        voiceChangerReplaceAudio: data.voice_changer_replace_audio,
+        voiceChangerModelId: data.voice_changer_model_id,
+        voiceChangerOutputFormat: data.voice_changer_output_format,
+        voiceChangerStability: data.voice_changer_stability,
+        voiceChangerSimilarity: data.voice_changer_similarity,
+        voiceChangerRemoveNoise: data.voice_changer_remove_noise,
+        manualAudioPath: data.manual_audio_path,
+        manualAudioReplace: data.manual_audio_replace,
+        forceTranscribe: data.force_transcribe,
+        transitionType: data.transition_type,
+        transitionDuration: data.transition_duration,
+        targetWidth: data.target_width,
+        targetHeight: data.target_height,
+        fps: data.fps,
+        crf: data.crf,
+        preset: data.preset,
+        manualSubtitleMap: data.manual_subtitle_map,
+        manualTranscripts: data.manual_transcripts || data.manualTranscripts,
+        onProgress: progressSender,
+    });
 }
 
 function finiteNumber(value) {
@@ -256,10 +316,17 @@ function registerAPIHandlers() {
     // ==================== 通用 API 调用接口 ====================
     ipcMain.handle('api-call', async (event, endpoint, data) => {
         try {
-            const result = await routeAPI(endpoint, data || {});
+            const result = await routeAPI(endpoint, data || {}, (progress) => {
+                try {
+                    event.sender.send('auto-edit-progress', progress);
+                } catch (_) { }
+            });
             return { success: true, data: result };
         } catch (error) {
-            const safeMsg = String(error.message || 'Unknown error').replace(/[a-zA-Z0-9_-]{20,}/g, (m) => /^(AUTO_SOURCE_MATCH_NOT_FOUND|AUTO_SOURCE_MATCH_REQUIRED|TEXT_MISMATCH)$/.test(m) ? m : '***');
+            const rawMsg = String(error.message || 'Unknown error');
+            const safeMsg = (rawMsg.includes('AUTOEDIT_TEXT_MISMATCH') || rawMsg.includes('TEXT_MISMATCH'))
+                ? rawMsg
+                : rawMsg.replace(/[a-zA-Z0-9_-]{20,}/g, (m) => /^(AUTO_SOURCE_MATCH_NOT_FOUND|AUTO_SOURCE_MATCH_REQUIRED)$/.test(m) ? m : '***');
             console.error(`[API Error] ${endpoint}: request failed`);
             return { success: false, error: safeMsg };
         }
@@ -271,7 +338,10 @@ function registerAPIHandlers() {
             const result = await routeUpload(endpoint, fileBuffer, fileName, formData || {});
             return { success: true, data: result };
         } catch (error) {
-            const safeMsg = String(error.message || 'Unknown error').replace(/[a-zA-Z0-9_-]{20,}/g, (m) => /^(AUTO_SOURCE_MATCH_NOT_FOUND|AUTO_SOURCE_MATCH_REQUIRED|TEXT_MISMATCH)$/.test(m) ? m : '***');
+            const rawMsg = String(error.message || 'Unknown error');
+            const safeMsg = (rawMsg.includes('AUTOEDIT_TEXT_MISMATCH') || rawMsg.includes('TEXT_MISMATCH'))
+                ? rawMsg
+                : rawMsg.replace(/[a-zA-Z0-9_-]{20,}/g, (m) => /^(AUTO_SOURCE_MATCH_NOT_FOUND|AUTO_SOURCE_MATCH_REQUIRED)$/.test(m) ? m : '***');
             console.error(`[Upload Error] ${endpoint}: request failed`);
             return { success: false, error: safeMsg };
         }
@@ -281,7 +351,7 @@ function registerAPIHandlers() {
 /**
  * API 路由分发
  */
-async function routeAPI(endpoint, data) {
+async function routeAPI(endpoint, data, progressSender = null) {
     // 去除前导斜杠
     const ep = endpoint.replace(/^\/?(api\/)?/, '');
 
@@ -321,6 +391,90 @@ async function routeAPI(endpoint, data) {
         // ==================== 文件操作 ====================
         case 'open-folder':
             return await settingsService.openFolder(data.path);
+
+        case 'media/rename-original-clips': {
+            const clips = data.clips || []; // array of { source, index }
+            const renamed = [];
+            const cacheDir = settingsService.getSecureTmpDir('videokit_autoedit_cache');
+
+            for (const item of clips) {
+                const source = item.source;
+                const index = parseInt(item.index, 10);
+                if (!source || isNaN(index)) continue;
+                if (!fs.existsSync(source)) {
+                    console.warn(`[Rename] File not found: ${source}`);
+                    continue;
+                }
+
+                try {
+                    const stat = fs.statSync(source);
+                    const dir = path.dirname(source);
+                    const base = path.basename(source);
+                    const extName = path.extname(source);
+
+                    // Strip existing digits-hyphen prefix if present
+                    const cleanBase = base.replace(/^\d+-/, '');
+                    const padIndex = String(index).padStart(2, '0');
+                    const newBaseName = `${padIndex}-${path.parse(cleanBase).name}`;
+                    const newBase = `${newBaseName}${extName}`;
+                    const newPath = path.join(dir, newBase);
+
+                    if (source !== newPath) {
+                        // Compute cache keys before renaming
+                        const oldBaseName = path.parse(source).name.replace(/[^\w.-]+/g, '_');
+                        const sanitizedNewBaseName = newBaseName.replace(/[^\w.-]+/g, '_');
+                        
+                        const oldCacheKey = crypto
+                            .createHash('sha1')
+                            .update(`${source}|${stat.size}|${Math.floor(stat.mtimeMs)}`)
+                            .digest('hex')
+                            .slice(0, 12);
+                            
+                        // Perform the file rename
+                        fs.renameSync(source, newPath);
+                        renamed.push({ oldPath: source, newPath: newPath });
+                        console.log(`[Rename] Renamed file: ${base} -> ${newBase}`);
+
+                        // Get updated stat to compute new cache key
+                        const postStat = fs.statSync(newPath);
+                        const newCacheKey = crypto
+                            .createHash('sha1')
+                            .update(`${newPath}|${postStat.size}|${Math.floor(postStat.mtimeMs)}`)
+                            .digest('hex')
+                            .slice(0, 12);
+
+                        // Rename associated cache files
+                        if (fs.existsSync(cacheDir)) {
+                            const cacheFiles = fs.readdirSync(cacheDir);
+                            for (const f of cacheFiles) {
+                                if (f.includes(`_${oldCacheKey}_autoedit.`)) {
+                                    const suffix = `_${oldBaseName}_${oldCacheKey}_autoedit.`;
+                                    const idx = f.indexOf(suffix);
+                                    if (idx !== -1) {
+                                        const langCode = f.substring(0, idx);
+                                        const ext = f.split('.').pop();
+                                        const newCacheFileName = `${langCode}_${sanitizedNewBaseName}_${newCacheKey}_autoedit.${ext}`;
+                                        const oldCacheFilePath = path.join(cacheDir, f);
+                                        const newCacheFilePath = path.join(cacheDir, newCacheFileName);
+                                        try {
+                                            if (fs.existsSync(oldCacheFilePath)) {
+                                                fs.renameSync(oldCacheFilePath, newCacheFilePath);
+                                                console.log(`[Cache Rename] Renamed cache file: ${f} -> ${newCacheFileName}`);
+                                            }
+                                        } catch (cacheErr) {
+                                            console.error(`[Cache Rename] Failed to rename cache file ${f}: ${cacheErr.message}`);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[Rename] Failed to rename ${source}: ${err.message}`);
+                }
+            }
+            return { success: true, renamed };
+        }
 
         // ==================== ElevenLabs ====================
         case 'elevenlabs/web-login':
@@ -375,8 +529,8 @@ async function routeAPI(endpoint, data) {
             for (let i = 0; i < keys.length; i++) {
                 const apiKey = keys[i];
                 try {
-                    // Web Token 模式下启用扩展模式，拉取社区热门音色
-                    const extended = (apiKey === '__WEB_TOKEN__');
+                    // Web Token 默认启用扩展模式；也允许前端显式请求社区热门音色。
+                    const extended = data.extended === true || data.include_shared === true || apiKey === '__WEB_TOKEN__';
                     const voices = await elevenlabsService.getVoices(apiKey, extended);
                     return { voices };
                 } catch (e) {
@@ -572,6 +726,128 @@ async function routeAPI(endpoint, data) {
                 preset: data.preset || 'fast',
             });
         }
+
+        case 'media/clear-clip-cache': {
+            if (!data.file_path) throw new Error('缺少文件路径');
+            const cacheDir = settingsService.getSecureTmpDir('videokit_autoedit_cache');
+            const baseName = path.parse(data.file_path).name.replace(/[^\w.-]+/g, '_');
+            let deletedCount = 0;
+            if (fs.existsSync(cacheDir)) {
+                const files = fs.readdirSync(cacheDir);
+                const baseNameEscaped = baseName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                const regex = new RegExp(`^[a-z]{2,4}_${baseNameEscaped}_[a-f0-9]{12}_autoedit\\.(json|txt)$`);
+                for (const file of files) {
+                    if (regex.test(file)) {
+                        try {
+                            fs.unlinkSync(path.join(cacheDir, file));
+                            deletedCount++;
+                        } catch (_) {}
+                    }
+                }
+            }
+            return { success: true, deletedCount };
+        }
+
+        case 'media/auto-edit-replace-clip': {
+            const { originalClipPath, newClipPath } = data;
+            if (!originalClipPath || !newClipPath) throw new Error('缺少文件路径参数');
+            if (!fs.existsSync(originalClipPath)) throw new Error(`原始视频文件不存在: ${originalClipPath}`);
+            if (!fs.existsSync(newClipPath)) throw new Error(`替换视频文件不存在: ${newClipPath}`);
+
+            // 1. Delete old Gladia cache files
+            try {
+                const cacheDir = settingsService.getSecureTmpDir('videokit_autoedit_cache');
+                const baseName = path.parse(originalClipPath).name.replace(/[^\w.-]+/g, '_');
+                if (fs.existsSync(cacheDir)) {
+                    const files = fs.readdirSync(cacheDir);
+                    const baseNameEscaped = baseName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                    const regex = new RegExp(`^[a-z]{2,4}_${baseNameEscaped}_[a-f0-9]{12}_autoedit\\.(json|txt)$`);
+                    for (const file of files) {
+                        if (regex.test(file)) {
+                            try {
+                                fs.unlinkSync(path.join(cacheDir, file));
+                            } catch (_) {}
+                        }
+                    }
+                }
+            } catch (cacheErr) {
+                console.warn('[Replace Clip] Failed to clear old cache files:', cacheErr.message);
+            }
+
+            // 2. Backup the old file to a backup folder inside the same directory
+            const dir = path.dirname(originalClipPath);
+            const backupDir = path.join(dir, 'backup_clips');
+            if (!fs.existsSync(backupDir)) {
+                fs.mkdirSync(backupDir, { recursive: true });
+            }
+            const base = path.basename(originalClipPath);
+            const ext = path.extname(originalClipPath);
+            const timestamp = Date.now();
+            const backupFileName = `${path.parse(base).name}_err_${timestamp}${ext}`;
+            const backupPath = path.join(backupDir, backupFileName);
+
+            fs.copyFileSync(originalClipPath, backupPath);
+            console.log(`[Replace Clip] Backed up old file to: ${backupPath}`);
+
+            // 3. Overwrite the original file with the new file (handling extension change if necessary)
+            const newExt = path.extname(newClipPath);
+            let targetClipPath = originalClipPath;
+            if (newExt.toLowerCase() !== ext.toLowerCase()) {
+                targetClipPath = path.join(dir, `${path.parse(base).name}${newExt}`);
+                fs.copyFileSync(newClipPath, targetClipPath);
+                try {
+                    fs.unlinkSync(originalClipPath);
+                } catch (unlinkErr) {
+                    console.warn('[Replace Clip] Failed to delete old clip file:', unlinkErr.message);
+                }
+            } else {
+                fs.copyFileSync(newClipPath, originalClipPath);
+            }
+            console.log(`[Replace Clip] Replaced original file. Target path: ${targetClipPath}`);
+
+            return { success: true, backupPath, updatedPath: targetClipPath };
+        }
+
+        case 'media/copy-file': {
+            const { srcPath, destDir, destFileName } = data;
+            if (!srcPath || !destDir) throw new Error('缺少文件路径或目标目录参数');
+            if (!fs.existsSync(srcPath)) throw new Error(`源文件不存在: ${srcPath}`);
+
+            // Ensure destination directory exists
+            fs.mkdirSync(destDir, { recursive: true });
+
+            const targetName = destFileName || path.basename(srcPath);
+            const srcDirNormalized = path.normalize(path.dirname(srcPath));
+            const destDirNormalized = path.normalize(destDir);
+
+            // If it is already in the target directory, no need to copy
+            if (srcDirNormalized === destDirNormalized) {
+                return { success: true, path: srcPath, copied: false };
+            }
+
+            let targetPath = path.join(destDir, targetName);
+            let finalName = targetName;
+            
+            // Check for duplicate/collision in target folder
+            if (fs.existsSync(targetPath)) {
+                const ext = path.extname(targetName);
+                const nameWithoutExt = path.parse(targetName).name;
+                // Generate a unique suffix to prevent collision
+                finalName = `${nameWithoutExt}_added_${Date.now()}${ext}`;
+                targetPath = path.join(destDir, finalName);
+            }
+
+            // Copy file
+            fs.copyFileSync(srcPath, targetPath);
+            console.log(`[Copy File] Copied ${srcPath} -> ${targetPath}`);
+
+            return { success: true, path: targetPath, copied: true };
+        }
+
+        case 'media/auto-edit-by-script':
+        case 'media/auto-edit':
+        case 'auto-edit-by-script':
+            return await runAutoEditByScript(data, progressSender);
 
         case 'media/waveform': {
             if (!data.file_path) throw new Error('缺少文件路径');
@@ -775,6 +1051,74 @@ async function routeAPI(endpoint, data) {
             );
         }
 
+        case 'media/replace-audio': {
+            const videoPath = data.video_path || data.videoPath;
+            const audioPath = data.audio_path || data.audioPath;
+            if (!videoPath || !fs.existsSync(videoPath)) throw new Error('缺少有效视频文件');
+            if (!audioPath || !fs.existsSync(audioPath)) throw new Error('缺少有效音频文件');
+            const outDir = data.output_dir || path.dirname(videoPath);
+            fs.mkdirSync(outDir, { recursive: true });
+            const baseName = path.parse(videoPath).name;
+            const outputPath = data.output_path || path.join(outDir, `${baseName}_replaced_audio.mp4`);
+            await ffmpegService.runCommand('ffmpeg', [
+                '-y',
+                '-i', videoPath,
+                '-i', audioPath,
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                '-movflags', '+faststart',
+                outputPath,
+            ], { timeout: 1800000 });
+
+            let srtPath = '';
+            let subtitledPath = '';
+            if (data.regenerate_subtitles === true || data.retranscribe_audio === true) {
+                const gladiaKeysData = settingsService.loadGladiaKeys();
+                const gladiaKeys = gladiaKeysData.keys || [];
+                const srtResult = await autoEditService.generateSrtForAudioScript({
+                    audioPath,
+                    scriptText: data.script_text || data.scriptText || '',
+                    language: data.language || 'auto',
+                    gladiaKeys,
+                    srtPath: outputPath.replace(/\.[^.]+$/, '.srt'),
+                    force: true,
+                    minScore: data.min_score,
+                });
+                srtPath = srtResult.srt_path || '';
+
+                if (data.burn_subtitles === true && srtPath) {
+                    subtitledPath = outputPath.replace(/\.[^.]+$/, '_subtitled.mp4');
+                    const assPath = String(srtPath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+                    await ffmpegService.runCommand('ffmpeg', [
+                        '-y',
+                        '-i', outputPath,
+                        '-vf', `subtitles='${assPath}'`,
+                        '-c:v', 'libx264',
+                        '-crf', String(parseInt(data.crf || 18, 10)),
+                        '-preset', data.preset || 'fast',
+                        '-c:a', 'copy',
+                        subtitledPath,
+                    ], { timeout: 1800000 });
+                }
+            }
+
+            return {
+                success: true,
+                message: srtPath ? '音频替换完成，已按新音频重新生成字幕' : '音频替换完成',
+                output_path: outputPath,
+                srt_path: srtPath,
+                subtitled_path: subtitledPath,
+                final_video_path: subtitledPath || outputPath,
+                video_path: videoPath,
+                audio_path: audioPath,
+                output_dir: outDir,
+            };
+        }
+
 
 
 
@@ -783,6 +1127,10 @@ async function routeAPI(endpoint, data) {
             const mode = data.mode || 'mp3';
             const outDir = data.output_dir || path.dirname(files[0]);
             const allResults = [];
+
+            if (mode === 'auto_edit') {
+                return await runAutoEditByScript({ ...data, files }, progressSender);
+            }
 
             if (mode === 'audio_split') {
                 // 音频裁切导出
@@ -1802,6 +2150,10 @@ async function routeUpload(endpoint, fileBuffer, fileName, formData) {
                     sourceTextWithInfo, translateTextDict,
                     genMergeSrt, sourceUpOrder, exportFcpxml, seamlessFcpxml
                 );
+
+                if (typeof alignResult === 'string' && !alignResult.startsWith('生成了字幕文件')) {
+                    throw new Error(`字幕对齐失败: ${alignResult}`);
+                }
 
                 // 收集生成的文件
                 const generatedFiles = [];

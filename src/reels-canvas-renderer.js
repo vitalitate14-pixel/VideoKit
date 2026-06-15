@@ -54,6 +54,11 @@ class ReelsCanvasRenderer {
             return;
         }
 
+        if (!_isSubCall && s.anim_in_type === 'word_random_position') {
+            this._renderWordRandomPosition(s, segment, currentTime, videoW, videoH);
+            return;
+        }
+
         const text = segment.edited_text || segment.text || '';
         if (!text.trim()) return;
 
@@ -186,6 +191,8 @@ class ReelsCanvasRenderer {
         const italic = s.italic || false;
         const letterSpacing = s.letter_spacing || 0;
         const wordSpacing = s.word_spacing || 0;
+        const randomWordSpacingMax = Math.max(0, Number(s.random_word_spacing || 0));
+        const randomLineSpacingMax = Math.max(0, Number(s.random_line_spacing || 0));
         const fontStr = `${italic ? 'italic ' : ''}${fontWeight} ${fontSize}px "${fontFamily}", ${fallbackFamily}`;
         ctx.font = fontStr;
         ctx.textBaseline = 'top';
@@ -275,7 +282,8 @@ class ReelsCanvasRenderer {
         for (let i = 0; i < paragraphs.length; i++) {
             const paraWords = paraWordsGroups[i];
             if (paraWords.length > 0) {
-                const paraLines = this._wrapTokensByPixelWidth(paraWords, maxWidth, joiner, letterSpacing, wordSpacing);
+                const wrapWordSpacing = wordSpacing + randomWordSpacingMax;
+                const paraLines = this._wrapTokensByPixelWidth(paraWords, maxWidth, joiner, letterSpacing, wrapWordSpacing);
                 lines.push(...paraLines);
             } else {
                 const isLast = (i === paragraphs.length - 1);
@@ -304,8 +312,11 @@ class ReelsCanvasRenderer {
         }
 
         let maxLineW = 0;
+        let widthWordStartIdx = 0;
         const lineWidths = visibleLines.map(line => {
-            const w = this._measureLineWithSpacing(ctx, line, letterSpacing, wordSpacing);
+            const measured = this._measureLineWithRandomSpacing(ctx, line, letterSpacing, wordSpacing, s, segStart, widthWordStartIdx);
+            const w = measured.width;
+            widthWordStartIdx = measured.nextWordIdx;
             maxLineW = Math.max(maxLineW, w);
             return w;
         });
@@ -316,12 +327,16 @@ class ReelsCanvasRenderer {
             return Math.max(blockScaleMin, Math.min(blockScaleMax, fit));
         });
         const lineHeights = lineScales.map(sc => lineH * sc);
+        const lineSpacings = visibleLines.map((_, i) => {
+            if (i >= visibleLines.length - 1) return 0;
+            return lineSpacing + this._computeRandomLineSpacing(s, i, segStart);
+        });
         const lineTopOffsets = [];
         let accumY = 0;
         for (let i = 0; i < visibleLines.length; i++) {
             lineTopOffsets.push(accumY);
             accumY += lineHeights[i];
-            if (i < visibleLines.length - 1) accumY += lineSpacing;
+            if (i < visibleLines.length - 1) accumY += lineSpacings[i];
         }
         const totalH = accumY;
 
@@ -331,7 +346,7 @@ class ReelsCanvasRenderer {
         const _isWPRP_ = animInType_ === 'word_pop_random_pulse';
         const _isLJ_ = animInType_ === 'letter_jump';
         const segDur_ = Math.max(0.001, segEnd - segStart);
-        const spaceW_ = ctx.measureText(' ').width + wordSpacing;
+        const baseSpaceW_ = ctx.measureText(' ').width + wordSpacing;
 
         let actualMaxLineW = 0;
         let finalMaxLineW = 0; // 所有词完全展开后的最终宽度（用于稳定居中锚点）
@@ -349,6 +364,7 @@ class ReelsCanvasRenderer {
                 // 与渲染循环完全一致的 advanceScale 计算
                 let advScale = lScale;
                 let finalAdvScale = lScale; // 最终 scale（始终包含随机缩放）
+                let spacingWordStart = segStart + segDur_ * (simWordIdx / Math.max(1, words.length));
 
                 if (_isWPR_) {
                     let ws = segStart;
@@ -357,9 +373,10 @@ class ReelsCanvasRenderer {
                     } else {
                         ws = segStart + segDur_ * (simWordIdx / Math.max(1, words.length));
                     }
+                    spacingWordStart = ws;
                     const randScale = this._computeWordRandomFinalScale(
                         simWordIdx, segStart, ws,
-                        Number(s.word_pop_random_min_scale ?? 0.86),
+                        Number(s.word_pop_random_min_scale ?? 0.7),
                         Number(s.word_pop_random_max_scale ?? 1.34)
                     );
                     finalAdvScale *= randScale;
@@ -387,10 +404,11 @@ class ReelsCanvasRenderer {
                 // 视觉宽度 = wordW * scale (文字实际绘制宽度)
                 const visualWordW = ww * advScale;
                 const finalVisualWordW = ww * finalAdvScale;
+                const gapW = baseSpaceW_ + this._computeRandomWordSpacing(s, simWordIdx, segStart, spacingWordStart);
                 // 累加：词宽 + 词间距（最后一个词不加间距）
                 if (ti < lineTokens.length - 1) {
-                    lineRenderedW += visualWordW + spaceW_ * advScale;
-                    lineFinalW += finalVisualWordW + spaceW_ * finalAdvScale;
+                    lineRenderedW += visualWordW + gapW * advScale;
+                    lineFinalW += finalVisualWordW + gapW * finalAdvScale;
                 } else {
                     lineRenderedW += visualWordW;
                     lineFinalW += finalVisualWordW;
@@ -747,7 +765,7 @@ class ReelsCanvasRenderer {
         // ── 文字绘制 ──
         const textColor = s.color_text || '#FFFFFF';
         const highColor = s.color_high || '#FFD700';
-        const outlineColor = s.color_outline || '#000000';
+        const outlineColor = s.color_outline || '#3E2723';
         const outlineAlpha = (s.opacity_outline || 255) / 255;
         const borderW = s.border_width || 3;
         const useStroke = s.use_stroke !== false;
@@ -803,7 +821,7 @@ class ReelsCanvasRenderer {
                 xStart = cx - anchorLineW / 2;
             }
 
-            const y = startY + (blockTypography ? lineTopOffsets[i] : (i * lineStep));
+            const y = startY + (blockTypography || randomLineSpacingMax > 0 ? lineTopOffsets[i] : (i * lineStep));
 
             // Bullet reveal: per-line alpha
             let lineAlpha = 1.0;
@@ -824,7 +842,7 @@ class ReelsCanvasRenderer {
 
             for (const wordStr of lineWords) {
                 const wordW = this._measureTextWithSpacing(ctx, wordStr, letterSpacing);
-                const spaceW = ctx.measureText(' ').width + wordSpacing;
+                const baseSpaceW = ctx.measureText(' ').width + wordSpacing;
 
                 // Current word highlight
                 let isHighlight = false;
@@ -967,7 +985,7 @@ class ReelsCanvasRenderer {
                         } else {
                             randomPopScale = anim.computeWordRandomPopScale(
                                 currentTime, wordStart, wordEnd, wordIdx, segStart,
-                                Number(s.word_pop_random_min_scale ?? 0.86),
+                                Number(s.word_pop_random_min_scale ?? 0.7),
                                 Number(s.word_pop_random_max_scale ?? 1.34),
                                 Number(s.word_pop_random_duration ?? 0.22)
                             );
@@ -1011,7 +1029,7 @@ class ReelsCanvasRenderer {
                 // ── Render word ──
                 if (isWordActive) {
                     // ── Local multi-layer stroke expand ──
-                    if (s.stroke_expand_enabled) {
+                    if (s.stroke_expand_enabled && s.only_show_active_word) {
                         this._renderWordStrokeExpand(ctx, s, wordStr, drawX, wordY, fontStr, letterSpacing);
                     }
 
@@ -1063,12 +1081,13 @@ class ReelsCanvasRenderer {
                 if (isWordPopRandom && currentTime >= wordStart) {
                     const finalRandScale = this._computeWordRandomFinalScale(
                         wordIdx, segStart, wordStart,
-                        Number(s.word_pop_random_min_scale ?? 0.86),
+                        Number(s.word_pop_random_min_scale ?? 0.7),
                         Number(s.word_pop_random_max_scale ?? 1.34)
                     );
                     advanceScale *= finalRandScale;
                 }
-                currX += (wordW + spaceW) * advanceScale;
+                const randomGapW = this._computeRandomWordSpacing(s, wordIdx, segStart, wordStart);
+                currX += (wordW + baseSpaceW + randomGapW) * advanceScale;
             }
         }
 
@@ -1413,15 +1432,51 @@ class ReelsCanvasRenderer {
         return total;
     }
 
+    _measureLineWithRandomSpacing(ctx, line, letterSpacing = 0, wordSpacing = 0, style = {}, segStart = 0, startWordIdx = 0) {
+        const words = line.split(/\s+/).filter(Boolean);
+        if (words.length === 0) return { width: 0, nextWordIdx: startWordIdx };
+        let total = 0;
+        let wordIdx = startWordIdx;
+        for (let i = 0; i < words.length; i++) {
+            total += this._measureTextWithSpacing(ctx, words[i], letterSpacing);
+            if (i < words.length - 1) {
+                total += ctx.measureText(' ').width + wordSpacing + this._computeRandomWordSpacing(style, wordIdx, segStart, segStart);
+            }
+            wordIdx++;
+        }
+        return { width: total, nextWordIdx: wordIdx };
+    }
+
     _seededRand(seed) {
         const raw = (Math.sin(seed) * 43758.5453) % 1;
         return raw < 0 ? raw + 1 : raw;
     }
 
-    _computeWordRandomFinalScale(wordIdx, segStart, wordStart, minScale = 0.86, maxScale = 1.34) {
+    _randomSpacingSeed(style) {
+        const seed = Number(style && style.random_spacing_seed);
+        return Number.isFinite(seed) ? seed : 1;
+    }
+
+    _computeRandomWordSpacing(style, wordIdx, segStart = 0, wordStart = 0) {
+        const max = Math.max(0, Number(style && style.random_word_spacing) || 0);
+        if (max <= 0) return 0;
+        const seed = this._randomSpacingSeed(style);
+        const key = (Number(wordIdx) + 1) * 19.91 + Number(segStart) * 43.17 + Number(wordStart) * 7.31 + seed * 101.3;
+        return this._seededRand(key) * max;
+    }
+
+    _computeRandomLineSpacing(style, lineIdx, segStart = 0) {
+        const max = Math.max(0, Number(style && style.random_line_spacing) || 0);
+        if (max <= 0) return 0;
+        const seed = this._randomSpacingSeed(style);
+        const key = (Number(lineIdx) + 1) * 29.37 + Number(segStart) * 11.79 + seed * 53.11;
+        return this._seededRand(key) * max;
+    }
+
+    _computeWordRandomFinalScale(wordIdx, segStart, wordStart, minScale = 0.7, maxScale = 1.34) {
         const key = (Number(wordIdx) + 1.0) * 12.9898 + Number(segStart) * 78.233 + Number(wordStart) * 37.719;
         const rand = this._seededRand(key);
-        const minS = Number(minScale) || 0.86;
+        const minS = Number(minScale) || 0.7;
         const maxS = Math.max(minS, Number(maxScale) || 1.34);
         return minS + (maxS - minS) * rand;
     }
@@ -1556,6 +1611,7 @@ class ReelsCanvasRenderer {
         };
         const letterSpacing = s.letter_spacing || 0;
         const wordSpacing = s.word_spacing || 0;
+        const randomLineSpacingMax = Math.max(0, Number(s.random_line_spacing || 0));
 
         // 高级文本框/布局
         const advEnabled = !!s.advanced_textbox_enabled;
@@ -1597,6 +1653,7 @@ class ReelsCanvasRenderer {
         // 3. 换行计算 & 尺寸测量
         const lines = []; // 当前由 { tokens, metrics } 组成
         let currentLine = { tokens: [], w: 0, maxAscent: 0, maxDescent: 0, maxFs: 0 };
+        let measureWordIdx = 0;
         
         for (const tok of tokens) {
             if (tok.isNewline) {
@@ -1608,7 +1665,7 @@ class ReelsCanvasRenderer {
             ctx.font = _getFontStr(tok.style);
             const isSpace = tok.text === ' ';
             const mw = isSpace
-                ? ctx.measureText(' ').width + wordSpacing
+                ? ctx.measureText(' ').width + wordSpacing + this._computeRandomWordSpacing(s, Math.max(0, measureWordIdx - 1), segment.start || 0, segment.start || 0)
                 : this._measureTextWithSpacing(ctx, tok.text, letterSpacing);
             // 近似高度获取，canvas 原生 TextMetrics 可给准确高度， fallback用fontSize
             let asc = tok.style.fontsize * 0.8; 
@@ -1630,12 +1687,14 @@ class ReelsCanvasRenderer {
 
                 lines.push(currentLine);
                 currentLine = { tokens: [tok], w: mw, maxAscent: asc, maxDescent: desc, maxFs: tok.style.fontsize };
+                if (!isSpace) measureWordIdx++;
             } else {
                 currentLine.tokens.push(tok);
                 currentLine.w += mw;
                 currentLine.maxAscent = Math.max(currentLine.maxAscent, asc);
                 currentLine.maxDescent = Math.max(currentLine.maxDescent, desc);
                 currentLine.maxFs = Math.max(currentLine.maxFs, tok.style.fontsize);
+                if (!isSpace) measureWordIdx++;
             }
         }
         if (currentLine.tokens.length > 0 || tokens.length === 0) {
@@ -1645,14 +1704,15 @@ class ReelsCanvasRenderer {
         // 4. 定位与边距计算
         const maxLineW = Math.max(...lines.map(l => l.w));
         const lineSpacing = s.line_spacing || 0;
+        const richLineSpacings = lines.map((_, i) => i < lines.length - 1 ? lineSpacing + this._computeRandomLineSpacing(s, i, segment.start || 0) : 0);
         let totalH = 0;
-        lines.forEach(l => {
+        lines.forEach((l, i) => {
             // fallback 高度
             if (l.maxAscent === 0) { l.maxFs = baseStyleConfig.fontsize; l.maxAscent = l.maxFs * 0.8; l.maxDescent = l.maxFs * 0.2; }
             l.lineH = l.maxAscent + l.maxDescent;
-            totalH += l.lineH + lineSpacing;
+            totalH += l.lineH;
+            if (i < lines.length - 1) totalH += richLineSpacings[i];
         });
-        totalH -= lineSpacing > 0 ? lineSpacing : 0; 
         if (totalH < 0) totalH = 0;
 
         let cx, cy;
@@ -1719,7 +1779,7 @@ class ReelsCanvasRenderer {
         // 6. 全局属性（透明度、描边、阴影）
         const textAlpha = Math.min(1, Math.max(0, s.opacity !== undefined ? s.opacity / 255 : 1));
         const useStroke = s.use_stroke !== false;
-        const outlineColor = s.color_outline || '#000000';
+        const outlineColor = s.color_outline || '#3E2723';
         const outlineAlpha = s.opacity_outline !== undefined ? s.opacity_outline / 255 : 1;
         // borderW already declared above (line ~1521)
         
@@ -1743,6 +1803,8 @@ class ReelsCanvasRenderer {
         }
 
         let currY = startY;
+        let renderWordIdx = 0;
+        let renderLineIdx = 0;
         for (const line of lines) {
             // align
             let renderX = 0;
@@ -1756,7 +1818,7 @@ class ReelsCanvasRenderer {
             for (const tok of line.tokens) {
                 if (tok.text === ' ') {
                     ctx.font = _getFontStr(tok.style);
-                    renderX += ctx.measureText(' ').width + wordSpacing;
+                    renderX += ctx.measureText(' ').width + wordSpacing + this._computeRandomWordSpacing(s, Math.max(0, renderWordIdx - 1), segment.start || 0, segment.start || 0);
                     continue;
                 }
 
@@ -1824,10 +1886,12 @@ class ReelsCanvasRenderer {
                 }
                 
                 renderX += this._measureTextWithSpacing(ctx, tok.text, letterSpacing);
+                renderWordIdx++;
                 ctx.restore();
             }
 
-            currY += line.lineH + lineSpacing;
+            currY += line.lineH + (randomLineSpacingMax > 0 ? (richLineSpacings[renderLineIdx] || 0) : lineSpacing);
+            renderLineIdx++;
         }
 
         ctx.restore();
@@ -2189,7 +2253,7 @@ class ReelsCanvasRenderer {
         }
 
         const useStroke = s.use_stroke !== false;
-        const outlineColor = s.color_outline || '#000000';
+        const outlineColor = s.color_outline || '#3E2723';
         const borderW = s.border_width || 3;
         const outlineAlpha = 1.0;
         const shadowBlur = s.shadow_blur || 0;
@@ -2406,7 +2470,7 @@ class ReelsCanvasRenderer {
         const wordSpacing = s.word_spacing || 0;
 
         const useStroke = s.use_stroke !== false;
-        const outlineColor = s.color_outline || '#000000';
+        const outlineColor = s.color_outline || '#3E2723';
         const borderW = s.border_width || 3;
         const outlineAlpha = 1.0;
         const shadowBlur = s.shadow_blur || 0;
@@ -2505,6 +2569,138 @@ class ReelsCanvasRenderer {
             ctx.restore();
         }
     }
+
+    _getTimedWords(segment) {
+        let words = segment.words;
+        if (words && words.length > 0) {
+            return words.map(w => ({
+                word: w.word || '',
+                start: Number.isFinite(w.start) ? w.start : (segment.start || 0),
+                end: Number.isFinite(w.end) ? w.end : (segment.end || 0)
+            })).filter(w => w.word);
+        }
+
+        const text = segment.edited_text || segment.text || '';
+        const rawWords = text.split(/\s+/).filter(Boolean);
+        const segStart = segment.start || 0;
+        const segEnd = segment.end || 0;
+        const dur = Math.max(0.001, segEnd - segStart);
+        return rawWords.map((w, i) => ({
+            word: w,
+            start: segStart + dur * (i / Math.max(1, rawWords.length)),
+            end: segStart + dur * ((i + 1) / Math.max(1, rawWords.length))
+        }));
+    }
+
+    _renderWordRandomPosition(s, segment, currentTime, videoW, videoH) {
+        const ctx = this.ctx;
+        const words = this._getTimedWords(segment);
+        if (!words.length) return;
+
+        const activeIdx = words.findIndex(w => currentTime >= w.start && currentTime <= w.end);
+        if (activeIdx < 0) return;
+
+        const wordInfo = words[activeIdx];
+        const wordStr = wordInfo.word;
+        const seedVal = parseInt(s.scatter_seed) || 1;
+
+        const fontFamily = s.font_family || 'Arial';
+        const fallbackFamily = _resolveGenericFallback(fontFamily);
+        const fontWeight = _resolveFontWeight(s.font_weight, s.bold !== false ? 700 : 400);
+        const italic = s.italic || false;
+        const letterSpacing = s.letter_spacing || 0;
+        const minScale = Number(s.scatter_min_scale ?? 0.95);
+        const maxScale = Math.max(minScale, Number(s.scatter_max_scale ?? 1.35));
+        const minRotate = Number(s.scatter_min_rotate ?? -6);
+        const maxRotate = Math.max(minRotate, Number(s.scatter_max_rotate ?? 6));
+
+        const scaleRand = this._seededRand((activeIdx + 1) * 13.91 + (segment.start || 0) * 64.81 + seedVal * 56.73);
+        const rotateRand = this._seededRand((activeIdx + 1) * 57.23 + (segment.start || 0) * 111.43 + seedVal * 67.89);
+        const xRand = this._seededRand((activeIdx + 1) * 29.57 + (segment.start || 0) * 101.37 + seedVal * 34.57);
+        const yRand = this._seededRand((activeIdx + 1) * 43.19 + (segment.start || 0) * 89.23 + seedVal * 45.69);
+
+        const scale = minScale + scaleRand * (maxScale - minScale);
+        const angle = minRotate + rotateRand * (maxRotate - minRotate);
+        const scaledFontSize = (s.fontsize || 74) * scale;
+        const fontStr = `${italic ? 'italic ' : ''}${fontWeight} ${scaledFontSize}px "${fontFamily}", ${fallbackFamily}`;
+        ctx.font = fontStr;
+        ctx.textBaseline = 'top';
+
+        const wordW = this._measureTextWithSpacing(ctx, wordStr, letterSpacing * scale);
+        const wordH = scaledFontSize * 1.2;
+        const padLeft = s.use_box ? (s.box_padding_left ?? s.box_padding_x ?? 16) * scale : 0;
+        const padRight = s.use_box ? (s.box_padding_right ?? s.box_padding_x ?? 16) * scale : 0;
+        const padTop = s.use_box ? (s.box_padding_top ?? s.box_padding_y ?? 12) * scale : 0;
+        const padBottom = s.use_box ? (s.box_padding_bottom ?? s.box_padding_y ?? 12) * scale : 0;
+        const boxW = wordW + padLeft + padRight;
+        const boxH = wordH + padTop + padBottom;
+
+        let leftLimit;
+        let rightLimit;
+        let topLimit;
+        let bottomLimit;
+        if (s.random_position_use_layout_range !== false) {
+            const centerX = (typeof s.pos_x === 'number' && s.pos_x <= 1) ? s.pos_x * videoW : (s.pos_x || videoW / 2);
+            const centerY = (typeof s.pos_y === 'number' && s.pos_y <= 1) ? s.pos_y * videoH : (s.pos_y || videoH * 0.5);
+            const rangeW = Math.max(20, Math.min(120, parseFloat(s.wrap_width_percent) || 70)) / 100 * videoW;
+            const rangeH = Math.max(10, Math.min(100, parseFloat(s.random_position_height_percent) || 35)) / 100 * videoH;
+            leftLimit = centerX - rangeW / 2;
+            rightLimit = centerX + rangeW / 2;
+            topLimit = centerY - rangeH / 2;
+            bottomLimit = centerY + rangeH / 2;
+        } else {
+            leftLimit = (s.scatter_area_left ?? 15) / 100 * videoW;
+            rightLimit = (s.scatter_area_right ?? 85) / 100 * videoW;
+            topLimit = (s.scatter_area_top ?? 25) / 100 * videoH;
+            bottomLimit = (s.scatter_area_bottom ?? 75) / 100 * videoH;
+        }
+        let renderX = leftLimit + xRand * Math.max(0, rightLimit - leftLimit);
+        let renderY = topLimit + yRand * Math.max(0, bottomLimit - topLimit);
+        if (boxW < videoW) renderX = Math.max(boxW / 2, Math.min(videoW - boxW / 2, renderX));
+        if (boxH < videoH) renderY = Math.max(boxH / 2, Math.min(videoH - boxH / 2, renderY));
+
+        const progress = Math.max(0, Math.min(1, (currentTime - wordInfo.start) / Math.max(0.001, wordInfo.end - wordInfo.start)));
+        const popDur = Math.max(0.04, Number(s.word_pop_random_duration ?? 0.18));
+        const localT = Math.min(1, (currentTime - wordInfo.start) / popDur);
+        const ease = 1 - Math.pow(1 - localT, 3);
+        const popScale = 0.82 + 0.18 * ease;
+        const fadeOut = progress > 0.82 ? Math.max(0, 1 - (progress - 0.82) / 0.18) : 1;
+
+        ctx.save();
+        ctx.globalAlpha *= fadeOut;
+        ctx.translate(renderX, renderY);
+        ctx.rotate(angle * Math.PI / 180);
+        ctx.scale(popScale, popScale);
+
+        const bx = -boxW / 2;
+        const by = -boxH / 2;
+        const wordX = -wordW / 2;
+        const wordY = -wordH / 2;
+
+        if (s.use_box) {
+            ctx.save();
+            ctx.fillStyle = s.color_bg || '#000000';
+            ctx.globalAlpha *= (s.opacity_bg ?? 180) / 255;
+            this._roundRect(ctx, bx, by, boxW, boxH, (s.box_radius || 10) * scale);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        const useStroke = s.use_stroke !== false;
+        const outlineColor = s.color_outline || '#3E2723';
+        const borderW = (s.border_width || 3) * scale;
+        const shadowBlur = s.shadow_blur || 0;
+        const shadowOffX = s.shadow_offset_x ?? 0;
+        const shadowOffY = s.shadow_offset_y ?? 2;
+        const shadowColor = s.color_shadow || '#000000';
+        const shadowAlpha = (s.opacity_shadow || 150) / 255;
+        const wordColor = s.color_high || s.color_text || '#FFFFFF';
+
+        this._drawWord(ctx, wordStr, wordX, wordY, wordColor,
+            useStroke && !s.stroke_expand_enabled, outlineColor, borderW, 1,
+            shadowBlur * scale, shadowOffX * scale, shadowOffY * scale, shadowColor, shadowAlpha, letterSpacing * scale, s);
+        ctx.restore();
+    }
 }
 
 function _resolveFontWeight(weight, fallback = 700) {
@@ -2578,7 +2774,7 @@ function generateASS(segments, style) {
     }
 
     const primaryColor = toASSColor(s.color_text || '#FFFFFF');
-    const outlineColor = toASSColor(s.color_outline || '#000000');
+    const outlineColor = toASSColor(s.color_outline || '#3E2723');
     const shadowColor = toASSColor(s.color_shadow || '#000000', Math.round(255 - (s.opacity_shadow || 150)));
     const borderW = s.use_stroke !== false ? (s.border_width || 3) : 0;
     const shadowDist = Math.max(

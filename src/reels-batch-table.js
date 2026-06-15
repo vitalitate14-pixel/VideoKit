@@ -1124,6 +1124,7 @@ function _renderBatchTable() {
                             <th class="rbt-col-hook rbt-grp-video"><div class="rbt-th-wrap"><span>前置Hook</span><button class="rbt-th-clear" data-clear-col="hook" title="清空该列">清</button></div></th>
                             <th class="rbt-col-bg rbt-grp-video"><div class="rbt-th-wrap"><span>背景素材</span><button class="rbt-th-folder" data-folder-col="bg" title="选择文件夹批量分配">📁</button><button class="rbt-th-clear" data-clear-col="bg" title="清空该列">清</button></div></th>
                             <th class="rbt-col-clippool rbt-grp-video"><div class="rbt-th-wrap"><span>背景片段池</span><button class="rbt-th-clear" data-clear-col="clipPool" title="清空该列">清</button></div></th>
+                            <th class="rbt-col-bgclipsettings rbt-grp-video"><div class="rbt-th-wrap"><span>背景池剪辑</span><button class="rbt-th-paste" data-paste-col="bgClipSettings" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="bgClipSettings" title="清空该列">清</button></div></th>
                             <th class="rbt-col-bgscale rbt-grp-video"><div class="rbt-th-wrap"><span>背景缩放</span><button class="rbt-th-clear" data-clear-col="bgScale" title="清空该列">清</button></div></th>
                             <th class="rbt-col-bgdurscale rbt-grp-video"><div class="rbt-th-wrap"><span>背景时长</span><button class="rbt-th-clear" data-clear-col="bgDurScale" title="清空该列">清</button></div></th>
                             <th class="rbt-col-bgvol rbt-grp-video"><div class="rbt-th-wrap"><span>背景音量</span><button class="rbt-th-clear" data-clear-col="bgVideoVolume" title="重置为全局值">清</button></div></th>
@@ -1474,6 +1475,7 @@ function _updateSubtitleTimeCell(idx) {
 
 function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
   try {
+    const globalBgVol = parseInt((document.getElementById('reels-bg-volume') || {}).value || '100');
     // 提取覆层信息
     const ov = _findBatchTextCardOverlay(task);
     const textSlots = _collectBatchOverlayTextSlots(task.overlays || []);
@@ -1505,6 +1507,24 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
     // 缩略图生成
     const bgMode = task.bgMode || 'single';
     const bgClipPool = task.bgClipPool || [];
+    const bgClipSettings = task.bgClipSettings || {};
+    let bgClipSettingsText = '';
+    if (bgMode === 'multi' && bgClipPool.length > 0) {
+        const parts = [];
+        for (const p of bgClipPool) {
+            const settings = bgClipSettings[p] || {};
+            if (settings.trimStart != null || settings.trimEnd != null) {
+                parts.push(`${settings.trimStart != null ? settings.trimStart : 0}-${settings.trimEnd != null ? settings.trimEnd : '尾'}s`);
+            } else {
+                parts.push('全段');
+            }
+        }
+        bgClipSettingsText = parts.join(' | ');
+    } else {
+        bgClipSettingsText = '<span class="rbt-placeholder">-</span>';
+    }
+    const hasTrimSettings = Object.values(bgClipSettings).some(s => s && (s.trimStart != null || s.trimEnd != null));
+
     let bgContent = bgName || '<span class="rbt-placeholder">拖拽/双击</span>';
     const bgPath = task.bgPath || task.videoPath;
 
@@ -1515,7 +1535,10 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
             ? task.bgClipActivePool.filter(p => bgClipPool.includes(p))
             : [];
         const activeCount = activePool.length > 0 ? activePool.length : bgClipPool.length;
-        const orderLabel = (task.bgClipOrder || 'random') === 'sequence' ? '顺序' : '随机';
+        let orderLabel = '随机';
+        if (task.bgClipOrder === 'sequence') orderLabel = '顺序';
+        else if (task.bgClipOrder === 'random_align') orderLabel = '随机(卡点)';
+        else if (task.bgClipOrder === 'sequence_align') orderLabel = '顺序(卡点)';
         const thumbs = bgClipPool.slice(0, 3).map(p => {
             if (!_rbtFileExists(p)) {
                 return `<span title="${_escHtml(p)}" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px;border:1px solid rgba(255,159,67,0.35);color:#ff9f43;background:rgba(255,159,67,0.12);font-size:11px;">!</span>`;
@@ -1710,6 +1733,12 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
                     </div>
                 </div>
             </td>
+            <td class="rbt-col-bgclipsettings rbt-grp-video">
+                <div class="rbt-bgclipsettings-cell" data-idx="${idx}" style="cursor:pointer;font-size:10px;padding:2px 4px;border-radius:4px;text-align:center;
+                    ${hasTrimSettings ? 'background:rgba(124,92,255,0.15);border:1px dashed rgba(124,92,255,0.4);color:#b8a0ff;' : 'color:#666;'}">
+                    ${bgClipSettingsText}
+                </div>
+            </td>
             <td class="rbt-col-bgscale rbt-grp-video">
                 <div class="rbt-clutter-free-scale">
                     <div class="rbt-scale-display">${task.bgScale || 100}%</div>
@@ -1743,9 +1772,9 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
                     <div class="rbt-scale-display">🔉 ${task.bgVideoVolume != null ? task.bgVideoVolume : '—'}%</div>
                     <div class="rbt-scale-controls" style="flex-direction:row; inset:0;">
                         <span style="font-size:10px;color:#888;white-space:nowrap;">🔉</span>
-                        <input type="range" class="rbt-bgvol-slider" data-idx="${idx}" data-is-null="${task.bgVideoVolume == null ? 'true' : 'false'}" min="0" max="1000" value="${task.bgVideoVolume != null ? task.bgVideoVolume : 100}"
+                        <input type="range" class="rbt-bgvol-slider" data-idx="${idx}" data-is-null="${task.bgVideoVolume == null ? 'true' : 'false'}" min="0" max="1000" value="${task.bgVideoVolume != null ? task.bgVideoVolume : globalBgVol}"
                                style="flex:1; min-width:0; height:12px; accent-color:#4fc3f7;" title="背景视频音量（留空=跟随全局设置）">
-                        <span class="rbt-bgvol-label" style="font-size:10px;color:#888;min-width:28px;text-align:right;">${task.bgVideoVolume != null ? task.bgVideoVolume + '%' : '全局'}</span>
+                        <span class="rbt-bgvol-label" style="font-size:10px;color:#888;min-width:28px;text-align:right;">${task.bgVideoVolume != null ? task.bgVideoVolume + '%' : '全局(' + globalBgVol + '%)'}</span>
                     </div>
                 </div>
             </td>
@@ -3997,6 +4026,9 @@ function _bindBatchTableEvents() {
             case 'exportName':
                 task.exportName = '';
                 break;
+            case 'bgClipSettings':
+                task.bgClipSettings = {};
+                break;
             case 'bgVideoVolume':
                 delete task.bgVideoVolume;
                 break;
@@ -4033,6 +4065,7 @@ function _bindBatchTableEvents() {
             hook: 'Hook',
             bg: '背景素材',
             clipPool: '背景片段池',
+            bgClipSettings: '背景池剪辑',
             contentvideo: '内容视频',
             cvTrim: '内容视频-时间段',
             cvCrop: '内容视频-裁切',
@@ -4124,6 +4157,18 @@ function _bindBatchTableEvents() {
             else if (fieldCategory === 'txtContent') { task.txtContent = str; task.aligned = false; }
             else if (fieldCategory === 'ttsVoiceId') task.ttsVoiceId = str;
             else if (fieldCategory === 'exportName') task.exportName = str;
+            else if (fieldCategory === 'bgClipSettings') {
+                if (!task.bgClipSettings) task.bgClipSettings = {};
+                const parsed = _parseClipSettingsString(str);
+                const pool = task.bgClipPool || [];
+                for (let j = 0; j < pool.length && j < parsed.length; j++) {
+                    const path = pool[j];
+                    task.bgClipSettings[path] = {
+                        trimStart: parsed[j].trimStart,
+                        trimEnd: parsed[j].trimEnd
+                    };
+                }
+            }
             else if (fieldCategory === 'cover_text') {
                 if (!task.cover) task.cover = { enabled: true, overlays: [] };
                 if (task.cover.overlays && task.cover.overlays.length > 0) task.cover.overlays[0].title_text = str;
@@ -4152,6 +4197,18 @@ function _bindBatchTableEvents() {
                     else if (fieldCategory === 'txtContent') { newTask.txtContent = str; }
                     else if (fieldCategory === 'ttsVoiceId') newTask.ttsVoiceId = str;
                     else if (fieldCategory === 'exportName') newTask.exportName = str;
+                    else if (fieldCategory === 'bgClipSettings') {
+                        if (!newTask.bgClipSettings) newTask.bgClipSettings = {};
+                        const parsed = _parseClipSettingsString(str);
+                        const pool = newTask.bgClipPool || [];
+                        for (let j = 0; j < pool.length && j < parsed.length; j++) {
+                            const path = pool[j];
+                            newTask.bgClipSettings[path] = {
+                                trimStart: parsed[j].trimStart,
+                                trimEnd: parsed[j].trimEnd
+                            };
+                        }
+                    }
                     else if (fieldCategory === 'cover_text') {
                         newTask.cover = { enabled: true, overlays: [{ title_text: str, body_text: '', footer_text: '', type: 'textcard' }] };
                     }
@@ -4754,6 +4811,14 @@ function _bindBatchTableEvents() {
                 });
                 return;
             }
+            // 背景池剪辑时间设置单元格点击
+            const bgcsCell = e.target.closest('.rbt-bgclipsettings-cell');
+            if (bgcsCell) {
+                e.stopPropagation();
+                const idx = parseInt(bgcsCell.dataset.idx);
+                _showBgPoolDialog(idx);
+                return;
+            }
             // 多素材池管理按钮
             const poolBtn = e.target.closest('.rbt-bg-pool-manage');
             if (poolBtn) {
@@ -4817,6 +4882,7 @@ function _bindBatchTableEvents() {
                         task.concatStatus = '';
                         break;
                     case 'bg': task.bgPath = ''; task.videoPath = ''; task.bgSrcUrl = ''; task.bgMode = 'single'; task.bgClipPool = []; task.bgClipActivePool = []; task.bgClipOrder = 'random'; task.bgTransition = 'crossfade'; task.bgTransDur = 0.5; break;
+                    case 'bgClipSettings': task.bgClipSettings = {}; break;
                     case 'bgm': task.bgmPath = ''; task.bgmMode = 'single'; task.bgmClipPool = []; task.bgmClipActivePool = []; task.bgmClipOrder = 'random'; break;
                     case 'contentvideo': task.contentVideoPath = ''; task.contentVideoTrimStart = null; task.contentVideoTrimEnd = null; task.contentVideoScale = 100; task.contentVideoX = 'center'; task.contentVideoY = 'center'; task.contentVideoCrop = ''; task.contentVideoBlurBg = false; break;
                     case 'tts_text': task.ttsText = ''; break;
@@ -4989,6 +5055,7 @@ function _showMultiColumnPasteModal(tsvRows, startIdx, initialFieldCategory = nu
         { v: 'ttsText', l: '🤖 人声-配音文案' },
         { v: 'ttsVoiceId', l: '🗣️ 人声-配音音色' },
         { v: 'txtContent', l: '📃 人声-断行文案' },
+        { v: 'bgClipSettings', l: '🎞️ 背景池剪辑时间' },
         { v: 'overlay_title', l: '🔠 覆层标题' },
         { v: 'overlay_body', l: '🔠 覆层内容' },
         { v: 'overlay_footer', l: '🔠 覆层结尾' },
@@ -5113,6 +5180,18 @@ function _execMultiColumnPaste(tsvRows, startIdx, colMappings, maxCols) {
             else if (fieldCategory === 'txtContent') { task.txtContent = str; task.aligned = false; }
             else if (fieldCategory === 'ttsVoiceId') task.ttsVoiceId = str;
             else if (fieldCategory === 'exportName') task.exportName = str;
+            else if (fieldCategory === 'bgClipSettings') {
+                if (!task.bgClipSettings) task.bgClipSettings = {};
+                const parsed = _parseClipSettingsString(str);
+                const pool = task.bgClipPool || [];
+                for (let j = 0; j < pool.length && j < parsed.length; j++) {
+                    const path = pool[j];
+                    task.bgClipSettings[path] = {
+                        trimStart: parsed[j].trimStart,
+                        trimEnd: parsed[j].trimEnd
+                    };
+                }
+            }
             else if (fieldCategory === 'cover_text') {
                 if (!task.cover) task.cover = { enabled: true, overlays: [] };
                 if (task.cover.overlays && task.cover.overlays.length > 0) task.cover.overlays[0].title_text = str;
@@ -6176,6 +6255,7 @@ const _RBT_COLUMNS = [
     { key: 'hook', label: '前置Hook', default: true },
     { key: 'bg', label: '背景素材', default: true },
     { key: 'clippool', label: '背景片段池', default: true },
+    { key: 'bgclipsettings', label: '背景池剪辑', default: true },
     { key: 'bgscale', label: '背景缩放', default: true },
     { key: 'bgdurscale', label: '背景时长', default: true },
     { key: 'bgvol', label: '背景音量', default: true },
@@ -6667,7 +6747,7 @@ function _showColumnSettingsPopup(anchor) {
     // ── 列分类 ──
     const colGroups = [
         { label: '封面控制', keys: ['cover-media', 'cover-text'] },
-        { label: '背景控制', keys: ['hook', 'bg', 'clippool', 'bgscale', 'bgdurscale', 'bgvol', 'bgm'] },
+        { label: '背景控制', keys: ['hook', 'bg', 'clippool', 'bgclipsettings', 'bgscale', 'bgdurscale', 'bgvol', 'bgm'] },
         { label: '内容视频', keys: ['contentvideo', 'cvtrim', 'cvcrop', 'cvblurbg', 'cvscale', 'cvpos', 'cvvol'] },
         { label: '人声音轨', keys: ['ai_script', 'tts_text', 'txtcontent', 'tts_voice', 'srt', 'audio', 'voicevol', 'audiodurscale'] },
         { label: '文字覆层', keys: ['pip', 'title', 'body', 'footer', 'scroll-title', 'scroll-body', 'subtime'] },
@@ -6965,6 +7045,33 @@ function _showColumnSettingsPopup(anchor) {
     }, 100);
 }
 
+function _parseClipSettingsString(str) {
+    if (!str || !str.trim()) return [];
+    const parts = str.split(/[;,|，]/);
+    const result = [];
+    for (const part of parts) {
+        const p = part.trim();
+        if (!p) continue;
+        const range = p.split(/[-~]/);
+        if (range.length === 2) {
+            const start = parseFloat(range[0].trim());
+            const end = parseFloat(range[1].trim());
+            result.push({
+                trimStart: isNaN(start) ? null : start,
+                trimEnd: isNaN(end) ? null : end
+            });
+        } else {
+            const val = parseFloat(p);
+            if (!isNaN(val)) {
+                result.push({ trimStart: null, trimEnd: val });
+            }
+        }
+    }
+    return result;
+}
+
+window._parseClipSettingsString = _parseClipSettingsString;
+
 // ═══════════════════════════════════════════════════════
 // Multi-Clip Background Pool — 多素材随机拼接管理
 // ═══════════════════════════════════════════════════════
@@ -6981,6 +7088,8 @@ function _showBgPoolDialog(taskIdx) {
     if (!task.bgClipOrder) task.bgClipOrder = 'random';
     if (!Array.isArray(task.bgClipActivePool)) task.bgClipActivePool = [];
     if (!task.bgMode) task.bgMode = task.bgClipPool.length > 0 ? 'multi' : 'single';
+    if (task.bgMinClipDur === undefined) task.bgMinClipDur = 5;
+    if (task.bgMaxClipDur === undefined) task.bgMaxClipDur = 7;
 
     const _refreshBgPoolPreview = () => {
         _renderBatchTable();
@@ -7052,8 +7161,10 @@ function _showBgPoolDialog(taskIdx) {
             <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;padding:10px;background:#12122e;border:1px solid #2a2a4a;border-radius:8px;flex-wrap:wrap;">
                 <span style="font-size:11px;color:#aaa;white-space:nowrap;">组合方式:</span>
                 <select id="bgpool-clip-order" style="width:110px;padding:4px 8px;font-size:11px;background:#1e1e38;color:#ccc;border:1px solid #333;border-radius:4px;outline:none;">
-                    <option value="random" ${(task.bgClipOrder || 'random') === 'random' ? 'selected' : ''}>🎲 随机</option>
-                    <option value="sequence" ${task.bgClipOrder === 'sequence' ? 'selected' : ''}>↧ 顺序</option>
+                    <option value="random" ${(task.bgClipOrder || 'random') === 'random' ? 'selected' : ''}>🎲 随机组合</option>
+                    <option value="sequence" ${task.bgClipOrder === 'sequence' ? 'selected' : ''}>↧ 顺序组合</option>
+                    <option value="random_align" ${task.bgClipOrder === 'random_align' ? 'selected' : ''}>⚡ 随机 (台词卡点)</option>
+                    <option value="sequence_align" ${task.bgClipOrder === 'sequence_align' ? 'selected' : ''}>🔗 顺序 (台词卡点)</option>
                 </select>
                 <span style="font-size:11px;color:#aaa;white-space:nowrap;">转场效果:</span>
                 <select id="bgpool-transition" style="flex:1;padding:4px 8px;font-size:11px;background:#1e1e38;color:#ccc;border:1px solid #333;border-radius:4px;outline:none;">
@@ -7069,6 +7180,21 @@ function _showBgPoolDialog(taskIdx) {
                 <input type="number" id="bgpool-trans-dur" min="0.1" max="3" step="0.1" value="${task.bgTransDur || 0.5}"
                     style="width:55px;padding:4px;font-size:11px;background:#1e1e38;color:#ccc;border:1px solid #333;border-radius:4px;text-align:center;">
                 <span style="font-size:10px;color:#666;">秒</span>
+            </div>
+
+            <!-- 卡点片段时长限制 -->
+            <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;padding:10px;background:#12122e;border:1px solid #2a2a4a;border-radius:8px;flex-wrap:wrap;">
+                <span style="font-size:11px;color:#aaa;white-space:nowrap;">卡点切片限制:</span>
+                <span style="font-size:11px;color:#888;">最小时长</span>
+                <input type="number" id="bgpool-min-clip-dur" min="0" max="60" step="0.5" value="${task.bgMinClipDur !== undefined ? task.bgMinClipDur : 5}"
+                    style="width:50px;padding:4px;font-size:11px;background:#1e1e38;color:#ccc;border:1px solid #333;border-radius:4px;text-align:center;">
+                <span style="font-size:10px;color:#666;">秒</span>
+                
+                <span style="font-size:11px;color:#888;margin-left:8px;">最大时长</span>
+                <input type="number" id="bgpool-max-clip-dur" min="0" max="600" step="1" value="${task.bgMaxClipDur !== undefined ? task.bgMaxClipDur : 7}"
+                    style="width:50px;padding:4px;font-size:11px;background:#1e1e38;color:#ccc;border:1px solid #333;border-radius:4px;text-align:center;">
+                <span style="font-size:10px;color:#666;">秒</span>
+                <span style="font-size:10px;color:#555;">(最大设为0代表不限制最大时长)</span>
             </div>
 
             <!-- 素材池列表 -->
@@ -7138,6 +7264,12 @@ function _showBgPoolDialog(taskIdx) {
         });
         box.querySelector('#bgpool-trans-dur')?.addEventListener('change', (e) => {
             task.bgTransDur = Math.max(0.1, Math.min(3, parseFloat(e.target.value) || 0.5));
+        });
+        box.querySelector('#bgpool-min-clip-dur')?.addEventListener('change', (e) => {
+            task.bgMinClipDur = Math.max(0, parseFloat(e.target.value) || 0);
+        });
+        box.querySelector('#bgpool-max-clip-dur')?.addEventListener('change', (e) => {
+            task.bgMaxClipDur = Math.max(0, parseFloat(e.target.value) || 0);
         });
 
         box.querySelectorAll('.bgpool-use-check').forEach(cb => {
@@ -7246,6 +7378,9 @@ function _showBgPoolDialog(taskIdx) {
             targetTask.bgClipOrder = task.bgClipOrder || 'random';
             targetTask.bgTransition = task.bgTransition;
             targetTask.bgTransDur = task.bgTransDur;
+            targetTask.bgClipSettings = JSON.parse(JSON.stringify(task.bgClipSettings || {}));
+            targetTask.bgMinClipDur = task.bgMinClipDur;
+            targetTask.bgMaxClipDur = task.bgMaxClipDur;
         };
 
         box.querySelector('#bgpool-current-only')?.addEventListener('click', () => {

@@ -682,7 +682,7 @@ function generateEnhancedASS(segments, style, opts = {}) {
 
     const primaryColor = toASSColor(s.color_text || '#FFFFFF');
     const secondaryColor = toASSColor(s.color_high || '#FFD700');
-    const outlineColor = toASSColor(s.color_outline || '#000000');
+    const outlineColor = toASSColor(s.color_outline || '#3E2723');
     const shadowAlpha = Math.round(255 - (s.opacity_shadow || 150));
     const shadowColor = toASSColor(s.color_shadow || '#000000', shadowAlpha);
 

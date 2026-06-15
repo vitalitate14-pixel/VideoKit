@@ -64,6 +64,7 @@ class ReelsOverlayPanel {
                     <div class="rop-header-actions">
                         <button class="btn btn-secondary rop-btn" id="rop-add-text" title="添加文本覆层">+ 文本</button>
                         <button class="btn btn-secondary rop-btn" id="rop-add-textcard" title="添加文字卡片" style="background:#FFD700;color:#000;">+ 文字卡片</button>
+                        <button class="btn btn-secondary rop-btn" id="rop-add-solidmask" title="添加纯色蒙版" style="background:#4CAF50;color:#fff;">+ 纯色蒙版</button>
                         <button class="btn btn-secondary rop-btn" id="rop-add-image" title="添加图片/视频/动图覆层">+ 媒体</button>
                         <button class="btn btn-secondary rop-btn" id="rop-media-library" title="打开固定覆层素材库" style="padding:2px 6px;">📂</button>
                         <button class="btn btn-secondary rop-btn" id="rop-add-scroll" title="添加滚动字幕" style="background:#FF6B35;color:#fff;">+ 滚动字幕</button>
@@ -262,46 +263,50 @@ class ReelsOverlayPanel {
                         <div class="rop-slider-combo"><input type="range" id="rop-card-blur-amount" class="rop-range rop-defaultable" data-default="10" min="1" max="40" value="10"><input type="number" class="rop-num-readout" data-link="rop-card-blur-amount" min="1" max="40" value="10"><button class="rop-reset-btn" data-target="rop-card-blur-amount" title="恢复默认">↺</button></div>
                     </div>
 
-                    <div class="rop-group-title" style="display:flex; align-items:center; gap:6px; margin-top:8px; margin-bottom:4px; padding-bottom:4px;">
-                        <span>蒙版与文字设置</span>
+                    <div id="rop-textcard-only-text-layout-inner" style="display:contents;">
+                        <div class="rop-group-title" style="display:flex; align-items:center; gap:6px; margin-top:8px; margin-bottom:4px; padding-bottom:4px;">
+                            <span>蒙版与文字设置</span>
+                        </div>
+                        <div class="rop-grid">
+                            <label>自动适配</label><input type="checkbox" id="rop-auto-fit" class="rop-defaultable" data-default="false">
+                            <label>垂直居中</label><input type="checkbox" id="rop-auto-center" class="rop-defaultable" data-default="false">
+                            <label>文字位置X</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-offset-x" class="rop-range rop-defaultable" data-default="0" min="-500" max="500" value="0"><input type="number" class="rop-num-readout" data-link="rop-offset-x" min="-500" max="500" value="0"><button class="rop-reset-btn" data-target="rop-offset-x" title="恢复默认">↺</button></div>
+                            <label>文字位置Y</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-offset-y" class="rop-range rop-defaultable" data-default="0" min="-500" max="500" value="0"><input type="number" class="rop-num-readout" data-link="rop-offset-y" min="-500" max="500" value="0"><button class="rop-reset-btn" data-target="rop-offset-y" title="恢复默认">↺</button></div>
+                            <label>标题与正文间距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-title-body-gap" class="rop-range rop-defaultable" data-default="42" min="0" max="500" value="42"><input type="number" class="rop-num-readout" data-link="rop-title-body-gap" min="0" max="500" value="42"><button class="rop-reset-btn" data-target="rop-title-body-gap" title="恢复默认">↺</button></div>
+                            <label>正文与结尾间距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-body-footer-gap" class="rop-range rop-defaultable" data-default="42" min="0" max="500" value="42"><input type="number" class="rop-num-readout" data-link="rop-body-footer-gap" min="0" max="500" value="42"><button class="rop-reset-btn" data-target="rop-body-footer-gap" title="恢复默认">↺</button></div>
+                            <label>文字上边距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-pad-top" class="rop-range rop-defaultable" data-default="60" min="0" max="200" value="60"><input type="number" class="rop-num-readout" data-link="rop-pad-top" min="0" max="200" value="60"><button class="rop-reset-btn" data-target="rop-pad-top" title="恢复默认">↺</button></div>
+                            <label>文字下边距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-pad-bottom" class="rop-range rop-defaultable" data-default="60" min="0" max="200" value="60"><input type="number" class="rop-num-readout" data-link="rop-pad-bottom" min="0" max="200" value="60"><button class="rop-reset-btn" data-target="rop-pad-bottom" title="恢复默认">↺</button></div>
+                            <label>左边距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-pad-left" class="rop-range rop-defaultable" data-default="40" min="0" max="200" value="40"><input type="number" class="rop-num-readout" data-link="rop-pad-left" min="0" max="200" value="40"><button class="rop-reset-btn" data-target="rop-pad-left" title="恢复默认">↺</button></div>
+                            <label>右边距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-pad-right" class="rop-range rop-defaultable" data-default="40" min="0" max="200" value="40"><input type="number" class="rop-num-readout" data-link="rop-pad-right" min="0" max="200" value="40"><button class="rop-reset-btn" data-target="rop-pad-right" title="恢复默认">↺</button></div>
+                        </div>
                     </div>
-                    <div class="rop-grid">
-                        <label>自动适配</label><input type="checkbox" id="rop-auto-fit" class="rop-defaultable" data-default="false">
-                        <label>垂直居中</label><input type="checkbox" id="rop-auto-center" class="rop-defaultable" data-default="false">
-                        <label>文字位置X</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-offset-x" class="rop-range rop-defaultable" data-default="0" min="-500" max="500" value="0"><input type="number" class="rop-num-readout" data-link="rop-offset-x" min="-500" max="500" value="0"><button class="rop-reset-btn" data-target="rop-offset-x" title="恢复默认">↺</button></div>
-                        <label>文字位置Y</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-offset-y" class="rop-range rop-defaultable" data-default="0" min="-500" max="500" value="0"><input type="number" class="rop-num-readout" data-link="rop-offset-y" min="-500" max="500" value="0"><button class="rop-reset-btn" data-target="rop-offset-y" title="恢复默认">↺</button></div>
-                        <label>标题与正文间距</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-title-body-gap" class="rop-range rop-defaultable" data-default="42" min="0" max="500" value="42"><input type="number" class="rop-num-readout" data-link="rop-title-body-gap" min="0" max="500" value="42"><button class="rop-reset-btn" data-target="rop-title-body-gap" title="恢复默认">↺</button></div>
-                        <label>正文与结尾间距</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-body-footer-gap" class="rop-range rop-defaultable" data-default="42" min="0" max="500" value="42"><input type="number" class="rop-num-readout" data-link="rop-body-footer-gap" min="0" max="500" value="42"><button class="rop-reset-btn" data-target="rop-body-footer-gap" title="恢复默认">↺</button></div>
-                        <label>文字上边距</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-pad-top" class="rop-range rop-defaultable" data-default="60" min="0" max="200" value="60"><input type="number" class="rop-num-readout" data-link="rop-pad-top" min="0" max="200" value="60"><button class="rop-reset-btn" data-target="rop-pad-top" title="恢复默认">↺</button></div>
-                        <label>文字下边距</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-pad-bottom" class="rop-range rop-defaultable" data-default="60" min="0" max="200" value="60"><input type="number" class="rop-num-readout" data-link="rop-pad-bottom" min="0" max="200" value="60"><button class="rop-reset-btn" data-target="rop-pad-bottom" title="恢复默认">↺</button></div>
-                        <label>左边距</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-pad-left" class="rop-range rop-defaultable" data-default="40" min="0" max="200" value="40"><input type="number" class="rop-num-readout" data-link="rop-pad-left" min="0" max="200" value="40"><button class="rop-reset-btn" data-target="rop-pad-left" title="恢复默认">↺</button></div>
-                        <label>右边距</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-pad-right" class="rop-range rop-defaultable" data-default="40" min="0" max="200" value="40"><input type="number" class="rop-num-readout" data-link="rop-pad-right" min="0" max="200" value="40"><button class="rop-reset-btn" data-target="rop-pad-right" title="恢复默认">↺</button></div>
-                    </div>
-                    <div class="rop-group-title" style="display:flex; align-items:center; gap:6px; margin-top:8px; margin-bottom:4px;">
-                        <span>自动缩放设置</span>
-                        <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-secondary); font-weight:normal; text-transform:none; letter-spacing:0; cursor:pointer; margin-left:auto;">
-                            <input type="checkbox" id="rop-auto-shrink" class="rop-defaultable" data-default="false">
-                            启用
-                        </label>
-                    </div>
-                    <div style="font-size:11px;color:var(--text-secondary);margin:2px 0 6px 0;line-height:1.5;">
-                        规则：开启“自动适配”后，按“最大高度/最小字号”自动缩字；关闭后，蒙版高度按手动值生效。
-                    </div>
-                    <div class="rop-grid">
-                        <label>最大高度</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-max-height" class="rop-range rop-defaultable" data-default="1400" min="200" max="1920" value="1400"><input type="number" class="rop-num-readout" data-link="rop-max-height" min="200" max="1920" value="1600"><button class="rop-reset-btn" data-target="rop-max-height" title="恢复默认">↺</button></div>
-                        <label>标题缩放行</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-title-max-lines" class="rop-range rop-defaultable" data-default="3" min="1" max="10" value="3"><input type="number" class="rop-num-readout" data-link="rop-title-max-lines" min="1" max="10" value="3"><button class="rop-reset-btn" data-target="rop-title-max-lines" title="恢复默认">↺</button></div>
-                        <label>最小字号</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-min-fontsize" class="rop-range rop-defaultable" data-default="16" min="8" max="40" value="16"><input type="number" class="rop-num-readout" data-link="rop-min-fontsize" min="8" max="40" value="16"><button class="rop-reset-btn" data-target="rop-min-fontsize" title="恢复默认">↺</button></div>
+                    <div id="rop-textcard-only-shrink-inner" style="display:contents;">
+                        <div class="rop-group-title" style="display:flex; align-items:center; gap:6px; margin-top:8px; margin-bottom:4px;">
+                            <span>自动缩放设置</span>
+                            <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-secondary); font-weight:normal; text-transform:none; letter-spacing:0; cursor:pointer; margin-left:auto;">
+                                <input type="checkbox" id="rop-auto-shrink" class="rop-defaultable" data-default="false">
+                                启用
+                            </label>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin:2px 0 6px 0;line-height:1.5;">
+                            规则：开启“自动适配”后，按“最大高度/最小字号”自动缩字；关闭后，蒙版高度按手动值生效。
+                        </div>
+                        <div class="rop-grid">
+                            <label>最大高度</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-max-height" class="rop-range rop-defaultable" data-default="1400" min="200" max="1920" value="1400"><input type="number" class="rop-num-readout" data-link="rop-max-height" min="200" max="1920" value="1600"><button class="rop-reset-btn" data-target="rop-max-height" title="恢复默认">↺</button></div>
+                            <label>标题缩放行</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-title-max-lines" class="rop-range rop-defaultable" data-default="3" min="1" max="10" value="3"><input type="number" class="rop-num-readout" data-link="rop-title-max-lines" min="1" max="10" value="3"><button class="rop-reset-btn" data-target="rop-title-max-lines" title="恢复默认">↺</button></div>
+                            <label>最小字号</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-min-fontsize" class="rop-range rop-defaultable" data-default="16" min="8" max="40" value="16"><input type="number" class="rop-num-readout" data-link="rop-min-fontsize" min="8" max="40" value="16"><button class="rop-reset-btn" data-target="rop-min-fontsize" title="恢复默认">↺</button></div>
+                        </div>
                     </div>
                 </div>
 
@@ -1082,6 +1087,7 @@ class ReelsOverlayPanel {
         // 添加覆层
         this.container.querySelector('#rop-add-text').addEventListener('click', () => this._addTextOverlay());
         this.container.querySelector('#rop-add-textcard').addEventListener('click', () => this._addTextCardOverlay());
+        this.container.querySelector('#rop-add-solidmask')?.addEventListener('click', () => this._addSolidMaskOverlay());
         this.container.querySelector('#rop-add-image').addEventListener('click', () => this._addImageOverlay());
         this.container.querySelector('#rop-media-library').addEventListener('click', () => this._openMediaLibrary());
         this.container.querySelector('#rop-add-scroll').addEventListener('click', () => this._addScrollOverlay());
@@ -1141,7 +1147,7 @@ class ReelsOverlayPanel {
             btn.addEventListener('click', () => {
                 if (!this._selectedOv) return;
                 const ov = this._selectedOv;
-                if (ov.type === 'textcard') {
+                if (ov.type === 'textcard' || ov.type === 'solid_mask') {
                     ov.x = ROP_TEXTCARD_DEFAULT_TRANSFORM.x;
                     ov.y = ROP_TEXTCARD_DEFAULT_TRANSFORM.y;
                     ov.w = ROP_TEXTCARD_DEFAULT_TRANSFORM.w;
@@ -1719,6 +1725,25 @@ class ReelsOverlayPanel {
             rotation: ROP_TEXTCARD_DEFAULT_TRANSFORM.rotation,
             opacity: ROP_TEXTCARD_DEFAULT_TRANSFORM.opacity,
             start: 0, end: 9999,
+        });
+        if (this.videoCanvas) this.videoCanvas.addOverlay(ov);
+        this._refreshList();
+        this.selectOverlay(ov);
+    }
+
+    _addSolidMaskOverlay() {
+        const ReelsOverlay = window.ReelsOverlay;
+        if (!ReelsOverlay) return;
+        const ov = ReelsOverlay.createSolidMaskOverlay({
+            x: ROP_TEXTCARD_DEFAULT_TRANSFORM.x,
+            y: ROP_TEXTCARD_DEFAULT_TRANSFORM.y,
+            w: ROP_TEXTCARD_DEFAULT_TRANSFORM.w,
+            h: ROP_TEXTCARD_DEFAULT_TRANSFORM.h,
+            rotation: ROP_TEXTCARD_DEFAULT_TRANSFORM.rotation,
+            opacity: ROP_TEXTCARD_DEFAULT_TRANSFORM.opacity,
+            start: 0, end: 9999,
+            card_color: '#000000',
+            card_opacity: 50,
         });
         if (this.videoCanvas) this.videoCanvas.addOverlay(ov);
         this._refreshList();
@@ -2367,11 +2392,12 @@ class ReelsOverlayPanel {
 
         list.innerHTML = overlays.slice().reverse().map(ov => {
             const isSelected = this._selectedOv?.id === ov.id;
-            const icon = ov.type === 'text' ? '📝' : (ov.type === 'textcard' ? '📋' : (ov.type === 'scroll' ? '🔄' : '🖼️'));
+            const icon = ov.type === 'text' ? '📝' : (ov.type === 'textcard' ? '📋' : (ov.type === 'scroll' ? '🔄' : (ov.type === 'solid_mask' ? '🔳' : '🖼️')));
             const lockIcon = ov.fixed_text ? '🔒' : '';
             let label = ov.name;
             if (!label) {
                 if (ov.type === 'textcard') label = (ov.title_text || '').slice(0, 15) || '文字卡片';
+                else if (ov.type === 'solid_mask') label = '纯色蒙版';
                 else if (ov.type === 'scroll') label = '滚动: ' + (ov.content || '').split('\n')[0].slice(0, 12);
                 else if (ov.type === 'text') label = (ov.content || '').slice(0, 15) || '文本';
                 else label = (ov.type==='video' ? '视频/动图' : '图片');
@@ -2515,27 +2541,50 @@ class ReelsOverlayPanel {
         this.container.querySelector('#rop-text-props').style.display = ov.type === 'text' ? 'block' : 'none';
         this.container.querySelector('#rop-image-props').style.display = (ov.type === 'image' || ov.type === 'video') ? 'block' : 'none';
         this.container.querySelector('#rop-textcard-props').style.display = ov.type === 'textcard' ? 'block' : 'none';
-        this.container.querySelector('#rop-textcard-layout-props').style.display = ov.type === 'textcard' ? 'block' : 'none';
+        
+        const isCard = ov.type === 'textcard' || ov.type === 'solid_mask';
+        this.container.querySelector('#rop-textcard-layout-props').style.display = isCard ? 'block' : 'none';
         this.container.querySelector('#rop-scroll-props').style.display = ov.type === 'scroll' ? 'block' : 'none';
         this.container.querySelector('#rop-textcard-debug-props').style.display = ov.type === 'textcard' ? 'block' : 'none';
+        
+        const innerTextLayout = this.container.querySelector('#rop-textcard-only-text-layout-inner');
+        if (innerTextLayout) innerTextLayout.style.display = ov.type === 'textcard' ? 'contents' : 'none';
+        const innerShrink = this.container.querySelector('#rop-textcard-only-shrink-inner');
+        if (innerShrink) innerShrink.style.display = ov.type === 'textcard' ? 'contents' : 'none';
+
+        // Dynamic labels for card X/Y
+        const cardXInput = this.container.querySelector('#rop-card-x');
+        if (cardXInput) {
+            const label = cardXInput.closest('.rop-slider-combo')?.previousElementSibling;
+            if (label && label.tagName === 'LABEL') {
+                label.textContent = ov.type === 'solid_mask' ? '蒙版位置X' : '蒙版+文字位置X';
+            }
+        }
+        const cardYInput = this.container.querySelector('#rop-card-y');
+        if (cardYInput) {
+            const label = cardYInput.closest('.rop-slider-combo')?.previousElementSibling;
+            if (label && label.tagName === 'LABEL') {
+                label.textContent = ov.type === 'solid_mask' ? '蒙版位置Y' : '蒙版+文字位置Y';
+            }
+        }
+
         // Show fixed_text toggle for text, textcard, and scroll overlays
         const hasText = ov.type === 'text' || ov.type === 'textcard' || ov.type === 'scroll';
         this.container.querySelector('#rop-fixed-text-group').style.display = hasText ? 'block' : 'none';
 
         // Image overlays: show scale, hide W/H. Others: show W/H, hide scale.
         const isImg = ov.type === 'image' || ov.type === 'video';
-        const isTextCard = ov.type === 'textcard';
         // Only show template group if TextCard
         const templateGroup = this.container.querySelector('#rop-textcard-template-props');
-        if (templateGroup) templateGroup.style.display = isTextCard ? 'block' : 'none';
+        if (templateGroup) templateGroup.style.display = ov.type === 'textcard' ? 'block' : 'none';
 
         // Only show Transform buttons (Default, Fill Screen) for Image overlays in the generic Transform panel
         const transformBtns = this.container.querySelector('#rop-transform-btns');
         if (transformBtns) transformBtns.style.display = isImg ? 'flex' : 'none';
 
-        // Hide entire Transform block for TextCard
+        // Hide entire Transform block for TextCard and Solid Mask
         const transformGroup = this.container.querySelector('#rop-transform-group');
-        if (transformGroup) transformGroup.style.display = isTextCard ? 'none' : 'block';
+        if (transformGroup) transformGroup.style.display = isCard ? 'none' : 'block';
 
         // Hide Rotation and Opacity for all text-related overlays since they don't commonly use them
         const isTextBased = ov.type === 'text' || ov.type === 'scroll' || ov.type === 'textcard';
@@ -2544,14 +2593,14 @@ class ReelsOverlayPanel {
         this.container.querySelector('#rop-opacity-label').style.display = isTextBased ? 'none' : '';
         this.container.querySelector('#rop-opacity-wrap').style.display = isTextBased ? 'none' : 'flex';
 
-        this.container.querySelector('#rop-xy-label-x').style.display = isTextCard ? 'none' : '';
-        this.container.querySelector('#rop-x').style.display = isTextCard ? 'none' : '';
-        this.container.querySelector('#rop-xy-label-y').style.display = isTextCard ? 'none' : '';
-        this.container.querySelector('#rop-y').style.display = isTextCard ? 'none' : '';
-        this.container.querySelector('#rop-wh-label-w').style.display = (isImg || isTextCard) ? 'none' : '';
-        this.container.querySelector('#rop-w').style.display = (isImg || isTextCard) ? 'none' : '';
-        this.container.querySelector('#rop-wh-label-h').style.display = (isImg || isTextCard) ? 'none' : '';
-        this.container.querySelector('#rop-h').style.display = (isImg || isTextCard) ? 'none' : '';
+        this.container.querySelector('#rop-xy-label-x').style.display = isCard ? 'none' : '';
+        this.container.querySelector('#rop-x').style.display = isCard ? 'none' : '';
+        this.container.querySelector('#rop-xy-label-y').style.display = isCard ? 'none' : '';
+        this.container.querySelector('#rop-y').style.display = isCard ? 'none' : '';
+        this.container.querySelector('#rop-wh-label-w').style.display = (isImg || isCard) ? 'none' : '';
+        this.container.querySelector('#rop-w').style.display = (isImg || isCard) ? 'none' : '';
+        this.container.querySelector('#rop-wh-label-h').style.display = (isImg || isCard) ? 'none' : '';
+        this.container.querySelector('#rop-h').style.display = (isImg || isCard) ? 'none' : '';
         this.container.querySelector('#rop-scale-label').style.display = (ov.type === 'image' || ov.type === 'video') ? '' : 'none';
         this.container.querySelector('#rop-scale-wrap').style.display = (ov.type === 'image' || ov.type === 'video') ? '' : 'none';
 
@@ -2565,7 +2614,7 @@ class ReelsOverlayPanel {
         // 滚动覆层和文字卡片: 隐藏变换区的时间字段
         // (滚动有自己的时间字段, 文字卡片通常全程显示)
         const timeInTransform = this.container.querySelector('#rop-time-in-transform');
-        const hideTime = isScroll || ov.type === 'textcard';
+        const hideTime = isScroll || isCard;
         if (timeInTransform) timeInTransform.style.display = hideTime ? 'none' : 'contents';
 
         // 媒体覆层（image/video）自动展开变换面板，方便设置位置和 A→B 过渡
@@ -2715,8 +2764,8 @@ class ReelsOverlayPanel {
         if (ov.type === 'scroll') {
             this._val('rop-x', Math.round(ov.x));
             this._val('rop-y', Math.round(ov.y));
-        } else if (ov.type === 'textcard') {
-            // Textcard position controls should reflect stored transform (x/y/w/h),
+        } else if (ov.type === 'textcard' || ov.type === 'solid_mask') {
+            // Textcard and solid_mask position controls should reflect stored transform (x/y/w/h),
             // not rendered mask size, otherwise center 0 can appear as 85 etc.
             const pos = this._toCenterPos(
                 Math.round(ov.x || 0),
@@ -2847,7 +2896,7 @@ class ReelsOverlayPanel {
             }
         }
 
-        if (ov.type === 'textcard') {
+        if (ov.type === 'textcard' || ov.type === 'solid_mask') {
             this._val('rop-card-enabled', ov.card_enabled ?? true);
             this._val('rop-card-color', ov.card_color || '#ffffff');
             this._val('rop-card-opacity', ov.card_opacity ?? 80);
@@ -2864,147 +2913,151 @@ class ReelsOverlayPanel {
             this._val('rop-card-blur-enabled', ov.card_blur_enabled ?? false);
             this._val('rop-card-blur-amount', ov.card_blur_amount ?? 10);
             this._val('rop-radius-all', ov.radius_tl ?? 33);
-            this._val('rop-title-text', ov.title_text || '');
-            this._val('rop-title-font', ov.title_font_family || 'Crimson Pro');
-            this._refreshWeightOptions('rop-title-weight', ov.title_font_family || 'Crimson Pro');
-            this._val('rop-title-fontsize', ov.title_fontsize ?? 60);
-            this._val('rop-title-color', ov.title_color || '#000000');
-            const tw = Math.max(100, Math.min(900, parseInt(ov.title_font_weight || ((ov.title_bold !== false) ? 900 : 400), 10) || 900));
-            this._val('rop-title-weight', tw);
-            this._val('rop-title-bold', tw >= 600);
-            this._val('rop-title-uppercase', ov.title_uppercase !== false);
-            this._val('rop-title-align', ov.title_align || 'center');
-            this._val('rop-title-valign', ov.title_valign || 'top');
-            this._val('rop-title-letterspacing', ov.title_letter_spacing ?? 0);
-            const textcardContentW = this._getTextcardContentWidth(ov);
-            this._setTextcardWidthField('rop-title-override-w', ov.title_override_w, textcardContentW);
-            this._val('rop-title-override-h', ov.title_override_h ?? 0);
-            this._val('rop-title-auto-shrink', ov.title_auto_shrink === true);
-            this._val('rop-title-linespacing', ov.title_line_spacing ?? 0);
-            this._val('rop-title-offset-x', ov.title_offset_x ?? 0);
-            this._val('rop-title-offset-y', ov.title_offset_y ?? 0);
-            this._val('rop-body-text', ov.body_text || '');
-            this._val('rop-body-font', ov.body_font_family || 'Arial');
-            this._refreshWeightOptions('rop-body-weight', ov.body_font_family || 'Arial');
-            this._val('rop-body-fontsize', ov.body_fontsize ?? 40);
-            this._val('rop-body-color', ov.body_color || '#000000');
-            const bw = Math.max(100, Math.min(900, parseInt(ov.body_font_weight || (ov.body_bold ? 700 : 400), 10) || 400));
-            this._val('rop-body-weight', bw);
-            this._val('rop-body-bold', bw >= 600);
-            this._val('rop-body-letterspacing', ov.body_letter_spacing ?? 0);
-            this._setTextcardWidthField('rop-body-override-w', ov.body_override_w, textcardContentW);
-            this._val('rop-body-override-h', ov.body_override_h ?? 0);
-            this._val('rop-body-auto-shrink', ov.body_auto_shrink === true);
-            this._val('rop-body-linespacing', ov.body_line_spacing ?? 6);
-            this._val('rop-body-align', ov.body_align || 'center');
-            this._val('rop-body-valign', ov.body_valign || 'top');
-            this._val('rop-body-offset-x', ov.body_offset_x ?? 0);
-            this._val('rop-body-offset-y', ov.body_offset_y ?? 0);
-            // Footer
-            this._val('rop-footer-text', ov.footer_text || '');
-            this._val('rop-footer-font', ov.footer_font_family || 'Arial');
-            this._refreshWeightOptions('rop-footer-weight', ov.footer_font_family || 'Arial');
-            this._val('rop-footer-fontsize', ov.footer_fontsize ?? 32);
-            this._val('rop-footer-color', ov.footer_color || '#666666');
-            const ftw = Math.max(100, Math.min(900, parseInt(ov.footer_font_weight || (ov.footer_bold ? 700 : 400), 10) || 400));
-            this._val('rop-footer-weight', ftw);
-            this._val('rop-footer-bold', ftw >= 600);
-            this._val('rop-footer-letterspacing', ov.footer_letter_spacing ?? 0);
-            this._setTextcardWidthField('rop-footer-override-w', ov.footer_override_w, textcardContentW);
-            this._val('rop-footer-override-h', ov.footer_override_h ?? 0);
-            this._val('rop-footer-auto-shrink', ov.footer_auto_shrink === true);
-            this._val('rop-footer-linespacing', ov.footer_line_spacing ?? 0);
-            this._val('rop-footer-align', ov.footer_align || 'center');
-            this._val('rop-footer-valign', ov.footer_valign || 'top');
-            this._val('rop-footer-offset-x', ov.footer_offset_x ?? 0);
-            this._val('rop-footer-offset-y', ov.footer_offset_y ?? 0);
-            // Text effects (unified fallback logic)
-            const isIndep = ov.independent_effects === true;
-            this._val('rop-title-stroke-color', (isIndep ? ov.title_stroke_color : ov.text_stroke_color) || '#000000');
-            this._val('rop-title-stroke-width', (isIndep ? ov.title_stroke_width : ov.text_stroke_width) ?? 0);
-            this._val('rop-title-shadow-color', (isIndep ? ov.title_shadow_color : ov.text_shadow_color) || '#000000');
-            this._val('rop-title-shadow-blur', (isIndep ? ov.title_shadow_blur : ov.text_shadow_blur) ?? 0);
-            this._val('rop-title-shadow-x', (isIndep ? ov.title_shadow_x : ov.text_shadow_x) ?? (isIndep ? 0 : 2));
-            this._val('rop-title-shadow-y', (isIndep ? ov.title_shadow_y : ov.text_shadow_y) ?? (isIndep ? 0 : 2));
-            // Backgrounds
-            this._val('rop-title-bg-enabled', ov.title_bg_enabled ?? false);
-            this._val('rop-title-bg-mode', ov.title_bg_mode || 'block');
-            this._val('rop-title-bg-color', ov.title_bg_color || '#000000');
-            this._val('rop-title-bg-opacity', ov.title_bg_opacity ?? 60);
-            this._val('rop-title-bg-radius', ov.title_bg_radius ?? 12);
-            this._val('rop-title-bg-pad-h', ov.title_bg_pad_h ?? 0);
-            this._val('rop-title-bg-pad-top', ov.title_bg_pad_top ?? 0);
-            this._val('rop-title-bg-pad-bottom', ov.title_bg_pad_bottom ?? 0);
-            // Title Decorator Line
-            this._val('rop-title-deco-enabled', ov.title_deco_enabled ?? false);
-            this._val('rop-title-deco-position', ov.title_deco_position || 'bottom');
-            this._val('rop-title-deco-style', ov.title_deco_style || 'solid');
-            this._val('rop-title-deco-color', ov.title_deco_color || '#FFD700');
-            this._val('rop-title-deco-color2', ov.title_deco_color2 || '#FF6B35');
-            this._val('rop-title-deco-thickness', ov.title_deco_thickness ?? 3);
-            this._val('rop-title-deco-length', ov.title_deco_length ?? 0);
-            this._val('rop-title-deco-gap', ov.title_deco_gap ?? 12);
-            this._val('rop-title-deco-opacity', ov.title_deco_opacity ?? 100);
-            this._val('rop-title-deco-align', ov.title_deco_align || 'center');
-            
-            this._val('rop-body-stroke-color', (isIndep ? ov.body_stroke_color : ov.text_stroke_color) || '#000000');
-            this._val('rop-body-stroke-width', (isIndep ? ov.body_stroke_width : ov.text_stroke_width) ?? 0);
-            this._val('rop-body-shadow-color', (isIndep ? ov.body_shadow_color : ov.text_shadow_color) || '#000000');
-            this._val('rop-body-shadow-blur', (isIndep ? ov.body_shadow_blur : ov.text_shadow_blur) ?? 0);
-            this._val('rop-body-shadow-x', (isIndep ? ov.body_shadow_x : ov.text_shadow_x) ?? (isIndep ? 0 : 2));
-            this._val('rop-body-shadow-y', (isIndep ? ov.body_shadow_y : ov.text_shadow_y) ?? (isIndep ? 0 : 2));
-            this._val('rop-body-bg-enabled', ov.body_bg_enabled ?? false);
-            this._val('rop-body-bg-mode', ov.body_bg_mode || 'block');
-            this._val('rop-body-bg-color', ov.body_bg_color || '#000000');
-            this._val('rop-body-bg-opacity', ov.body_bg_opacity ?? 60);
-            this._val('rop-body-bg-radius', ov.body_bg_radius ?? 12);
-            this._val('rop-body-bg-pad-h', ov.body_bg_pad_h ?? 0);
-            this._val('rop-body-bg-pad-top', ov.body_bg_pad_top ?? 0);
-            this._val('rop-body-bg-pad-bottom', ov.body_bg_pad_bottom ?? 0);
-            
-            this._val('rop-footer-stroke-color', (isIndep ? ov.footer_stroke_color : ov.text_stroke_color) || '#000000');
-            this._val('rop-footer-stroke-width', (isIndep ? ov.footer_stroke_width : ov.text_stroke_width) ?? 0);
-            this._val('rop-footer-shadow-color', (isIndep ? ov.footer_shadow_color : ov.text_shadow_color) || '#000000');
-            this._val('rop-footer-shadow-blur', (isIndep ? ov.footer_shadow_blur : ov.text_shadow_blur) ?? 0);
-            this._val('rop-footer-shadow-x', (isIndep ? ov.footer_shadow_x : ov.text_shadow_x) ?? (isIndep ? 0 : 2));
-            this._val('rop-footer-shadow-y', (isIndep ? ov.footer_shadow_y : ov.text_shadow_y) ?? (isIndep ? 0 : 2));
-            this._val('rop-footer-bg-enabled', ov.footer_bg_enabled ?? false);
-            this._val('rop-footer-bg-mode', ov.footer_bg_mode || 'block');
-            this._val('rop-footer-bg-color', ov.footer_bg_color || '#000000');
-            this._val('rop-footer-bg-opacity', ov.footer_bg_opacity ?? 60);
-            this._val('rop-footer-bg-radius', ov.footer_bg_radius ?? 12);
-            this._val('rop-footer-bg-pad-h', ov.footer_bg_pad_h ?? 0);
-            this._val('rop-footer-bg-pad-top', ov.footer_bg_pad_top ?? 0);
-            this._val('rop-footer-bg-pad-bottom', ov.footer_bg_pad_bottom ?? 0);
-            this._val('rop-auto-fit', ov.auto_fit === true);
-            this._val('rop-auto-center', ov.auto_center_v === true);
-            this._val('rop-offset-x', ov.offset_x ?? 0);
-            this._val('rop-offset-y', ov.offset_y ?? 0);
+
             const fullMask = (ov.fullscreen_mask === true || ov.fullscreen_mask === 1 || ov.fullscreen_mask === '1');
             this._val('rop-fullscreen-mask', fullMask);
-            this._val('rop-title-body-gap', ov.title_body_gap ?? 42);
-            this._val('rop-layout-mode', ov.layout_mode || 'flow');
-            this._val('rop-debug-layout', ov.debug_layout === true);
-            this._val('rop-debug-title', ov.debug_title === true);
-            this._val('rop-debug-body', ov.debug_body === true);
-            this._val('rop-debug-footer', ov.debug_footer === true);
-            this._val('rop-body-footer-gap', ov.body_footer_gap ?? 42);
-            this._val('rop-pad-top', ov.padding_top ?? 60);
-            this._val('rop-pad-bottom', ov.padding_bottom ?? 60);
-            this._val('rop-pad-left', ov.padding_left ?? 40);
-            this._val('rop-pad-right', ov.padding_right ?? 40);
             this._val('rop-card-width', ov.w || 910);
             this._val('rop-card-height', ov.h ?? 1300);
             this._val('rop-card-x', this._get('rop-x'));
             this._val('rop-card-y', this._get('rop-y'));
-            this._val('rop-auto-shrink', ov.auto_shrink === true);
-            this._val('rop-max-height', ov.max_height ?? 1400);
-            this._val('rop-title-max-lines', ov.title_max_lines ?? 3);
             this._val('rop-name', ov.name || '');
             this._val('rop-fixed-text', ov.fixed_text || false);
-            this._val('rop-min-fontsize', ov.min_fontsize ?? 16);
             this._syncTextcardMaskEnabledUI();
-            this._syncTextcardAutoFitModeUI();
+
+            if (ov.type === 'textcard') {
+                this._val('rop-title-text', ov.title_text || '');
+                this._val('rop-title-font', ov.title_font_family || 'Crimson Pro');
+                this._refreshWeightOptions('rop-title-weight', ov.title_font_family || 'Crimson Pro');
+                this._val('rop-title-fontsize', ov.title_fontsize ?? 60);
+                this._val('rop-title-color', ov.title_color || '#000000');
+                const tw = Math.max(100, Math.min(900, parseInt(ov.title_font_weight || ((ov.title_bold !== false) ? 900 : 400), 10) || 900));
+                this._val('rop-title-weight', tw);
+                this._val('rop-title-bold', tw >= 600);
+                this._val('rop-title-uppercase', ov.title_uppercase !== false);
+                this._val('rop-title-align', ov.title_align || 'center');
+                this._val('rop-title-valign', ov.title_valign || 'top');
+                this._val('rop-title-letterspacing', ov.title_letter_spacing ?? 0);
+                const textcardContentW = this._getTextcardContentWidth(ov);
+                this._setTextcardWidthField('rop-title-override-w', ov.title_override_w, textcardContentW);
+                this._val('rop-title-override-h', ov.title_override_h ?? 0);
+                this._val('rop-title-auto-shrink', ov.title_auto_shrink === true);
+                this._val('rop-title-linespacing', ov.title_line_spacing ?? 0);
+                this._val('rop-title-offset-x', ov.title_offset_x ?? 0);
+                this._val('rop-title-offset-y', ov.title_offset_y ?? 0);
+                this._val('rop-body-text', ov.body_text || '');
+                this._val('rop-body-font', ov.body_font_family || 'Arial');
+                this._refreshWeightOptions('rop-body-weight', ov.body_font_family || 'Arial');
+                this._val('rop-body-fontsize', ov.body_fontsize ?? 40);
+                this._val('rop-body-color', ov.body_color || '#000000');
+                const bw = Math.max(100, Math.min(900, parseInt(ov.body_font_weight || (ov.body_bold ? 700 : 400), 10) || 400));
+                this._val('rop-body-weight', bw);
+                this._val('rop-body-bold', bw >= 600);
+                this._val('rop-body-letterspacing', ov.body_letter_spacing ?? 0);
+                this._setTextcardWidthField('rop-body-override-w', ov.body_override_w, textcardContentW);
+                this._val('rop-body-override-h', ov.body_override_h ?? 0);
+                this._val('rop-body-auto-shrink', ov.body_auto_shrink === true);
+                this._val('rop-body-linespacing', ov.body_line_spacing ?? 6);
+                this._val('rop-body-align', ov.body_align || 'center');
+                this._val('rop-body-valign', ov.body_valign || 'top');
+                this._val('rop-body-offset-x', ov.body_offset_x ?? 0);
+                this._val('rop-body-offset-y', ov.body_offset_y ?? 0);
+                // Footer
+                this._val('rop-footer-text', ov.footer_text || '');
+                this._val('rop-footer-font', ov.footer_font_family || 'Arial');
+                this._refreshWeightOptions('rop-footer-weight', ov.footer_font_family || 'Arial');
+                this._val('rop-footer-fontsize', ov.footer_fontsize ?? 32);
+                this._val('rop-footer-color', ov.footer_color || '#666666');
+                const ftw = Math.max(100, Math.min(900, parseInt(ov.footer_font_weight || (ov.footer_bold ? 700 : 400), 10) || 400));
+                this._val('rop-footer-weight', ftw);
+                this._val('rop-footer-bold', ftw >= 600);
+                this._val('rop-footer-letterspacing', ov.footer_letter_spacing ?? 0);
+                this._setTextcardWidthField('rop-footer-override-w', ov.footer_override_w, textcardContentW);
+                this._val('rop-footer-override-h', ov.footer_override_h ?? 0);
+                this._val('rop-footer-auto-shrink', ov.footer_auto_shrink === true);
+                this._val('rop-footer-linespacing', ov.footer_line_spacing ?? 0);
+                this._val('rop-footer-align', ov.footer_align || 'center');
+                this._val('rop-footer-valign', ov.footer_valign || 'top');
+                this._val('rop-footer-offset-x', ov.footer_offset_x ?? 0);
+                this._val('rop-footer-offset-y', ov.footer_offset_y ?? 0);
+                // Text effects (unified fallback logic)
+                const isIndep = ov.independent_effects === true;
+                this._val('rop-title-stroke-color', (isIndep ? ov.title_stroke_color : ov.text_stroke_color) || '#000000');
+                this._val('rop-title-stroke-width', (isIndep ? ov.title_stroke_width : ov.text_stroke_width) ?? 0);
+                this._val('rop-title-shadow-color', (isIndep ? ov.title_shadow_color : ov.text_shadow_color) || '#000000');
+                this._val('rop-title-shadow-blur', (isIndep ? ov.title_shadow_blur : ov.text_shadow_blur) ?? 0);
+                this._val('rop-title-shadow-x', (isIndep ? ov.title_shadow_x : ov.text_shadow_x) ?? (isIndep ? 0 : 2));
+                this._val('rop-title-shadow-y', (isIndep ? ov.title_shadow_y : ov.text_shadow_y) ?? (isIndep ? 0 : 2));
+                // Backgrounds
+                this._val('rop-title-bg-enabled', ov.title_bg_enabled ?? false);
+                this._val('rop-title-bg-mode', ov.title_bg_mode || 'block');
+                this._val('rop-title-bg-color', ov.title_bg_color || '#000000');
+                this._val('rop-title-bg-opacity', ov.title_bg_opacity ?? 60);
+                this._val('rop-title-bg-radius', ov.title_bg_radius ?? 12);
+                this._val('rop-title-bg-pad-h', ov.title_bg_pad_h ?? 0);
+                this._val('rop-title-bg-pad-top', ov.title_bg_pad_top ?? 0);
+                this._val('rop-title-bg-pad-bottom', ov.title_bg_pad_bottom ?? 0);
+                // Title Decorator Line
+                this._val('rop-title-deco-enabled', ov.title_deco_enabled ?? false);
+                this._val('rop-title-deco-position', ov.title_deco_position || 'bottom');
+                this._val('rop-title-deco-style', ov.title_deco_style || 'solid');
+                this._val('rop-title-deco-color', ov.title_deco_color || '#FFD700');
+                this._val('rop-title-deco-color2', ov.title_deco_color2 || '#FF6B35');
+                this._val('rop-title-deco-thickness', ov.title_deco_thickness ?? 3);
+                this._val('rop-title-deco-length', ov.title_deco_length ?? 0);
+                this._val('rop-title-deco-gap', ov.title_deco_gap ?? 12);
+                this._val('rop-title-deco-opacity', ov.title_deco_opacity ?? 100);
+                this._val('rop-title-deco-align', ov.title_deco_align || 'center');
+                
+                this._val('rop-body-stroke-color', (isIndep ? ov.body_stroke_color : ov.text_stroke_color) || '#000000');
+                this._val('rop-body-stroke-width', (isIndep ? ov.body_stroke_width : ov.text_stroke_width) ?? 0);
+                this._val('rop-body-shadow-color', (isIndep ? ov.body_shadow_color : ov.text_shadow_color) || '#000000');
+                this._val('rop-body-shadow-blur', (isIndep ? ov.body_shadow_blur : ov.text_shadow_blur) ?? 0);
+                this._val('rop-body-shadow-x', (isIndep ? ov.body_shadow_x : ov.text_shadow_x) ?? (isIndep ? 0 : 2));
+                this._val('rop-body-shadow-y', (isIndep ? ov.body_shadow_y : ov.text_shadow_y) ?? (isIndep ? 0 : 2));
+                this._val('rop-body-bg-enabled', ov.body_bg_enabled ?? false);
+                this._val('rop-body-bg-mode', ov.body_bg_mode || 'block');
+                this._val('rop-body-bg-color', ov.body_bg_color || '#000000');
+                this._val('rop-body-bg-opacity', ov.body_bg_opacity ?? 60);
+                this._val('rop-body-bg-radius', ov.body_bg_radius ?? 12);
+                this._val('rop-body-bg-pad-h', ov.body_bg_pad_h ?? 0);
+                this._val('rop-body-bg-pad-top', ov.body_bg_pad_top ?? 0);
+                this._val('rop-body-bg-pad-bottom', ov.body_bg_pad_bottom ?? 0);
+                
+                this._val('rop-footer-stroke-color', (isIndep ? ov.footer_stroke_color : ov.text_stroke_color) || '#000000');
+                this._val('rop-footer-stroke-width', (isIndep ? ov.footer_stroke_width : ov.text_stroke_width) ?? 0);
+                this._val('rop-footer-shadow-color', (isIndep ? ov.footer_shadow_color : ov.text_shadow_color) || '#000000');
+                this._val('rop-footer-shadow-blur', (isIndep ? ov.footer_shadow_blur : ov.text_shadow_blur) ?? 0);
+                this._val('rop-footer-shadow-x', (isIndep ? ov.footer_shadow_x : ov.text_shadow_x) ?? (isIndep ? 0 : 2));
+                this._val('rop-footer-shadow-y', (isIndep ? ov.footer_shadow_y : ov.text_shadow_y) ?? (isIndep ? 0 : 2));
+                this._val('rop-footer-bg-enabled', ov.footer_bg_enabled ?? false);
+                this._val('rop-footer-bg-mode', ov.footer_bg_mode || 'block');
+                this._val('rop-footer-bg-color', ov.footer_bg_color || '#000000');
+                this._val('rop-footer-bg-opacity', ov.footer_bg_opacity ?? 60);
+                this._val('rop-footer-bg-radius', ov.footer_bg_radius ?? 12);
+                this._val('rop-footer-bg-pad-h', ov.footer_bg_pad_h ?? 0);
+                this._val('rop-footer-bg-pad-top', ov.footer_bg_pad_top ?? 0);
+                this._val('rop-footer-bg-pad-bottom', ov.footer_bg_pad_bottom ?? 0);
+                this._val('rop-auto-fit', ov.auto_fit === true);
+                this._val('rop-auto-center', ov.auto_center_v === true);
+                this._val('rop-offset-x', ov.offset_x ?? 0);
+                this._val('rop-offset-y', ov.offset_y ?? 0);
+                this._val('rop-title-body-gap', ov.title_body_gap ?? 42);
+                this._val('rop-layout-mode', ov.layout_mode || 'flow');
+                this._val('rop-debug-layout', ov.debug_layout === true);
+                this._val('rop-debug-title', ov.debug_title === true);
+                this._val('rop-debug-body', ov.debug_body === true);
+                this._val('rop-debug-footer', ov.debug_footer === true);
+                this._val('rop-body-footer-gap', ov.body_footer_gap ?? 42);
+                this._val('rop-pad-top', ov.padding_top ?? 60);
+                this._val('rop-pad-bottom', ov.padding_bottom ?? 60);
+                this._val('rop-pad-left', ov.padding_left ?? 40);
+                this._val('rop-pad-right', ov.padding_right ?? 40);
+                this._val('rop-auto-shrink', ov.auto_shrink === true);
+                this._val('rop-max-height', ov.max_height ?? 1400);
+                this._val('rop-title-max-lines', ov.title_max_lines ?? 3);
+                this._val('rop-min-fontsize', ov.min_fontsize ?? 16);
+                this._syncTextcardAutoFitModeUI();
+            }
         }
 
         if (ov.type === 'scroll') {
@@ -3196,7 +3249,7 @@ class ReelsOverlayPanel {
         // 同步后更新 A 点参考
         setTimeout(() => this._updateAnimStartRef(), 0);
 
-        if (ov.type === 'textcard') {
+        if (ov.type === 'textcard' || ov.type === 'solid_mask') {
             ov.w = this._get('rop-card-width');
             ov.h = this._get('rop-card-height');
         } else {
@@ -3207,11 +3260,11 @@ class ReelsOverlayPanel {
             ov.x = this._get('rop-x');
             ov.y = this._get('rop-y');
         } else {
-            const centerX = ov.type === 'textcard' ? this._get('rop-card-x') : this._get('rop-x');
-            const centerY = ov.type === 'textcard' ? this._get('rop-card-y') : this._get('rop-y');
+            const centerX = (ov.type === 'textcard' || ov.type === 'solid_mask') ? this._get('rop-card-x') : this._get('rop-x');
+            const centerY = (ov.type === 'textcard' || ov.type === 'solid_mask') ? this._get('rop-card-y') : this._get('rop-y');
             const mapW = Math.max(0, ov.w || 0);
             let mapH = Math.max(0, ov.h || 0);
-            if (ov.type === 'textcard' && mapH <= 0) {
+            if ((ov.type === 'textcard' || ov.type === 'solid_mask') && mapH <= 0) {
                 mapH = Math.max(0, ov._renderedH || 0);
             }
             const topLeft = this._toTopLeftFromCenter(centerX, centerY, mapW, mapH);
@@ -3288,7 +3341,7 @@ class ReelsOverlayPanel {
             ov.bind_scroll_clamp_max_y = (clampMaxEl && clampMaxEl.value !== '') ? parseFloat(clampMaxEl.value) : null;
         }
 
-        if (ov.type === 'textcard') {
+        if (ov.type === 'textcard' || ov.type === 'solid_mask') {
             ov.card_enabled = this._get('rop-card-enabled');
             ov.card_color = this._get('rop-card-color');
             ov.card_opacity = this._get('rop-card-opacity');
@@ -3310,152 +3363,157 @@ class ReelsOverlayPanel {
             ov.radius_tr = radius;
             ov.radius_bl = radius;
             ov.radius_br = radius;
-            const newTitleText = this._get('rop-title-text');
-            if (newTitleText !== ov.title_text) ov.title_styled_ranges = null; // 文本改变→失效旧样式范围
-            ov.title_text = newTitleText;
-            ov.title_offset_x = this._get('rop-title-offset-x');
-            ov.title_offset_y = this._get('rop-title-offset-y');
-            ov.title_font_family = this._get('rop-title-font');
-            ov.title_fontsize = this._get('rop-title-fontsize');
-            ov.title_color = this._get('rop-title-color');
-            const tw = Math.max(100, Math.min(900, parseInt(this._get('rop-title-weight') || (this._get('rop-title-bold') ? 900 : 400), 10) || 900));
-            ov.title_font_weight = tw;
-            ov.title_bold = tw >= 600;
-            ov.title_uppercase = this._get('rop-title-uppercase');
-            ov.title_align = this._get('rop-title-align');
-            ov.title_valign = this._get('rop-title-valign');
-            ov.title_letter_spacing = this._get('rop-title-letterspacing');
-            ov.title_override_w = this._getTextcardStoredWidth('rop-title-override-w');
-            ov.title_override_h = this._get('rop-title-override-h');
-            ov.title_auto_shrink = this._get('rop-title-auto-shrink');
-            ov.title_line_spacing = this._get('rop-title-linespacing');
-            const newBodyText = this._get('rop-body-text');
-            if (newBodyText !== ov.body_text) ov.body_styled_ranges = null;
-            ov.body_text = newBodyText;
-            ov.body_offset_x = this._get('rop-body-offset-x');
-            ov.body_offset_y = this._get('rop-body-offset-y');
-            ov.body_font_family = this._get('rop-body-font');
-            ov.body_fontsize = this._get('rop-body-fontsize');
-            ov.body_color = this._get('rop-body-color');
-            const bw = Math.max(100, Math.min(900, parseInt(this._get('rop-body-weight') || (this._get('rop-body-bold') ? 700 : 400), 10) || 400));
-            ov.body_font_weight = bw;
-            ov.body_bold = bw >= 600;
-            ov.body_letter_spacing = this._get('rop-body-letterspacing');
-            ov.body_override_w = this._getTextcardStoredWidth('rop-body-override-w');
-            ov.body_override_h = this._get('rop-body-override-h');
-            ov.body_auto_shrink = this._get('rop-body-auto-shrink');
-            ov.body_line_spacing = this._get('rop-body-linespacing');
-            ov.body_align = this._get('rop-body-align');
-            ov.body_valign = this._get('rop-body-valign');
-            // Footer
-            const newFooterText = this._get('rop-footer-text');
-            if (newFooterText !== ov.footer_text) ov.footer_styled_ranges = null;
-            ov.footer_text = newFooterText;
-            ov.footer_offset_x = this._get('rop-footer-offset-x');
-            ov.footer_offset_y = this._get('rop-footer-offset-y');
-            ov.footer_font_family = this._get('rop-footer-font');
-            ov.footer_fontsize = this._get('rop-footer-fontsize');
-            ov.footer_color = this._get('rop-footer-color');
-            const ftw = Math.max(100, Math.min(900, parseInt(this._get('rop-footer-weight') || (this._get('rop-footer-bold') ? 700 : 400), 10) || 400));
-            ov.footer_font_weight = ftw;
-            ov.footer_bold = ftw >= 600;
-            ov.footer_letter_spacing = this._get('rop-footer-letterspacing');
-            ov.footer_override_w = this._getTextcardStoredWidth('rop-footer-override-w');
-            ov.footer_override_h = this._get('rop-footer-override-h');
-            ov.footer_auto_shrink = this._get('rop-footer-auto-shrink');
-            ov.footer_line_spacing = this._get('rop-footer-linespacing');
-            ov.footer_align = this._get('rop-footer-align');
-            ov.footer_valign = this._get('rop-footer-valign');
-            // We now permanently use independent effects format internally.
-            ov.independent_effects = true;
-            // Title effects
-            ov.title_stroke_color = this._get('rop-title-stroke-color');
-            ov.title_stroke_width = this._get('rop-title-stroke-width');
-            ov.title_shadow_color = this._get('rop-title-shadow-color');
-            ov.title_shadow_blur = this._get('rop-title-shadow-blur');
-            ov.title_shadow_x = this._get('rop-title-shadow-x');
-            ov.title_shadow_y = this._get('rop-title-shadow-y');
-            ov.title_bg_enabled = this._get('rop-title-bg-enabled');
-            ov.title_bg_mode = this._get('rop-title-bg-mode');
-            ov.title_bg_color = this._get('rop-title-bg-color');
-            ov.title_bg_opacity = this._get('rop-title-bg-opacity');
-            ov.title_bg_radius = this._get('rop-title-bg-radius');
-            const tPadH = this._get('rop-title-bg-pad-h');
-            const tPadTop = this._get('rop-title-bg-pad-top');
-            const tPadBot = this._get('rop-title-bg-pad-bottom');
-            ov.title_bg_pad_h = typeof tPadH === 'number' && !isNaN(tPadH) ? tPadH : undefined;
-            ov.title_bg_pad_top = typeof tPadTop === 'number' && !isNaN(tPadTop) ? tPadTop : undefined;
-            ov.title_bg_pad_bottom = typeof tPadBot === 'number' && !isNaN(tPadBot) ? tPadBot : undefined;
-            // Title Decorator Line
-            ov.title_deco_enabled = this._get('rop-title-deco-enabled');
-            ov.title_deco_position = this._get('rop-title-deco-position');
-            ov.title_deco_style = this._get('rop-title-deco-style');
-            ov.title_deco_color = this._get('rop-title-deco-color');
-            ov.title_deco_color2 = this._get('rop-title-deco-color2');
-            ov.title_deco_thickness = this._get('rop-title-deco-thickness');
-            ov.title_deco_length = this._get('rop-title-deco-length');
-            ov.title_deco_gap = this._get('rop-title-deco-gap');
-            ov.title_deco_opacity = this._get('rop-title-deco-opacity');
-            ov.title_deco_align = this._get('rop-title-deco-align');
-            // Body effects
-            ov.body_stroke_color = this._get('rop-body-stroke-color');
-            ov.body_stroke_width = this._get('rop-body-stroke-width');
-            ov.body_shadow_color = this._get('rop-body-shadow-color');
-            ov.body_shadow_blur = this._get('rop-body-shadow-blur');
-            ov.body_shadow_x = this._get('rop-body-shadow-x');
-            ov.body_shadow_y = this._get('rop-body-shadow-y');
-            ov.body_bg_enabled = this._get('rop-body-bg-enabled');
-            ov.body_bg_mode = this._get('rop-body-bg-mode');
-            ov.body_bg_color = this._get('rop-body-bg-color');
-            ov.body_bg_opacity = this._get('rop-body-bg-opacity');
-            ov.body_bg_radius = this._get('rop-body-bg-radius');
-            const bPadH = this._get('rop-body-bg-pad-h');
-            const bPadTop = this._get('rop-body-bg-pad-top');
-            const bPadBot = this._get('rop-body-bg-pad-bottom');
-            ov.body_bg_pad_h = typeof bPadH === 'number' && !isNaN(bPadH) ? bPadH : undefined;
-            ov.body_bg_pad_top = typeof bPadTop === 'number' && !isNaN(bPadTop) ? bPadTop : undefined;
-            ov.body_bg_pad_bottom = typeof bPadBot === 'number' && !isNaN(bPadBot) ? bPadBot : undefined;
-            // Footer effects
-            ov.footer_stroke_color = this._get('rop-footer-stroke-color');
-            ov.footer_stroke_width = this._get('rop-footer-stroke-width');
-            ov.footer_shadow_color = this._get('rop-footer-shadow-color');
-            ov.footer_shadow_blur = this._get('rop-footer-shadow-blur');
-            ov.footer_shadow_x = this._get('rop-footer-shadow-x');
-            ov.footer_shadow_y = this._get('rop-footer-shadow-y');
-            ov.footer_bg_enabled = this._get('rop-footer-bg-enabled');
-            ov.footer_bg_mode = this._get('rop-footer-bg-mode');
-            ov.footer_bg_color = this._get('rop-footer-bg-color');
-            ov.footer_bg_opacity = this._get('rop-footer-bg-opacity');
-            ov.footer_bg_radius = this._get('rop-footer-bg-radius');
-            const fPadH = this._get('rop-footer-bg-pad-h');
-            const fPadTop = this._get('rop-footer-bg-pad-top');
-            const fPadBot = this._get('rop-footer-bg-pad-bottom');
-            ov.footer_bg_pad_h = typeof fPadH === 'number' && !isNaN(fPadH) ? fPadH : undefined;
-            ov.footer_bg_pad_top = typeof fPadTop === 'number' && !isNaN(fPadTop) ? fPadTop : undefined;
-            ov.footer_bg_pad_bottom = typeof fPadBot === 'number' && !isNaN(fPadBot) ? fPadBot : undefined;
-            ov.auto_fit = this._get('rop-auto-fit');
-            ov.auto_center_v = this._get('rop-auto-center');
-            ov.layout_mode = this._get('rop-layout-mode');
-            ov.debug_layout = this._get('rop-debug-layout');
-            ov.debug_title = this._get('rop-debug-title');
-            ov.debug_body = this._get('rop-debug-body');
-            ov.debug_footer = this._get('rop-debug-footer');
-            ov.offset_x = this._get('rop-offset-x');
-            ov.offset_y = this._get('rop-offset-y');
             ov.fullscreen_mask = this._get('rop-fullscreen-mask');
-            ov.title_body_gap = this._get('rop-title-body-gap');
-            ov.body_footer_gap = this._get('rop-body-footer-gap');
-            const padTop = this._get('rop-pad-top');
-            const padBottom = this._get('rop-pad-bottom');
-            if (padTop !== undefined) ov.padding_top = padTop;
-            if (padBottom !== undefined) ov.padding_bottom = padBottom;
-            ov.padding_left = this._get('rop-pad-left');
-            ov.padding_right = this._get('rop-pad-right');
-            ov.auto_shrink = this._get('rop-auto-shrink');
-            ov.max_height = this._get('rop-max-height');
-            ov.title_max_lines = this._get('rop-title-max-lines');
-            ov.min_fontsize = this._get('rop-min-fontsize');
-            this._syncTextcardAutoFitModeUI();
+            ov.name = this._get('rop-name') || '';
+            ov.fixed_text = this._get('rop-fixed-text');
+
+            if (ov.type === 'textcard') {
+                const newTitleText = this._get('rop-title-text');
+                if (newTitleText !== ov.title_text) ov.title_styled_ranges = null; // 文本改变→失效旧样式范围
+                ov.title_text = newTitleText;
+                ov.title_offset_x = this._get('rop-title-offset-x');
+                ov.title_offset_y = this._get('rop-title-offset-y');
+                ov.title_font_family = this._get('rop-title-font');
+                ov.title_fontsize = this._get('rop-title-fontsize');
+                ov.title_color = this._get('rop-title-color');
+                const tw = Math.max(100, Math.min(900, parseInt(this._get('rop-title-weight') || (this._get('rop-title-bold') ? 900 : 400), 10) || 900));
+                ov.title_font_weight = tw;
+                ov.title_bold = tw >= 600;
+                ov.title_uppercase = this._get('rop-title-uppercase');
+                ov.title_align = this._get('rop-title-align');
+                ov.title_valign = this._get('rop-title-valign');
+                ov.title_letter_spacing = this._get('rop-title-letterspacing');
+                ov.title_override_w = this._getTextcardStoredWidth('rop-title-override-w');
+                ov.title_override_h = this._get('rop-title-override-h');
+                ov.title_auto_shrink = this._get('rop-title-auto-shrink');
+                ov.title_line_spacing = this._get('rop-title-linespacing');
+                const newBodyText = this._get('rop-body-text');
+                if (newBodyText !== ov.body_text) ov.body_styled_ranges = null;
+                ov.body_text = newBodyText;
+                ov.body_offset_x = this._get('rop-body-offset-x');
+                ov.body_offset_y = this._get('rop-body-offset-y');
+                ov.body_font_family = this._get('rop-body-font');
+                ov.body_fontsize = this._get('rop-body-fontsize');
+                ov.body_color = this._get('rop-body-color');
+                const bw = Math.max(100, Math.min(900, parseInt(this._get('rop-body-weight') || (this._get('rop-body-bold') ? 700 : 400), 10) || 400));
+                ov.body_font_weight = bw;
+                ov.body_bold = bw >= 600;
+                ov.body_letter_spacing = this._get('rop-body-letterspacing');
+                ov.body_override_w = this._getTextcardStoredWidth('rop-body-override-w');
+                ov.body_override_h = this._get('rop-body-override-h');
+                ov.body_auto_shrink = this._get('rop-body-auto-shrink');
+                ov.body_line_spacing = this._get('rop-body-linespacing');
+                ov.body_align = this._get('rop-body-align');
+                ov.body_valign = this._get('rop-body-valign');
+                // Footer
+                const newFooterText = this._get('rop-footer-text');
+                if (newFooterText !== ov.footer_text) ov.footer_styled_ranges = null;
+                ov.footer_text = newFooterText;
+                ov.footer_offset_x = this._get('rop-footer-offset-x');
+                ov.footer_offset_y = this._get('rop-footer-offset-y');
+                ov.footer_font_family = this._get('rop-footer-font');
+                ov.footer_fontsize = this._get('rop-footer-fontsize');
+                ov.footer_color = this._get('rop-footer-color');
+                const ftw = Math.max(100, Math.min(900, parseInt(this._get('rop-footer-weight') || (this._get('rop-footer-bold') ? 700 : 400), 10) || 400));
+                ov.footer_font_weight = ftw;
+                ov.footer_bold = ftw >= 600;
+                ov.footer_letter_spacing = this._get('rop-footer-letterspacing');
+                ov.footer_override_w = this._getTextcardStoredWidth('rop-footer-override-w');
+                ov.footer_override_h = this._get('rop-footer-override-h');
+                ov.footer_auto_shrink = this._get('rop-footer-auto-shrink');
+                ov.footer_line_spacing = this._get('rop-footer-linespacing');
+                ov.footer_align = this._get('rop-footer-align');
+                ov.footer_valign = this._get('rop-footer-valign');
+                // We now permanently use independent effects format internally.
+                ov.independent_effects = true;
+                // Title effects
+                ov.title_stroke_color = this._get('rop-title-stroke-color');
+                ov.title_stroke_width = this._get('rop-title-stroke-width');
+                ov.title_shadow_color = this._get('rop-title-shadow-color');
+                ov.title_shadow_blur = this._get('rop-title-shadow-blur');
+                ov.title_shadow_x = this._get('rop-title-shadow-x');
+                ov.title_shadow_y = this._get('rop-title-shadow-y');
+                ov.title_bg_enabled = this._get('rop-title-bg-enabled');
+                ov.title_bg_mode = this._get('rop-title-bg-mode');
+                ov.title_bg_color = this._get('rop-title-bg-color');
+                ov.title_bg_opacity = this._get('rop-title-bg-opacity');
+                ov.title_bg_radius = this._get('rop-title-bg-radius');
+                const tPadH = this._get('rop-title-bg-pad-h');
+                const tPadTop = this._get('rop-title-bg-pad-top');
+                const tPadBot = this._get('rop-title-bg-pad-bottom');
+                ov.title_bg_pad_h = typeof tPadH === 'number' && !isNaN(tPadH) ? tPadH : undefined;
+                ov.title_bg_pad_top = typeof tPadTop === 'number' && !isNaN(tPadTop) ? tPadTop : undefined;
+                ov.title_bg_pad_bottom = typeof tPadBot === 'number' && !isNaN(tPadBot) ? tPadBot : undefined;
+                // Title Decorator Line
+                ov.title_deco_enabled = this._get('rop-title-deco-enabled');
+                ov.title_deco_position = this._get('rop-title-deco-position');
+                ov.title_deco_style = this._get('rop-title-deco-style');
+                ov.title_deco_color = this._get('rop-title-deco-color');
+                ov.title_deco_color2 = this._get('rop-title-deco-color2');
+                ov.title_deco_thickness = this._get('rop-title-deco-thickness');
+                ov.title_deco_length = this._get('rop-title-deco-length');
+                ov.title_deco_gap = this._get('rop-title-deco-gap');
+                ov.title_deco_opacity = this._get('rop-title-deco-opacity');
+                ov.title_deco_align = this._get('rop-title-deco-align');
+                // Body effects
+                ov.body_stroke_color = this._get('rop-body-stroke-color');
+                ov.body_stroke_width = this._get('rop-body-stroke-width');
+                ov.body_shadow_color = this._get('rop-body-shadow-color');
+                ov.body_shadow_blur = this._get('rop-body-shadow-blur');
+                ov.body_shadow_x = this._get('rop-body-shadow-x');
+                ov.body_shadow_y = this._get('rop-body-shadow-y');
+                ov.body_bg_enabled = this._get('rop-body-bg-enabled');
+                ov.body_bg_mode = this._get('rop-body-bg-mode');
+                ov.body_bg_color = this._get('rop-body-bg-color');
+                ov.body_bg_opacity = this._get('rop-body-bg-opacity');
+                ov.body_bg_radius = this._get('rop-body-bg-radius');
+                const bPadH = this._get('rop-body-bg-pad-h');
+                const bPadTop = this._get('rop-body-bg-pad-top');
+                const bPadBot = this._get('rop-body-bg-pad-bottom');
+                ov.body_bg_pad_h = typeof bPadH === 'number' && !isNaN(bPadH) ? bPadH : undefined;
+                ov.body_bg_pad_top = typeof bPadTop === 'number' && !isNaN(bPadTop) ? bPadTop : undefined;
+                ov.body_bg_pad_bottom = typeof bPadBot === 'number' && !isNaN(bPadBot) ? bPadBot : undefined;
+                // Footer effects
+                ov.footer_stroke_color = this._get('rop-footer-stroke-color');
+                ov.footer_stroke_width = this._get('rop-footer-stroke-width');
+                ov.footer_shadow_color = this._get('rop-footer-shadow-color');
+                ov.footer_shadow_blur = this._get('rop-footer-shadow-blur');
+                ov.footer_shadow_x = this._get('rop-footer-shadow-x');
+                ov.footer_shadow_y = this._get('rop-footer-shadow-y');
+                ov.footer_bg_enabled = this._get('rop-footer-bg-enabled');
+                ov.footer_bg_mode = this._get('rop-footer-bg-mode');
+                ov.footer_bg_color = this._get('rop-footer-bg-color');
+                ov.footer_bg_opacity = this._get('rop-footer-bg-opacity');
+                ov.footer_bg_radius = this._get('rop-footer-bg-radius');
+                const fPadH = this._get('rop-footer-bg-pad-h');
+                const fPadTop = this._get('rop-footer-bg-pad-top');
+                const fPadBot = this._get('rop-footer-bg-pad-bottom');
+                ov.footer_bg_pad_h = typeof fPadH === 'number' && !isNaN(fPadH) ? fPadH : undefined;
+                ov.footer_bg_pad_top = typeof fPadTop === 'number' && !isNaN(fPadTop) ? fPadTop : undefined;
+                ov.footer_bg_pad_bottom = typeof fPadBot === 'number' && !isNaN(fPadBot) ? fPadBot : undefined;
+                ov.auto_fit = this._get('rop-auto-fit');
+                ov.auto_center_v = this._get('rop-auto-center');
+                ov.layout_mode = this._get('rop-layout-mode');
+                ov.debug_layout = this._get('rop-debug-layout');
+                ov.debug_title = this._get('rop-debug-title');
+                ov.debug_body = this._get('rop-debug-body');
+                ov.debug_footer = this._get('rop-debug-footer');
+                ov.offset_x = this._get('rop-offset-x');
+                ov.offset_y = this._get('rop-offset-y');
+                ov.title_body_gap = this._get('rop-title-body-gap');
+                ov.body_footer_gap = this._get('rop-body-footer-gap');
+                const padTop = this._get('rop-pad-top');
+                const padBottom = this._get('rop-pad-bottom');
+                if (padTop !== undefined) ov.padding_top = padTop;
+                if (padBottom !== undefined) ov.padding_bottom = padBottom;
+                ov.padding_left = this._get('rop-pad-left');
+                ov.padding_right = this._get('rop-pad-right');
+                ov.auto_shrink = this._get('rop-auto-shrink');
+                ov.max_height = this._get('rop-max-height');
+                ov.title_max_lines = this._get('rop-title-max-lines');
+                ov.min_fontsize = this._get('rop-min-fontsize');
+                this._syncTextcardAutoFitModeUI();
+            }
         }
 
         if (ov.type === 'scroll') {
@@ -3745,7 +3803,7 @@ class ReelsOverlayPanel {
     }
 
     _syncTextcardMaskEnabledUI() {
-        if (!this._selectedOv || this._selectedOv.type !== 'textcard') return;
+        if (!this._selectedOv || (this._selectedOv.type !== 'textcard' && this._selectedOv.type !== 'solid_mask')) return;
         const enabled = this._get('rop-card-enabled') === true;
         const grid = this.container.querySelector('#rop-card-mask-grid');
         if (!grid) return;
@@ -4633,9 +4691,11 @@ class ReelsOverlayPanel {
                 ? '滚动覆层'
                 : ov.type === 'textcard'
                     ? '文字卡片'
-                    : ov.type === 'text'
-                        ? '文本覆层'
-                        : '覆层';
+                    : ov.type === 'solid_mask'
+                        ? '纯色蒙版'
+                        : ov.type === 'text'
+                            ? '文本覆层'
+                            : '覆层';
             return `${idx + 1}.${typeLabel}`;
         };
         const missingTextLayers = [];
@@ -5026,9 +5086,11 @@ class ReelsOverlayPanel {
                 ? '滚动字幕' 
                 : ov.type === 'textcard'
                     ? '文字卡片'
-                    : ov.type === 'text'
-                        ? '文本覆层'
-                        : '覆层';
+                    : ov.type === 'solid_mask'
+                        ? '纯色蒙版'
+                        : ov.type === 'text'
+                            ? '文本覆层'
+                            : '覆层';
             return `${idx + 1}.${typeLabel}`;
         };
 
