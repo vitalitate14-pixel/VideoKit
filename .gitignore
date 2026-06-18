@@ -89,6 +89,7 @@ electron/pipe_frames.raw
 *.wav
 *.drt
 *.fcpxml
+*预设.json
 test-listener.js
 parse_sarif.py
 scratch_detail.py
