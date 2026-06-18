@@ -330,7 +330,7 @@ async function startTranscription(apiKey, audioUrl, language = 'english') {
 /**
  * 轮询转录结果
  */
-async function pollResult(apiKey, resultUrl, maxAttempts = 60, interval = 10000) {
+async function pollResult(apiKey, resultUrl, maxAttempts = 60, interval = 3000) {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         console.log(`Gladia 轮询尝试 ${attempt + 1}/${maxAttempts}...`);
         const res = await gladiaRequest('GET', resultUrl, {
@@ -594,8 +594,10 @@ async function transcribeAudioFull(mediaPath, apiKeys, language, jsonPath, txtPa
 
     if (txtPath && audioPath && fs.existsSync(audioPath)) {
         try {
-            const cacheWavPath = txtPath.replace('_autoedit.txt', '_autoedit.wav');
-            fs.copyFileSync(audioPath, cacheWavPath);
+            if (txtPath.includes('_autoedit.txt')) {
+                const cacheWavPath = txtPath.replace('_autoedit.txt', '_autoedit.wav');
+                fs.copyFileSync(audioPath, cacheWavPath);
+            }
         } catch (copyErr) {
             console.error('保存提取的音频缓存失败:', copyErr);
         }

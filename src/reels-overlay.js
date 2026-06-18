@@ -450,6 +450,15 @@ function createScrollOverlay(opts = {}) {
 // 2. Overlay Renderer
 // ═══════════════════════════════════════════════════════
 
+function _normalizeLocalMediaPath(p) {
+    if (!p || typeof p !== 'string') return '';
+    if (/^(local-media|file|https?|blob|data):/i.test(p)) return p;
+    if (p.startsWith('/') || /^[a-zA-Z]:[/\\]/i.test(p)) {
+        return `local-media://${p}`;
+    }
+    return p;
+}
+
 const _imageCache = {};
 const _IMAGE_LOADING = { _loading: true }; // sentinel (truthy, prevents re-creation)
 
@@ -474,7 +483,7 @@ function _getCachedImage(path) {
     };
     img.onerror = () => { _imageCache[path] = null; }; // allow retry on error
     _imageCache[path] = _IMAGE_LOADING;
-    img.src = path.startsWith('/') ? `local-media://${path}` : path;
+    img.src = _normalizeLocalMediaPath(path);
     return null;
 }
 
@@ -497,8 +506,7 @@ function _getCachedVideo(path) {
     if (!path) return null;
     if (_videoCache[path]) return _videoCache[path];
     const vid = document.createElement('video');
-    // 本地路径需要加 file:// 前缀
-    vid.src = path.startsWith('/') ? `local-media://${path}` : path;
+    vid.src = _normalizeLocalMediaPath(path);
     vid.muted = true;
     vid.loop = true;
     vid.playsInline = true;
@@ -532,7 +540,7 @@ function _getGifDecoder(path) {
     // 异步初始化解码器
     (async () => {
         try {
-            const url = path.startsWith('/') ? `local-media://${path}` : path;
+            const url = _normalizeLocalMediaPath(path);
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
 
@@ -576,7 +584,7 @@ function _getGifDecoder(path) {
                 // ImageDecoder 不可用，回退到静态图
                 console.warn('[GIF] ImageDecoder API 不可用, GIF 将显示为静态图');
                 const img = new Image();
-                img.src = path.startsWith('/') ? `local-media://${path}` : path;
+                img.src = _normalizeLocalMediaPath(path);
                 img.onload = () => {
                     gifData.frames[0] = img;
                     gifData.frameCount = 1;

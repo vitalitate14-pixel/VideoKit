@@ -4,12 +4,12 @@
 
 ## 当前发布版本
 
-- 最新版本：v4.4.3
-- Release 页面：https://github.com/secure-artifacts/VideoKit/releases/tag/v4.4.3
-- Windows 安装包：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.3/VideoKit-Setup-4.4.3-Windows%20(win).exe
-- macOS M-series (arm64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.3/VideoKit-4.4.3-macOS%20M-series%20(arm64).dmg
-- macOS Intel (x64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.3/VideoKit-4.4.3-macOS%20Intel%20(x64).dmg
-- Linux AppImage：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.3/VideoKit-4.4.3-Linux%20(linux).AppImage
+- 最新版本：v4.4.4
+- Release 页面：https://github.com/secure-artifacts/VideoKit/releases/tag/v4.4.4
+- Windows 安装包：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-Setup-4.4.4-Windows%20(win).exe
+- macOS M-series (arm64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-4.4.4-macOS%20M-series%20(arm64).dmg
+- macOS Intel (x64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-4.4.4-macOS%20Intel%20(x64).dmg
+- Linux AppImage：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-4.4.4-Linux%20(linux).AppImage
 
 ## 如何发布新版本
 
@@ -40,15 +40,15 @@ git push secure main
 Git Tag 是一个版本标记，用于标识发布的版本号。版本号格式为 `v主版本.次版本.修订版本`，例如 `v1.0.0`、`v1.1.0`、`v2.0.0`。
 
 ```bash
-# 创建一个新的版本 tag（将 v4.4.3 替换为你想要的版本号）
-git tag v4.4.3
+# 创建一个新的版本 tag（将 v4.4.4 替换为你想要的版本号）
+git tag v4.4.4
 ```
 
 #### 3. 推送 Tag 触发自动构建
 
 ```bash
 # 推送 tag 到 GitHub（这会自动触发 CI 构建）
-git push secure v4.4.3
+git push secure v4.4.4
 ```
 
 推送到后，GitHub Actions 会自动执行以下操作：
@@ -78,12 +78,12 @@ git push secure v4.4.3
 
 ```bash
 # 删除本地 tag
-git tag -d v4.4.3
+git tag -d v4.4.4
 
 # 删除远程 tag
-git push secure :refs/tags/v4.4.3
+git push secure :refs/tags/v4.4.4
 
 # 修复问题后，重新创建并推送
-git tag v4.4.3
-git push secure v4.4.3
+git tag v4.4.4
+git push secure v4.4.4
 ```

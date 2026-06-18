@@ -7997,7 +7997,7 @@ function _showCycleFillDialog() {
                     <div id="rbt-cf-items" style="max-height:200px;overflow-y:auto;">
                         ${items.map((item, i) => `
                             <div style="display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid #222;font-size:12px;color:#ccc;" data-idx="${i}">
-                                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_escHtml(item)}">${_shortN(item)}</span>
+                                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_escHtml(item)}">${_escHtml(_shortN(item))}</span>
                                 <span style="width:100px;text-align:center;">
                                     <input type="number" class="rbt-cf-weight" data-idx="${i}" value="1" min="1" max="20"
                                         style="width:50px;text-align:center;background:#1a1a3a;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 4px;font-size:12px;">

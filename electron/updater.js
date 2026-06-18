@@ -381,7 +381,7 @@ async function portableCheckForUpdates() {
         });
 
         // 弹窗提示
-        const detail = `绿色版将直接覆盖当前目录更新。\n下载大小: ${(info.zipSize / 1024 / 1024).toFixed(1)} MB`;
+        const detail = `绿色版将直接覆盖当前目录更新。\n下载大小: ${(info.zipSize / 1024 / 1024).toFixed(1)} MB\n\n更新内容：\n${info.releaseNotes || '无更新说明'}`;
         const { response } = await dialog.showMessageBox(mainWindow, {
             type: 'info',
             title: `发现${isBeta ? '测试' : '新'}版本`,
@@ -509,19 +509,38 @@ function initAutoUpdater(win, logFn) {
         const isBeta = isBetaVersion(info.version);
         const channelLabel = isBeta ? '🧪 测试版' : '✅ 正式版';
         log(`[Updater] 发现新版本: v${info.version} (${channelLabel})`);
+
+        // 兼容处理不同格式的 releaseNotes (string / Array)
+        let notesText = '无更新说明';
+        if (info.releaseNotes) {
+            if (typeof info.releaseNotes === 'string') {
+                notesText = info.releaseNotes;
+            } else if (Array.isArray(info.releaseNotes)) {
+                notesText = info.releaseNotes.map(n => {
+                    if (typeof n === 'string') return n;
+                    if (n && typeof n === 'object') {
+                        return n.note || '';
+                    }
+                    return String(n);
+                }).filter(Boolean).join('\n\n');
+            } else {
+                notesText = String(info.releaseNotes);
+            }
+        }
+
         sendToRenderer('update-status', {
             status: 'available',
             message: `发现新版本 v${info.version} (${channelLabel})`,
             version: info.version,
             isBeta,
-            releaseNotes: info.releaseNotes || '',
+            releaseNotes: notesText,
             releaseDate: info.releaseDate || '',
         });
 
         // 弹窗提示用户
-        const detail = isBeta
-            ? '这是一个测试版本，可能包含未完善的功能。\n是否立即下载？'
-            : '是否立即下载更新？';
+        const detail = (isBeta
+            ? '这是一个测试版本，可能包含未完善的功能。\n'
+            : '') + `更新内容：\n${notesText}\n\n是否立即下载更新？`;
         dialog.showMessageBox(mainWindow, {
             type: 'info',
             title: `发现${isBeta ? '测试' : '新'}版本`,

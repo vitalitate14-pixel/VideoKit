@@ -281,22 +281,15 @@ function openFolder(folderPath) {
         }
     }
 
-    const platform = process.platform;
-    let cmd;
-    if (platform === 'darwin') {
-        cmd = `open "${expandedPath}"`;
-    } else if (platform === 'win32') {
-        cmd = `explorer "${expandedPath}"`;
-    } else {
-        cmd = `xdg-open "${expandedPath}"`;
-    }
-
-    return new Promise((resolve, reject) => {
-        exec(cmd, (err) => {
-            if (err) reject(new Error('打开文件夹失败: ' + err.message));
-            else resolve({ message: '已打开' });
+    try {
+        const { shell } = require('electron');
+        return shell.openPath(expandedPath).then((errMsg) => {
+            if (errMsg) throw new Error(errMsg);
+            return { message: '已打开' };
         });
-    });
+    } catch (err) {
+        return Promise.reject(new Error('打开文件夹失败: ' + err.message));
+    }
 }
 
 // Upload directory

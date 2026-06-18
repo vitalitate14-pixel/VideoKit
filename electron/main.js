@@ -181,7 +181,7 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            webSecurity: false,  // 桌面应用需要加载 file:// 本地媒体预览
+            webSecurity: true,  // Re-enabled for security; local media loads via local-media:// protocol
             preload: path.join(__dirname, 'preload.js')
         },
     };
@@ -215,10 +215,33 @@ app.whenReady().then(async () => {
         // 不用 standard:true → URL 不会被解析为 host/path 格式
         // local-media:///Users/ww/file.mp4 → 直接截取 scheme 后的路径
         const afterScheme = request.url.replace(/^local-media:\/\//, '');
-        const filePath = decodeURIComponent(afterScheme);
+        let filePath = decodeURIComponent(afterScheme);
+        // On Windows, if filePath starts with "/" followed by a drive letter (e.g. "/C:"), remove the leading "/"
+        if (process.platform === 'win32' && filePath.startsWith('/') && filePath.includes(':')) {
+            filePath = filePath.substring(1);
+        }
         const resolved = path.resolve(filePath);
 
         try {
+            // SBP-004: Validate file extension for security
+            const allowedExtensions = [
+                // Video
+                '.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv',
+                // Audio
+                '.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg',
+                // Image
+                '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
+                // Subtitles/Data
+                '.json', '.txt', '.srt', '.vtt', '.fcpxml', '.xml', '.drt', '.zip',
+                // Fonts
+                '.ttf', '.otf', '.woff', '.woff2'
+            ];
+            const ext = path.extname(resolved).toLowerCase();
+            if (!allowedExtensions.includes(ext)) {
+                console.error('[local-media] Access blocked for invalid extension:', ext, 'path:', resolved);
+                return new Response('Access Denied', { status: 403 });
+            }
+
             if (!fs.existsSync(resolved)) {
                 console.error('[local-media] File not found:', resolved);
                 return new Response('Not Found', { status: 404 });
@@ -1009,7 +1032,7 @@ app.whenReady().then(async () => {
                 nodeIntegration: false,
                 contextIsolation: true,
                 sandbox: false,
-                webSecurity: false,
+                webSecurity: true, // Re-enabled for security; local media loads via local-media:// protocol
                 preload: path.join(__dirname, 'preload.js'),
             },
         };

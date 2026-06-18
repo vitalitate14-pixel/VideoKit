@@ -16,7 +16,7 @@ function resolveAssetUrl(fileName) {
     for (const p of candidates) {
         try {
             if (fs.existsSync(p)) {
-                return pathToFileURL(p).toString();
+                return `local-media://${p}`;
             }
         } catch { }
     }
@@ -25,13 +25,21 @@ function resolveAssetUrl(fileName) {
 
 function toFileUrl(filePath) {
     if (!filePath || typeof filePath !== 'string') return '';
-    if (/^file:\/\//i.test(filePath)) return filePath;
+    if (/^local-media:\/\//i.test(filePath)) return filePath;
 
-    try {
-        return pathToFileURL(filePath).toString();
-    } catch {
-        return '';
+    let cleanPath = filePath;
+    if (/^file:\/\//i.test(cleanPath)) {
+        try {
+            cleanPath = decodeURIComponent(cleanPath.replace(/^file:\/\//i, ''));
+        } catch {
+            cleanPath = cleanPath.replace(/^file:\/\//i, '');
+        }
     }
+    // On Windows, if cleanPath starts with "/", e.g. "/C:/Users/...", remove the leading "/"
+    if (process.platform === 'win32' && cleanPath.startsWith('/') && cleanPath.includes(':')) {
+        cleanPath = cleanPath.substring(1);
+    }
+    return `local-media://${cleanPath}`;
 }
 
 function fileExists(filePath) {

@@ -14,12 +14,12 @@ async function refreshVWVoices() {
 
         if (data.voices && data.voices.length > 0) {
             select.innerHTML = data.voices.map(v => {
-                const shortId = v.voice_id ? v.voice_id.slice(0, 8) + '...' : '';
+                const shortId = v.voice_id ? escapeHtml(v.voice_id.slice(0, 8)) + '...' : '';
                 const catLabel = (typeof _voiceCategoryLabel === 'function')
                     ? _voiceCategoryLabel(v.category)
                     : (v.category === 'premade' ? '🆓 [免费]' : '💰 [付费]');
                 const cleanName = String(v.name || '').replace(/^\[[^\]]+\]\s*/, '');
-                return `<option value="${v.voice_id}" data-category="${v.category || 'premade'}" data-full-voice-id="${v.voice_id}">${catLabel} ${cleanName} (${shortId})</option>`;
+                return `<option value="${escapeHtml(v.voice_id)}" data-category="${escapeHtml(v.category || 'premade')}" data-full-voice-id="${escapeHtml(v.voice_id)}">${escapeHtml(catLabel)} ${escapeHtml(cleanName)} (${shortId})</option>`;
             }).join('');
 
             // 设置或刷新 Voice ID 提示行
@@ -63,7 +63,7 @@ function _setupVWVoiceTip(select) {
             const freeTag = isFree
                 ? '<span style="color:#00d9a5;font-size:10px;margin-left:6px;">✅ 免费API可用</span>'
                 : '<span style="color:#ff9f43;font-size:10px;margin-left:6px;">💳 需付费订阅</span>';
-            tip.innerHTML = `Voice ID: <span style="color:var(--text-primary);">${opt.value}</span>${freeTag}`;
+            tip.innerHTML = `Voice ID: <span style="color:var(--text-primary);">${escapeHtml(opt.value)}</span>${freeTag}`;
             tip.style.display = 'block';
         } else {
             tip.style.display = 'none';
@@ -219,7 +219,7 @@ function renderVWTasks() {
             <div style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(task.subtitleText)}">
                 <strong>[列2] AI字幕原文:</strong> ${escapeHtml(task.subtitleText.substring(0, 60).replace(/\n/g, ' | '))}${task.subtitleText.length > 60 ? '...' : ''}
             </div>
-            ${task.voiceId ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">音色: ${task.voiceId}</div>` : ''}
+            ${task.voiceId ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">音色: ${escapeHtml(task.voiceId)}</div>` : ''}
             <div style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:10px;color:var(--text-muted);">
                 <span style="min-width:30px;">配乐:</span>
                 <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(task.bgmPath || '')}">
