@@ -25,6 +25,13 @@ jobs:
               dist-electron/*.exe
               dist-electron/*.yml
               dist-electron/*.blockmap
+          - os: ubuntu-latest
+            platform: linux
+            build_cmd: npm run pack:linux-x64 -- -p never
+            artifact_pattern: |
+              dist-electron/*.deb
+              dist-electron/*.AppImage
+              dist-electron/*.tar.gz
 
     runs-on: ${{ matrix.os }}
 
@@ -88,6 +95,9 @@ jobs:
             dist-electron/*.dmg
             dist-electron/*.zip
             dist-electron/*.exe
+            dist-electron/*.deb
+            dist-electron/*.AppImage
+            dist-electron/*.tar.gz
             dist-electron/*.yml
             dist-electron/*.blockmap
 
