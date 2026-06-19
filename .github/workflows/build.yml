@@ -88,7 +88,7 @@ jobs:
         run: npm run build
       
       - name: 📦 打包 macOS (ARM64 + x64)
-        run: npx electron-builder --mac --arm64 --x64
+        run: npx electron-builder --mac --arm64 --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
@@ -200,7 +200,7 @@ jobs:
         run: npm run build
       
       - name: 📦 打包 Windows x64
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
@@ -265,7 +265,7 @@ jobs:
         run: npm run build
       
       - name: 📦 打包 Linux x64
-        run: npx electron-builder --linux --x64
+        run: npx electron-builder --linux --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
