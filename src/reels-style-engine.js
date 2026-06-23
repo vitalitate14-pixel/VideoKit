@@ -40,8 +40,8 @@ const DEFAULT_SUBTITLE_STYLE = {
     color_high: '#FFD700',      // current-word highlight color
     color_bg: '#000000',
     color_shadow: '#000000',
-    opacity_bg: 0.6,
-    opacity_shadow: 0.8,
+    opacity_bg: 150,
+    opacity_shadow: 150,
 
     // ── Background box ──
     use_box: false,
@@ -54,7 +54,7 @@ const DEFAULT_SUBTITLE_STYLE = {
     // ── Basic stroke ──
     use_stroke: true,
     border_width: 3,
-    opacity_outline: 1.0,
+    opacity_outline: 255,
     color_outline: '#3E2723',
 
     // ── Dynamic highlight box ──
@@ -76,6 +76,8 @@ const DEFAULT_SUBTITLE_STYLE = {
 
     // ── Shadow ──
     shadow_blur: 4,
+    shadow_offset_x: 0,
+    shadow_offset_y: 2,
 
     // ── Underline ──
     use_underline: false,
@@ -152,6 +154,13 @@ const DEFAULT_SUBTITLE_STYLE = {
     dyn_box_anim: false,
     dyn_box_anim_overshoot: 1.3,
     dyn_box_anim_duration: 0.15,
+
+    // ── Speed Trail ──
+    speed_trail_enabled: false,
+    speed_trail_layers: 5,
+    speed_trail_step: -8,
+    speed_trail_color: '#FFFFFF',
+    speed_trail_opacity: 80,
 
     // ── Phase 2 animations ──
     // Floating

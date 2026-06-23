@@ -307,6 +307,7 @@ async function reelsWysiwygExport(params) {
         contentVideoVolume = 1.0,
         contentVideoCrop = '',
         contentVideoBlurBg = false,
+        contentVideoDirectBg = false,
         contentVideoBlur = 40,
         contentVideoBrightness = 60,
         bgScale = 100,       // 背景图片缩放 (50~300%)
@@ -332,7 +333,7 @@ async function reelsWysiwygExport(params) {
     const isMultiClip = bgMode === 'multi' && Array.isArray(bgClipPool) && bgClipPool.length > 0;
 
     if (!canvas) throw new Error('需要提供 canvas');
-    if (!backgroundPath && !isMultiClip && !contentVideoBlurBg) throw new Error('缺少背景素材');
+    if (!backgroundPath && !isMultiClip && !contentVideoBlurBg && !contentVideoDirectBg) throw new Error('缺少背景素材');
     if (!outputPath) throw new Error('缺少输出路径');
     if (!window.electronAPI || !window.electronAPI.reelsComposeWysiwyg) {
         throw new Error('需要 reelsComposeWysiwyg IPC 接口');
@@ -536,8 +537,8 @@ async function reelsWysiwygExport(params) {
     if (params.alphaOverlayBgPath) {
         log('⚡ Alpha Overlay 模式激活：全面跳过底图解压与多层内存搬运！');
         progress(18);
-    } else if (contentVideoBlurBg) {
-        log('使用内容视频做高斯模糊背景，跳过背景预处理');
+    } else if (contentVideoBlurBg || contentVideoDirectBg) {
+        log('使用内容视频直接作为背景或模糊背景，跳过背景预处理');
         progress(18);
     } else {
         if (isMultiClip) {
@@ -769,7 +770,7 @@ async function reelsWysiwygExport(params) {
             }
 
             // 加载背景帧（兼容 jpg/png，优先使用内存预缓存）
-            if (!contentVideoBlurBg) {
+            if (!contentVideoBlurBg && !contentVideoDirectBg) {
                 const bgFrameIdx = Math.min(frameIdx, totalBgFrames - 1);
                 if (bgFrameIdx !== currentBgIdx) {
                     if (_bgFrameCache && _bgFrameCache[bgFrameIdx]) {
@@ -844,6 +845,9 @@ async function reelsWysiwygExport(params) {
                     ctx.filter = `blur(${blurVal}px) brightness(${brightnessVal})`;
                     _drawCroppedVideoCover(ctx, currentCvImg, cropX, cropY, cropW, cropH, targetWidth, targetHeight, bgScale, bgX, bgY, bgFlipH, bgFlipV);
                     ctx.restore();
+                } else if (contentVideoDirectBg && currentCvImg) {
+                    const { cropX, cropY, cropW, cropH } = _parseCropString(contentVideoCrop);
+                    _drawCroppedVideoCover(ctx, currentCvImg, cropX, cropY, cropW, cropH, targetWidth, targetHeight, bgScale, bgX, bgY, bgFlipH, bgFlipV);
                 } else if (currentBgImg) {
                     // 直接绘制（FFmpeg 预处理时已完成缩放与裁切）
                     ctx.drawImage(currentBgImg, 0, 0, targetWidth, targetHeight);
@@ -852,7 +856,7 @@ async function reelsWysiwygExport(params) {
 
 
             // ── 绘制合并内容视频 ──
-            if (contentVideoPath && currentCvImg) {
+            if (contentVideoPath && currentCvImg && !contentVideoDirectBg) {
                 const imgW = currentCvImg.naturalWidth || targetWidth;
                 const imgH = currentCvImg.naturalHeight || targetHeight;
                 const { cropX, cropY, cropW, cropH } = _parseCropString(contentVideoCrop);

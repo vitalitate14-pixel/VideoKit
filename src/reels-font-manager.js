@@ -301,11 +301,16 @@ class ReelsFontManager {
 
         // 3. 从 Google Fonts API 拉取
         try {
-            const resp = await fetch('https://fonts.google.com/metadata/fonts', {
-                signal: AbortSignal.timeout(8000),
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const text = await resp.text();
+            let text;
+            if (window.electronAPI && typeof window.electronAPI.fetchGoogleFonts === 'function') {
+                text = await window.electronAPI.fetchGoogleFonts();
+            } else {
+                const resp = await fetch('https://fonts.google.com/metadata/fonts', {
+                    signal: AbortSignal.timeout(8000),
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                text = await resp.text();
+            }
             // Google Fonts metadata 前面有 )]}' 安全前缀，需要去掉
             const jsonStr = text.replace(/^\)\]\}'\n?/, '');
             const data = JSON.parse(jsonStr);

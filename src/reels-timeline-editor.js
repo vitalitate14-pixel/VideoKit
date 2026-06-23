@@ -500,7 +500,7 @@ class ReelsTimelineEditor {
         // 1. 点击刻度尺 → seek
         if (my < TL_RULER_H) {
             this._drag = { type: 'playhead' };
-            this._seekToX(mx);
+            this._seekToX(mx, 'mousedown');
             return;
         }
 
@@ -545,6 +545,11 @@ class ReelsTimelineEditor {
             if (this.onClipSelect) this.onClipSelect(hitInfo.trackIdx, hitInfo.clipIdx, clip);
         } else {
             this._selectedClip = null;
+            // 点击轨道空白区域也触发 seek（更直觉的交互）
+            if (mx >= TL_HEADER_W) {
+                this._drag = { type: 'playhead' };
+                this._seekToX(mx, 'mousedown');
+            }
         }
     }
 
@@ -559,7 +564,7 @@ class ReelsTimelineEditor {
             const dt = dxPx / this._pxPerSec;
 
             if (this._drag.type === 'playhead') {
-                this._seekToX(mx);
+                this._seekToX(mx, 'mousemove');
                 return;
             }
 
@@ -604,7 +609,9 @@ class ReelsTimelineEditor {
     }
 
     _onMouseUp(e) {
+        const wasPlayheadDrag = this._drag && this._drag.type === 'playhead';
         this._drag = null;
+        if (wasPlayheadDrag && this.onSeek) this.onSeek(this._playheadPos, 'mouseup');
     }
 
     _onWheel(e) {
@@ -661,10 +668,10 @@ class ReelsTimelineEditor {
     // Helpers
     // ═══════════════════════════════════════════════
 
-    _seekToX(mx) {
+    _seekToX(mx, type) {
         const t = (mx - TL_HEADER_W + this._scrollX) / this._pxPerSec;
         this._playheadPos = Math.max(0, Math.min(this._duration, t));
-        if (this.onSeek) this.onSeek(this._playheadPos);
+        if (this.onSeek) this.onSeek(this._playheadPos, type);
     }
 
     /** 获取片段在屏幕上的绝对像素矩形 */

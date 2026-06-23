@@ -16,7 +16,7 @@ function resolveAssetUrl(fileName) {
     for (const p of candidates) {
         try {
             if (fs.existsSync(p)) {
-                return `local-media://${p}`;
+                return toFileUrl(p);
             }
         } catch { }
     }
@@ -35,9 +35,20 @@ function toFileUrl(filePath) {
             cleanPath = cleanPath.replace(/^file:\/\//i, '');
         }
     }
-    // On Windows, if cleanPath starts with "/", e.g. "/C:/Users/...", remove the leading "/"
-    if (process.platform === 'win32' && cleanPath.startsWith('/') && cleanPath.includes(':')) {
-        cleanPath = cleanPath.substring(1);
+    // Normalize backslashes to forward slashes for Windows compatibility
+    cleanPath = cleanPath.replace(/\\/g, '/');
+
+    if (process.platform === 'win32') {
+        // If it starts with "/" and a drive letter like "/C:", keep the slash so it becomes local-media:///C:...
+        // If it starts with "C:", prepend "/" so it also becomes local-media:///C:...
+        if (!cleanPath.startsWith('/') && /^[a-zA-Z]:/.test(cleanPath)) {
+            cleanPath = '/' + cleanPath;
+        }
+    } else {
+        // On macOS/Linux, ensure it starts with "/"
+        if (!cleanPath.startsWith('/')) {
+            cleanPath = '/' + cleanPath;
+        }
     }
     return `local-media://${cleanPath}`;
 }
@@ -46,15 +57,28 @@ function fileExists(filePath) {
     if (!filePath || typeof filePath !== 'string') return false;
     let p = filePath.trim();
     if (!p || /^blob:|^data:|^https?:/i.test(p)) return true;
-    if (/^file:\/\//i.test(p)) {
+    if (/^local-media:\/\//i.test(p)) {
+        try {
+            p = decodeURIComponent(p.replace(/^local-media:\/\//i, ''));
+        } catch {
+            p = p.replace(/^local-media:\/\//i, '');
+        }
+        if (process.platform === 'win32' && p.startsWith('/') && p.includes(':')) {
+            p = p.substring(1);
+        }
+    } else if (/^file:\/\//i.test(p)) {
         try {
             p = decodeURIComponent(p.replace(/^file:\/\//i, ''));
         } catch {
             p = p.replace(/^file:\/\//i, '');
         }
+        if (process.platform === 'win32' && p.startsWith('/') && p.includes(':')) {
+            p = p.substring(1);
+        }
     }
     try {
-        return fs.existsSync(p);
+        const resolved = path.resolve(p);
+        return fs.existsSync(resolved);
     } catch {
         return false;
     }
@@ -136,7 +160,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     reelsCompose: (opts) => ipcRenderer.invoke('reels-compose', opts),
     concatVideo: (opts) => ipcRenderer.invoke('concat-video', opts),
     reelsComposeWysiwyg: (action, data) => ipcRenderer.invoke('reels-compose-wysiwyg', action, data),
-    getMediaDuration: (filePath) => ipcRenderer.invoke('get-media-duration', filePath),
+    getMediaDuration: (filePath) => {
+        if (!filePath || typeof filePath !== 'string') return 0;
+        let cleanPath = filePath;
+        if (cleanPath.startsWith('local-media://')) {
+            cleanPath = cleanPath.replace(/^local-media:\/\//i, '');
+        }
+        if (process.platform === 'win32' && cleanPath.startsWith('/') && cleanPath.includes(':')) {
+            cleanPath = cleanPath.substring(1);
+        }
+        return ipcRenderer.invoke('get-media-duration', cleanPath);
+    },
     saveRenderedAudio: (wavData) => ipcRenderer.invoke('save-rendered-audio', wavData),
     readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
     // 分层 PNG 序列导出
@@ -166,6 +200,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // 扫描本地字体
     scanFonts: () => ipcRenderer.invoke('scan-fonts'),
+    fetchGoogleFonts: () => ipcRenderer.invoke('fetch-google-fonts'),
 
     // 读取文件内容
     readFileText: (filePath) => {

@@ -1825,6 +1825,10 @@ async function routeAPI(endpoint, data, progressSender = null) {
                         prefix = 'local-media://';
                         checkPath = checkPath.replace('local-media://', '');
                     }
+                    // On Windows, if checkPath starts with "/" and a drive letter (e.g. "/C:"), strip the leading "/"
+                    if (process.platform === 'win32' && checkPath.startsWith('/') && checkPath.includes(':')) {
+                        checkPath = checkPath.substring(1);
+                    }
                     if (checkPath.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(checkPath)) {
                         try {
                             if (fs.existsSync(checkPath) && fs.statSync(checkPath).isFile()) {

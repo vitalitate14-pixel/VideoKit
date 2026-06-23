@@ -8771,7 +8771,9 @@ function renderSceneFramesPreview(allResults) {
             }
 
             // 使用 file:// 协议展示本地图片
-            const imgSrc = window.electronAPI ? `local-media://${frame.output}` : `file://${frame.output}`;
+            const imgSrc = (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function')
+                ? window.electronAPI.toFileUrl(frame.output)
+                : `file://${frame.output}`;
             const sceneLabel = frame.scene ? `S${frame.scene}` : '';
             const frameLabel = frame.frame ? `f${frame.frame}` : `#${frame.index}`;
             const previewIndex = mediaFramePreviewItems.scene.length;
@@ -9879,7 +9881,9 @@ function renderSmartKfPreview(allResults) {
         const okFrames = frames.filter(f => f.status === 'ok');
         totalCount += okFrames.length;
         okFrames.forEach(frame => {
-            const imgSrc = window.electronAPI ? `local-media://${frame.output}` : `file://${frame.output}`;
+            const imgSrc = (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function')
+                ? window.electronAPI.toFileUrl(frame.output)
+                : `file://${frame.output}`;
             const borderColor = SKF_TYPE_COLORS[frame.type] || '#667eea';
             const typeLabel = SKF_TYPE_LABELS[frame.type] || frame.type;
             html += `<div style="position:relative;background:var(--bg-tertiary);border-radius:8px;overflow:hidden;border:2px solid ${borderColor}33;cursor:pointer;"
@@ -10945,7 +10949,9 @@ function displayUrlThumbnailResults(result) {
                 </div>`;
         } else {
             // 在 Electron 中使用 file:// 协议显示图片
-            const imgSrc = window.electronAPI ? `local-media://${r.output}` : '';
+            const imgSrc = (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function')
+                ? window.electronAPI.toFileUrl(r.output)
+                : '';
             const fileName = r.output.split('/').pop();
             gridEl.innerHTML += `
                 <div style="border-radius:8px; overflow:hidden; background:var(--bg-tertiary);
@@ -12623,7 +12629,7 @@ function _showAutoEditMismatchDialog(mismatches, scriptText, missingBlocks = [])
                 .map(card => missingBlocks[parseInt(card.dataset.missingIdx, 10)])
                 .filter(Boolean);
             window.showAutoEditModalLoading('🚀 正在应用您的修改并重新对齐，请稍候...');
-            resolve({ clipEdits, ignoredMissingBlocks });
+            resolve({ clipEdits, ignoredMissingBlocks, confirmed: true });
         });
     });
 }
@@ -12848,7 +12854,7 @@ async function startAutoEditByScript(isRetry = false, options = {}) {
                 const dialogResult = await _showAutoEditMismatchDialog(mismatches, scriptText, mismatchData.missingBlocks || []);
                 const clipEdits = Array.isArray(dialogResult) ? dialogResult : (dialogResult?.clipEdits || []);
                 const ignoredMissingBlocks = Array.isArray(dialogResult) ? [] : (dialogResult?.ignoredMissingBlocks || []);
-                if (dialogResult && (clipEdits.length > 0 || ignoredMissingBlocks.length > 0)) {
+                if (dialogResult && (dialogResult.confirmed || clipEdits.length > 0 || ignoredMissingBlocks.length > 0)) {
                     const rawLines = scriptText.replace(/\r\n/g, '\n').split('\n');
                     const cleanedToRawIndex = [];
                     for (let i = 0; i < rawLines.length; i++) {
@@ -13188,7 +13194,9 @@ window.playVideoClip = function(filePath, startVal = 0, endVal = 0) {
     titleBar.appendChild(titleEl);
     titleBar.appendChild(closeBtn);
     
-    const videoUrl = window.electronAPI ? `local-media://${filePath}` : `file://${filePath}`;
+    const videoUrl = (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function')
+        ? window.electronAPI.toFileUrl(filePath)
+        : `file://${filePath}`;
     const videoEl = document.createElement('video');
     videoEl.src = videoUrl;
     videoEl.controls = true;
@@ -13279,7 +13287,7 @@ window.reopenAutoEditMismatchDialog = function() {
         if (!dialogResult) return;
         const clipEdits = Array.isArray(dialogResult) ? dialogResult : (dialogResult?.clipEdits || []);
         const ignoredMissingBlocks = Array.isArray(dialogResult) ? [] : (dialogResult?.ignoredMissingBlocks || []);
-        if (clipEdits.length > 0 || ignoredMissingBlocks.length > 0) {
+        if (dialogResult && (dialogResult.confirmed || clipEdits.length > 0 || ignoredMissingBlocks.length > 0)) {
             const rawLines = scriptText.replace(/\r\n/g, '\n').split('\n');
             const cleanedToRawIndex = [];
             for (let i = 0; i < rawLines.length; i++) {

@@ -208,6 +208,7 @@ async function reelsLayeredExport(params) {
         contentVideoY = 'center',
         contentVideoCrop = '',
         contentVideoBlurBg = false,
+        contentVideoDirectBg = false,
         contentVideoBlur = 40,
         contentVideoBrightness = 60,
         bgScale = 100,
@@ -227,7 +228,7 @@ async function reelsLayeredExport(params) {
     const isMultiClip = bgMode === 'multi' && Array.isArray(bgClipPool) && bgClipPool.length > 0;
 
     if (!canvas) throw new Error('需要提供 canvas');
-    if (!backgroundPath && !isMultiClip && !contentVideoBlurBg) throw new Error('缺少背景素材');
+    if (!backgroundPath && !isMultiClip && !contentVideoBlurBg && !contentVideoDirectBg) throw new Error('缺少背景素材');
     if (!outputDir) throw new Error('缺少输出目录');
     if (!window.electronAPI) throw new Error('需要 Electron API');
 
@@ -371,7 +372,7 @@ async function reelsLayeredExport(params) {
     let totalBgFrames = 0;
     let bgAudioPath = null;
 
-    if (!contentVideoBlurBg) {
+    if (!contentVideoBlurBg && !contentVideoDirectBg) {
         log('阶段1: FFmpeg 预处理背景视频...');
         progress(5);
 
@@ -497,7 +498,7 @@ async function reelsLayeredExport(params) {
             }
 
             // ── 加载背景帧 ──
-            if (!contentVideoBlurBg) {
+            if (!contentVideoBlurBg && !contentVideoDirectBg) {
                 const bgFrameIdx = Math.min(frameIdx, totalBgFrames - 1);
                 if (bgFrameIdx !== currentBgIdx) {
                     const padRef = String(bgFrameIdx + 1).padStart(6, '0');
@@ -565,13 +566,16 @@ async function reelsLayeredExport(params) {
                 ctx.filter = `blur(${blurVal}px) brightness(${brightnessVal})`;
                 _drawCroppedVideoCover(ctx, currentCvImg, cropX, cropY, cropW, cropH, targetWidth, targetHeight, bgScale, bgX, bgY, bgFlipH, bgFlipV);
                 ctx.restore();
+            } else if (contentVideoDirectBg && currentCvImg) {
+                const { cropX, cropY, cropW, cropH } = _parseCropString(contentVideoCrop);
+                _drawCroppedVideoCover(ctx, currentCvImg, cropX, cropY, cropW, cropH, targetWidth, targetHeight, bgScale, bgX, bgY, bgFlipH, bgFlipV);
             } else if (currentBgImg) {
                 // 直接绘制（FFmpeg 预处理时已完成缩放、裁切与翻转）
                 ctx.drawImage(currentBgImg, 0, 0, targetWidth, targetHeight);
             }
 
             // 内容视频
-            if (contentVideoPath && currentCvImg) {
+            if (contentVideoPath && currentCvImg && !contentVideoDirectBg) {
                 const imgW = currentCvImg.naturalWidth || targetWidth;
                 const imgH = currentCvImg.naturalHeight || targetHeight;
                 const { cropX, cropY, cropW, cropH } = _parseCropString(contentVideoCrop);

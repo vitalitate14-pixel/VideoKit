@@ -156,6 +156,7 @@ ipcRenderer.on('render-chunk', async (event, config) => {
         contentVideoY,
         contentVideoCrop,
         contentVideoBlurBg,
+        contentVideoDirectBg,
         // FFmpeg session params (纯视频，无音频)
         sessionParams,
     } = config;
@@ -295,6 +296,9 @@ ipcRenderer.on('render-chunk', async (event, config) => {
                 ctx.filter = 'blur(40px) brightness(0.6)';
                 _drawCroppedVideoCover(ctx, cvMemoryNode, cropX, cropY, cropW, cropH, targetWidth, targetHeight, bgScale || 100, bgX || 0, bgY || 0);
                 ctx.restore();
+            } else if (contentVideoDirectBg && cvMemoryNode && cvMemoryRawDur > 0) {
+                const { cropX, cropY, cropW, cropH } = _parseCropString(contentVideoCrop);
+                _drawCroppedVideoCover(ctx, cvMemoryNode, cropX, cropY, cropW, cropH, targetWidth, targetHeight, bgScale || 100, bgX || 0, bgY || 0);
             } else if (bgMemoryNode) {
                 const ptsFactor = (bgDurScale || 100) / 100;
                 let t_bg = (t / ptsFactor) % bgMemoryRawDur;
@@ -319,7 +323,7 @@ ipcRenderer.on('render-chunk', async (event, config) => {
             }
 
             // ── 内容视频 ──
-            if (cvMemoryNode && cvMemoryRawDur > 0) {
+            if (cvMemoryNode && cvMemoryRawDur > 0 && !contentVideoDirectBg) {
                 const imgW = cvMemoryNode.videoWidth || targetWidth;
                 const imgH = cvMemoryNode.videoHeight || targetHeight;
                 const { cropX, cropY, cropW, cropH } = _parseCropString(contentVideoCrop);

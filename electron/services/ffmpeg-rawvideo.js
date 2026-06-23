@@ -2062,6 +2062,7 @@ async function parallelExport(opts, mainWindow) {
                     contentVideoY: params.contentVideoY,
                     contentVideoCrop: params.contentVideoCrop,
                     contentVideoBlurBg: params.contentVideoBlurBg,
+                    contentVideoDirectBg: params.contentVideoDirectBg,
                     sessionParams,
                 });
             };

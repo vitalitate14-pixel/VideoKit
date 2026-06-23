@@ -4,12 +4,12 @@
 
 ## 当前发布版本
 
-- 最新版本：v4.4.4
-- Release 页面：https://github.com/secure-artifacts/VideoKit/releases/tag/v4.4.4
-- Windows 安装包：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-Setup-4.4.4-Windows%20(win).exe
-- macOS M-series (arm64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-4.4.4-macOS%20M-series%20(arm64).dmg
-- macOS Intel (x64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-4.4.4-macOS%20Intel%20(x64).dmg
-- Linux AppImage：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.4/VideoKit-4.4.4-Linux%20(linux).AppImage
+- 最新版本：v4.4.5
+- Release 页面：https://github.com/secure-artifacts/VideoKit/releases/tag/v4.4.5
+- Windows 安装包：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-Setup-4.4.5-Windows%20(win).exe
+- macOS M-series (arm64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-4.4.5-macOS%20M-series%20(arm64).dmg
+- macOS Intel (x64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-4.4.5-macOS%20Intel%20(x64).dmg
+- Linux AppImage：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-4.4.5-Linux%20(linux).AppImage
 
 ## 如何发布新版本
 

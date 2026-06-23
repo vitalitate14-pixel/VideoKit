@@ -3808,8 +3808,17 @@ class ReelsOverlayPanel {
         const grid = this.container.querySelector('#rop-card-mask-grid');
         if (!grid) return;
         grid.style.opacity = enabled ? '' : '0.45';
+        const transformIds = new Set([
+            'rop-card-x',
+            'rop-card-y',
+            'rop-card-width',
+            'rop-card-height',
+        ]);
         grid.querySelectorAll('input, select, textarea, button').forEach((el) => {
-            el.disabled = !enabled;
+            const id = el.id || '';
+            const linkedId = el.dataset ? (el.dataset.link || el.dataset.target || '') : '';
+            const isTransformControl = transformIds.has(id) || transformIds.has(linkedId);
+            el.disabled = !enabled && !isTransformControl;
         });
     }
 

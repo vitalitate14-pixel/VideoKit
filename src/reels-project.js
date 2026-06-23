@@ -25,7 +25,7 @@ const REELS_TASK_EXTRA_FIELDS = [
     'contentVideoPath', 'contentVideoTrimStart', 'contentVideoTrimEnd',
     'contentVideoScale', 'contentVideoX', 'contentVideoY', 'contentVideoVolume',
     'contentVideoFlipH', 'contentVideoFlipV',
-    'contentVideoCrop', 'contentVideoBlurBg', 'contentVideoBlur', 'contentVideoBrightness',
+    'contentVideoCrop', 'contentVideoBlurBg', 'contentVideoDirectBg', 'contentVideoBlur', 'contentVideoBrightness',
     'overlays', 'cover', 'watermarks',
     'pipPath',
     'hookFile', 'hookTrimStart', 'hookTrimEnd', 'hookSpeed',

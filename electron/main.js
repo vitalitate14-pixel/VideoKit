@@ -197,6 +197,43 @@ function createWindow() {
     if (!app.isPackaged) {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools();
+
+        // ── 开发者热启动与热重载机制 (Hot Reload / Relaunch) ──
+        if (!global._isWatching) {
+            global._isWatching = true;
+            const fs = require('fs');
+
+            // 监听主进程目录 (electron/) 变化 ➔ 自动重启 Electron 应用
+            let relaunchTimeout;
+            const electronDir = path.join(__dirname);
+            fs.watch(electronDir, { recursive: true }, (eventType, filename) => {
+                if (filename && (filename.endsWith('.js') || filename.endsWith('.json') || filename.endsWith('.html'))) {
+                    clearTimeout(relaunchTimeout);
+                    relaunchTimeout = setTimeout(() => {
+                        log(`[HotReload] 主进程文件改变: ${filename}，正在重启 Electron...`);
+                        app.relaunch();
+                        app.exit(0);
+                    }, 300);
+                }
+            });
+
+            // 监听渲染进程目录 (src/) 变化 ➔ 自动重载/刷新浏览器窗口
+            let reloadTimeout;
+            const srcDir = path.join(__dirname, '..', 'src');
+            if (fs.existsSync(srcDir)) {
+                fs.watch(srcDir, { recursive: true }, (eventType, filename) => {
+                    if (filename && (filename.endsWith('.js') || filename.endsWith('.css') || filename.endsWith('.html'))) {
+                        clearTimeout(reloadTimeout);
+                        reloadTimeout = setTimeout(() => {
+                            log(`[HotReload] 渲染进程文件改变: ${filename}，正在刷新页面...`);
+                            if (mainWindow && !mainWindow.isDestroyed()) {
+                                mainWindow.webContents.reloadIgnoringCache();
+                            }
+                        }, 300);
+                    }
+                });
+            }
+        }
     } else {
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     }
@@ -215,7 +252,8 @@ app.whenReady().then(async () => {
         // 不用 standard:true → URL 不会被解析为 host/path 格式
         // local-media:///Users/ww/file.mp4 → 直接截取 scheme 后的路径
         const afterScheme = request.url.replace(/^local-media:\/\//, '');
-        let filePath = decodeURIComponent(afterScheme);
+        const cleanPath = afterScheme.split('?')[0].split('#')[0];
+        let filePath = decodeURIComponent(cleanPath);
         // On Windows, if filePath starts with "/" followed by a drive letter (e.g. "/C:"), remove the leading "/"
         if (process.platform === 'win32' && filePath.startsWith('/') && filePath.includes(':')) {
             filePath = filePath.substring(1);
@@ -248,9 +286,18 @@ app.whenReady().then(async () => {
             }
 
             const fileUrl = pathToFileURL(resolved).href;
-            return net.fetch(fileUrl, {
+            const response = await net.fetch(fileUrl, {
                 method: request.method,
                 headers: request.headers
+            });
+            const newHeaders = new Headers(response.headers);
+            newHeaders.set('Access-Control-Allow-Origin', '*');
+            newHeaders.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
+            newHeaders.set('Access-Control-Allow-Headers', '*');
+            return new Response(response.body, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: newHeaders
             });
         } catch (e) {
             console.error('[local-media] Error:', e.message, 'File:', resolved);
@@ -376,6 +423,9 @@ app.whenReady().then(async () => {
         const settingsService = require('./services/settings');
         const assPath = settingsService.secureTmpFile('reels_sub', '.ass');
 
+        if (!outputPath) throw new Error('缺少输出路径');
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
         // Write ASS content to temp file
         fs.writeFileSync(assPath, assContent, 'utf-8');
         log(`[Reels] Burning subtitles: ${videoPath} → ${outputPath}`);
@@ -413,7 +463,7 @@ app.whenReady().then(async () => {
 
             const args = [
                 '-i', videoPath,
-                '-vf', `ass='${assPath.replace(/'/g, "'\\''")}' `,
+                '-vf', `ass='${ffmpegService.escapeAssPathForFilter(assPath)}'`,
                 '-c:a', 'copy',
                 '-c:v', vcodec,
                 ...encoderArgs,
@@ -598,6 +648,22 @@ app.whenReady().then(async () => {
     ipcMain.handle('open-external-url', (event, url) => {
         if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
             shell.openExternal(url);
+        }
+    });
+
+    // IPC: 获取 Google Fonts 目录，绕过 CORS
+    ipcMain.handle('fetch-google-fonts', async () => {
+        try {
+            const { net } = require('electron');
+            const response = await net.fetch('https://fonts.google.com/metadata/fonts', {
+                signal: AbortSignal.timeout(8000),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const text = await response.text();
+            return text;
+        } catch (err) {
+            console.error('[Fonts] fetch-google-fonts failed:', err.message);
+            throw err;
         }
     });
 

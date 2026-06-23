@@ -454,6 +454,9 @@ function _normalizeLocalMediaPath(p) {
     if (!p || typeof p !== 'string') return '';
     if (/^(local-media|file|https?|blob|data):/i.test(p)) return p;
     if (p.startsWith('/') || /^[a-zA-Z]:[/\\]/i.test(p)) {
+        if (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function') {
+            return window.electronAPI.toFileUrl(p);
+        }
         return `local-media://${p}`;
     }
     return p;
@@ -939,7 +942,7 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
     if (_applySharedAnim && window.ReelsAnimEngine && (inType !== 'none' || outType !== 'none')) {
         const inDur = inType !== 'none' ? parseFloat(ov.anim_in_duration || 0.3) : 0;
         const outDur = outType !== 'none' ? parseFloat(ov.anim_out_duration || 0.3) : 0;
-        const { inProgress, outProgress } = ReelsAnimEngine.computeAnimProgress(
+        const [inProgress, outProgress] = ReelsAnimEngine.computeAnimProgress(
             currentTime, start, end, inDur, outDur
         );
 
@@ -1077,7 +1080,7 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
         if (ov._currentFrameImage) {
             drawable = ov._currentFrameImage;
         } else {
-            drawable = _getCachedImage(`local-media://${fPath}`); 
+            drawable = _getCachedImage(_normalizeLocalMediaPath(fPath)); 
         }
     } else {
         // ═══ 预览模式：使用 <video> 或 GIF 解码器 ═══
@@ -1118,15 +1121,15 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
                 if (!timeAdvancing) {
                     // 预览暂停中 → 暂停覆层视频，seek 到目标帧
                     if (!vid.paused) vid.pause();
-                    if (Math.abs(vid.currentTime - targetTime) > 0.05) {
+                    if (!vid.seeking && Math.abs(vid.currentTime - targetTime) > 0.05) {
                         vid.currentTime = targetTime;
                     }
                 } else {
                     // 预览播放中 → 让视频自由播放，仅在大跳转时 seek
                     if (vid.paused && document.visibilityState === 'visible') {
-                        vid.currentTime = targetTime;
+                        if (!vid.seeking) vid.currentTime = targetTime;
                         vid.play().catch(e => {});
-                    } else if (Math.abs(vid.currentTime - targetTime) > 0.5) {
+                    } else if (!vid.seeking && Math.abs(vid.currentTime - targetTime) > 0.5) {
                         // 大的时间跳转（用户拖动进度条等）
                         vid.currentTime = targetTime;
                     }
@@ -1572,7 +1575,7 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
     if (window.ReelsAnimEngine && (inType !== 'none' || outType !== 'none')) {
         const inDur = inType !== 'none' ? parseFloat(ov.anim_in_duration || 0.3) : 0;
         const outDur = outType !== 'none' ? parseFloat(ov.anim_out_duration || 0.3) : 0;
-        const { inProgress, outProgress } = ReelsAnimEngine.computeAnimProgress(
+        const [inProgress, outProgress] = ReelsAnimEngine.computeAnimProgress(
             currentTime, start, end, inDur, outDur
         );
         if (inType === 'fade') animOpFactor *= inProgress;
@@ -2339,7 +2342,7 @@ function _drawSolidMaskOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTim
     if (window.ReelsAnimEngine && (inType !== 'none' || outType !== 'none')) {
         const inDur = inType !== 'none' ? parseFloat(ov.anim_in_duration || 0.3) : 0;
         const outDur = outType !== 'none' ? parseFloat(ov.anim_out_duration || 0.3) : 0;
-        const { inProgress, outProgress } = ReelsAnimEngine.computeAnimProgress(
+        const [inProgress, outProgress] = ReelsAnimEngine.computeAnimProgress(
             currentTime, start, end, inDur, outDur
         );
         if (inType === 'fade') animOpFactor *= inProgress;

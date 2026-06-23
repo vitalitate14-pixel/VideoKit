@@ -107,6 +107,13 @@ const _batchTableState = {
     selectedRows: new Set(),
     actionsCollapsed: false,
     mediaPoolOpen: false,
+    // ── 当前活跃编辑的覆层卡片状态 ──
+    _activeTextcardId: null,
+    _activeTextcardName: '',
+    _activeTextcardIdx: 0,
+    _activeScrollId: null,
+    _activeScrollName: '',
+    _activeScrollIdx: 0,
     // ── 工程管理 ──
     projectDir: '',
     projectName: 'UntitledProject.json',
@@ -398,6 +405,17 @@ function reelsToggleBatchTable(options = {}) {
     const saveOnClose = options.saveOnClose !== false;
     _batchTableState.visible = !_batchTableState.visible;
     if (_batchTableState.visible) {
+        // 同步当前画布图层到活跃任务
+        if (window._reelsState && window._reelsState.selectedIdx >= 0) {
+            const curTask = window._reelsState.tasks[window._reelsState.selectedIdx];
+            if (curTask && window._reelsState.overlayProxy && window._reelsState.overlayProxy.overlayMgr) {
+                if (window._reelsState._coverEditMode && curTask.cover) {
+                    curTask.cover.overlays = [...(window._reelsState.overlayProxy.overlayMgr.overlays || [])];
+                } else {
+                    curTask.overlays = [...(window._reelsState.overlayProxy.overlayMgr.overlays || [])];
+                }
+            }
+        }
         // DEBUG
         const _dbg = (window._reelsState?.tasks || []).slice(0, 3).map((t, i) => `[${i}]bgScale=${t.bgScale}`);
         console.log('[BatchTable.toggle] 打开表格，当前 tasks:', _dbg.join(', '));
@@ -741,6 +759,48 @@ function _renderBatchTable() {
         _batchAutoSave();
     }
     const tasks = state.tasks || [];
+
+    // ── 自动校验与初始化当前活跃的覆层图层 ──
+    const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+    const textcards = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && (o.type === 'textcard' || !o.type || o.type === '')) : [];
+    const scrolls = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && o.type === 'scroll') : [];
+
+    const activeTextcards = textcards.length > 0 ? textcards : [{ id: 'default', name: '卡片1' }];
+    const activeScrolls = scrolls.length > 0 ? scrolls : [{ id: 'default', name: '滚动1' }];
+
+    if (textcards.length > 0) {
+        let currentActive = textcards.find(o => o.id === _batchTableState._activeTextcardId);
+        if (!currentActive && _batchTableState._activeTextcardName) {
+            currentActive = textcards.find(o => o.name === _batchTableState._activeTextcardName);
+        }
+        if (!currentActive) {
+            currentActive = textcards[0];
+        }
+        _batchTableState._activeTextcardId = currentActive.id || null;
+        _batchTableState._activeTextcardName = currentActive.name || '';
+        _batchTableState._activeTextcardIdx = textcards.indexOf(currentActive);
+    } else {
+        _batchTableState._activeTextcardId = null;
+        _batchTableState._activeTextcardName = '';
+        _batchTableState._activeTextcardIdx = 0;
+    }
+
+    if (scrolls.length > 0) {
+        let currentActive = scrolls.find(o => o.id === _batchTableState._activeScrollId);
+        if (!currentActive && _batchTableState._activeScrollName) {
+            currentActive = scrolls.find(o => o.name === _batchTableState._activeScrollName);
+        }
+        if (!currentActive) {
+            currentActive = scrolls[0];
+        }
+        _batchTableState._activeScrollId = currentActive.id || null;
+        _batchTableState._activeScrollName = currentActive.name || '';
+        _batchTableState._activeScrollIdx = scrolls.indexOf(currentActive);
+    } else {
+        _batchTableState._activeScrollId = null;
+        _batchTableState._activeScrollName = '';
+        _batchTableState._activeScrollIdx = 0;
+    }
     const activeTab = _getActiveTab();
     const exportNamingMode = localStorage.getItem('reels_naming_mode') || 'text';
 
@@ -897,8 +957,16 @@ function _renderBatchTable() {
                         <button id="reels-naming-config-btn" style="display:${(exportNamingMode === 'index' || exportNamingMode === 'date-auto') ? 'inline-block' : 'none'};background:none;border:none;color:#aaa;cursor:pointer;font-size:11px;padding:0;margin-left:2px;" title="配置命名规则">⚙️</button>
                         <span style="color:rgba(255,255,255,0.2);margin:0 2px;">|</span>
                         <button class="rbt-btn" id="rbt-paste-txtcontent" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从剪贴板粘贴到人声-断行文案列">粘贴人声-断行文案</button>
-                        <button class="rbt-btn" id="rbt-paste-btn" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴覆层文案(支持标题/内容/结尾多列格式)">粘贴覆层文案</button>
-                        <button class="rbt-btn" id="rbt-paste-scroll-btn" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格批量粘贴滚动字幕">粘贴滚动字幕</button>
+                        ${textcards.length > 0 ? textcards.map((ov, oIdx) => `
+                            <button class="rbt-btn rbt-paste-card-btn" data-card-id="${ov.id}" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴文案到该卡片(支持标题/内容/结尾多列格式)">粘贴覆层文案-${_escHtml(ov.name || `卡片${oIdx + 1}`)}</button>
+                        `).join('') : `
+                            <button class="rbt-btn rbt-paste-card-btn" data-card-id="" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴文案并自动创建卡片">粘贴覆层文案</button>
+                        `}
+                        ${scrolls.length > 0 ? scrolls.map((ov, oIdx) => `
+                            <button class="rbt-btn rbt-paste-scroll-btn-tiled" data-scroll-id="${ov.id}" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格批量粘贴滚动字幕到该图层">粘贴滚动字幕-${_escHtml(ov.name || `滚动${oIdx + 1}`)}</button>
+                        `).join('') : `
+                            <button class="rbt-btn rbt-paste-scroll-btn-tiled" data-scroll-id="" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴滚动字幕并自动创建滚动层">粘贴滚动字幕</button>
+                        `}
                         <button class="rbt-btn" id="rbt-paste-clip-ab" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="A/B双版文案">粘贴剪辑文案 (A/B版)</button>
                         <button class="rbt-btn" id="rbt-bulk-create-btn" style="padding:2px 8px;font-size:11px;background:rgba(124,92,255,0.15);border:1px solid rgba(124,92,255,0.3);color:#b8a0ff;font-weight:600;" title="类似Canva大量制作：表格数据 × 覆层模板 = 批量任务">🧩 大量制作</button>
                         <button class="rbt-btn" id="rbt-import-material-groups-btn" style="padding:2px 8px;font-size:11px;background:rgba(76,158,255,0.12);border:1px solid rgba(76,158,255,0.3);color:#8fc7ff;" title="选择总文件夹；一级子文件夹各生成一行：音频 + 多视频拼接循环">📦 导入素材组</button>
@@ -915,6 +983,7 @@ function _renderBatchTable() {
                         <button class="rbt-btn" id="rbt-apply-batch-basic" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;">应用基础</button>
                         <span style="color:rgba(255,255,255,0.2);margin:0 2px;">|</span>
                         <span class="rbt-batch-subgroup">配乐</span>
+                        <button class="rbt-btn" id="rbt-set-bgm-btn" style="padding:2px 8px;font-size:11px;background:rgba(155,89,182,0.15);border:1px solid rgba(155,89,182,0.3);color:#b8a0ff;margin-right:4px;" title="批量设置同一个本地配乐文件到勾选配乐框（或全部）的行">批量设置配乐文件</button>
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#ccc;" title="批量设置配乐音量；留空表示不改">配乐音量
                             <input type="number" id="rbt-batch-bgmvol" min="0" max="1000" step="5" placeholder="%" style="width:45px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#ccc;padding:2px;font-size:11px;text-align:center;">
                         </label>
@@ -975,11 +1044,12 @@ function _renderBatchTable() {
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#ccc;" title="批量设置内容视频音量；留空表示不改">视频音量
                             <input type="number" id="rbt-batch-cvvol" min="0" max="1000" step="5" placeholder="%" style="width:45px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#ccc;padding:2px;font-size:11px;text-align:center;">
                         </label>
-                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#ccc;" title="批量开启/关闭毛玻璃背景">毛玻璃
-                            <select id="rbt-batch-cvblurbg" class="rbt-select" style="width:55px;height:20px;font-size:11px;padding:0 2px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#ccc;">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#ccc;" title="批量设置背景模式">背景模式
+                            <select id="rbt-batch-cvbgmode" class="rbt-select" style="width:75px;height:20px;font-size:11px;padding:0 2px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#ccc;">
                                 <option value="keep">保持</option>
-                                <option value="on">开启</option>
-                                <option value="off">关闭</option>
+                                <option value="none">无/常规</option>
+                                <option value="blur">毛玻璃</option>
+                                <option value="direct">直接背景</option>
                             </select>
                         </label>
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#ccc;" title="批量设置毛玻璃模糊半径 (px)">模糊
@@ -1130,7 +1200,7 @@ function _renderBatchTable() {
                             <th class="rbt-col-bgscale rbt-grp-video"><div class="rbt-th-wrap"><span>背景缩放</span><button class="rbt-th-clear" data-clear-col="bgScale" title="清空该列">清</button></div></th>
                             <th class="rbt-col-bgdurscale rbt-grp-video"><div class="rbt-th-wrap"><span>背景时长</span><button class="rbt-th-clear" data-clear-col="bgDurScale" title="清空该列">清</button></div></th>
                             <th class="rbt-col-bgvol rbt-grp-video"><div class="rbt-th-wrap"><span>背景音量</span><button class="rbt-th-clear" data-clear-col="bgVideoVolume" title="重置为全局值">清</button></div></th>
-                            <th class="rbt-col-bgm rbt-grp-video"><div class="rbt-th-wrap"><span>配乐</span><button class="rbt-th-folder" data-folder-col="bgm" title="选择文件夹批量分配">📁</button><button class="rbt-th-clear" data-clear-col="bgm" title="清空该列">清</button></div></th>
+                            <th class="rbt-col-bgm rbt-grp-video"><div class="rbt-th-wrap"><input type="checkbox" id="rbt-bgm-select-all" title="全选/取消全选配乐勾选框" style="margin:0;transform:scale(0.85);margin-right:3px;"><span>配乐</span><button class="rbt-th-folder" data-folder-col="bgm" title="选择文件夹批量分配">📁</button><button class="rbt-th-clear" data-clear-col="bgm" title="清空该列">清</button></div></th>
 
                             <!-- 🎬 内容视频 (Cyan) -->
                             <th class="rbt-col-contentvideo rbt-grp-cv"><div class="rbt-th-wrap"><span>内容视频</span><button class="rbt-th-folder" data-folder-col="contentvideo" title="选择文件夹批量分配">📁</button><button class="rbt-th-clear" data-clear-col="contentvideo" title="清空该列">清</button></div></th>
@@ -1153,16 +1223,28 @@ function _renderBatchTable() {
 
                             <!-- 🟧 覆层 (Amber) -->
                             <th class="rbt-col-pip rbt-grp-ovl"><div class="rbt-th-wrap"><span>图像覆层</span><button class="rbt-th-folder" data-folder-col="pip" title="选择文件夹批量分配">📁</button><button class="rbt-th-clear" data-clear-col="pip" title="清空该列">清</button></div></th>
-                            <th class="rbt-col-title rbt-grp-ovl"><div class="rbt-th-wrap"><span>覆层标题</span><button class="rbt-th-paste" data-paste-col="overlay_title" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_title" title="清空该列">清</button></div></th>
-                            <th class="rbt-col-body rbt-grp-ovl"><div class="rbt-th-wrap"><span>覆层内容</span><button class="rbt-th-paste" data-paste-col="overlay_body" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_body" title="清空该列">清</button></div></th>
-                            <th class="rbt-col-footer rbt-grp-ovl"><div class="rbt-th-wrap"><span>覆层结尾</span><button class="rbt-th-paste" data-paste-col="overlay_footer" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_footer" title="清空该列">清</button></div></th>
-                            <th class="rbt-col-scroll-title rbt-grp-ovl"><div class="rbt-th-wrap"><span>滚动标题</span><button class="rbt-th-paste" data-paste-col="scroll_title" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="scroll_title" title="清空该列">清</button></div></th>
-                            <th class="rbt-col-scroll-body rbt-grp-ovl"><div class="rbt-th-wrap"><span>滚动内容</span><button class="rbt-th-paste" data-paste-col="scroll_body" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="scroll_body" title="清空该列">清</button></div></th>
+                            ${activeTextcards.map((ov, oIdx) => {
+                                const cardName = ov.name || `卡片${oIdx + 1}`;
+                                const targetId = ov.id || 'default';
+                                return `
+                                    <th class="rbt-col-title rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>覆层标题-${_escHtml(cardName)}</span><button class="rbt-th-paste" data-paste-col="overlay_title_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_title_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-body rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>覆层内容-${_escHtml(cardName)}</span><button class="rbt-th-paste" data-paste-col="overlay_body_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_body_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-footer rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>覆层结尾-${_escHtml(cardName)}</span><button class="rbt-th-paste" data-paste-col="overlay_footer_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_footer_${targetId}" title="清空该列">清</button></div></th>
+                                `;
+                            }).join('')}
+                            ${activeScrolls.map((ov, oIdx) => {
+                                const scrollName = ov.name || `滚动${oIdx + 1}`;
+                                const targetId = ov.id || 'default';
+                                return `
+                                    <th class="rbt-col-scroll-title rbt-grp-ovl" data-scroll-id="${targetId}"><div class="rbt-th-wrap"><span>滚动标题-${_escHtml(scrollName)}</span><button class="rbt-th-paste" data-paste-col="scroll_title_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="scroll_title_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-scroll-body rbt-grp-ovl" data-scroll-id="${targetId}"><div class="rbt-th-wrap"><span>滚动内容-${_escHtml(scrollName)}</span><button class="rbt-th-paste" data-paste-col="scroll_body_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="scroll_body_${targetId}" title="清空该列">清</button></div></th>
+                                `;
+                            }).join('')}
                             <th class="rbt-col-subtime rbt-grp-ovl"><div class="rbt-th-wrap"><span>字幕时间</span><button class="rbt-th-clear" data-clear-col="subtitleTime" title="重置为全时段">清</button></div></th>
                         </tr>
                     </thead>
                     <tbody id="rbt-tbody">
-                        ${tasks.map((t, i) => _renderBatchRow(t, i, subtitlePresets, cardTemplates)).join('')}
+                        ${tasks.map((t, i) => _renderBatchRow(t, i, subtitlePresets, cardTemplates, activeTextcards, activeScrolls)).join('')}
                     </tbody>
                 </table>
             </div>
@@ -1327,6 +1409,7 @@ function _renderBatchTable() {
         newScrollWrap.scrollTop = _savedScrollTop;
         newScrollWrap.scrollLeft = _savedScrollLeft;
     }
+    _hydrateBatchVideoThumbnails(container);
     _scheduleFitBatchTableToViewport();
   } catch (fatalErr) {
     console.error('[BatchTable] _renderBatchTable FATAL:', fatalErr);
@@ -1335,6 +1418,61 @@ function _renderBatchTable() {
       if (c) c.innerHTML = `<div style="padding:20px;color:#f66;font-size:14px;"><h3>⚠️ 批量表格渲染出错</h3><pre style="white-space:pre-wrap;color:#faa;font-size:12px;">${fatalErr.message}\n\n${fatalErr.stack || ''}</pre><button onclick="_renderBatchTable()" style="margin-top:12px;padding:8px 16px;background:#333;border:1px solid #555;color:#ccc;border-radius:6px;cursor:pointer;">🔄 重试</button></div>`;
     } catch(_) {}
   }
+}
+
+function _hydrateBatchVideoThumbnails(container) {
+    if (!container) return;
+    const videos = container.querySelectorAll('video.rbt-thumb-previewable');
+    if (!videos.length) return;
+
+    // 使用 IntersectionObserver 延迟加载/解码滚动可视区域内的视频缩略图
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+                const video = entry.target;
+                observer.unobserve(video); // 开始加载后停止观察
+
+                if (video.dataset.thumbHydrated === 'true') return;
+                video.dataset.thumbHydrated = 'true';
+                video.muted = true;
+                video.playsInline = true;
+                video.preload = 'metadata'; // 仅加载元数据，避免下载完整视频
+
+                const src = video.getAttribute('src') || '';
+                const match = src.match(/#t=([0-9.]+)/);
+                const requestedTime = match ? parseFloat(match[1]) : 0.1;
+                const seekToFrame = () => {
+                    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+                    const maxTime = duration > 0 ? Math.max(0, duration - 0.05) : requestedTime;
+                    const targetTime = Math.min(Math.max(0.1, requestedTime), maxTime);
+                    try {
+                        if (Number.isFinite(targetTime)) video.currentTime = targetTime;
+                    } catch (_) {}
+                };
+
+                video.addEventListener('loadedmetadata', seekToFrame, { once: true });
+                video.addEventListener('loadeddata', () => {
+                    try { video.pause(); } catch (_) {}
+                }, { once: true });
+                video.addEventListener('error', () => {
+                    video.style.background = '#111';
+                    video.title = `${video.title || ''} 缩略图加载失败`.trim();
+                }, { once: true });
+
+                try { video.load(); } catch (_) {}
+            }
+        });
+    }, {
+        root: container.querySelector('.rbt-table-wrap'),
+        rootMargin: '100px', // 提前 100px 缓冲加载
+        threshold: 0.01
+    });
+
+    videos.forEach((video) => {
+        if (video.dataset.thumbHydrated !== 'true') {
+            observer.observe(video);
+        }
+    });
 }
 
 function _isBatchWritableOverlay(ov) {
@@ -1349,6 +1487,52 @@ function _findBatchTextCardOverlay(task) {
 
 function _findBatchScrollOverlay(task) {
     return (task.overlays || []).find(o => o && _isBatchWritableOverlay(o) && o.type === 'scroll');
+}
+
+function _findBatchOverlayByIdOrIdx(task, id, name, idx, type) {
+    const list = (task.overlays || []).filter(o => o && !o.fixed_text && (type === 'scroll' ? o.type === 'scroll' : (o.type === 'textcard' || !o.type || o.type === '')));
+    if (list.length === 0) return null;
+    if (id && id !== 'default') {
+        const found = list.find(o => o.id === id);
+        if (found) return found;
+    }
+    if (name) {
+        const found = list.find(o => o.name === name);
+        if (found) return found;
+    }
+    const targetIdx = idx != null ? parseInt(idx) : -1;
+    if (targetIdx >= 0 && targetIdx < list.length) {
+        return list[targetIdx];
+    }
+    return list[0];
+}
+
+function _createTaskFromTemplate(state, taskName) {
+    const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+    if (templateTask) {
+        const newTask = _cloneBatchTasks([templateTask])[0];
+        newTask.baseName = taskName;
+        newTask.fileName = `${taskName}.mp4`;
+        newTask.bgPath = null;
+        newTask.bgSrcUrl = null;
+        newTask.audioPath = null;
+        newTask.srtPath = null;
+        newTask.segments = [];
+        newTask.videoPath = null;
+        newTask.srcUrl = null;
+        return newTask;
+    } else {
+        return {
+            baseName: taskName,
+            fileName: `${taskName}.mp4`,
+            bgPath: null, bgSrcUrl: null,
+            audioPath: null, srtPath: null,
+            segments: [],
+            videoPath: null, srcUrl: null,
+            overlays: [],
+            aligned: false, bgScale: 100, bgDurScale: 100, audioDurScale: 100
+        };
+    }
 }
 
 function _collectBatchOverlayTextSlots(overlays) {
@@ -1385,31 +1569,69 @@ function _shiftFirstTextSlot(...lists) {
 
 function _applyOverlayField(task, fieldCategory, str) {
     if (!task.overlays) task.overlays = [];
-    if (fieldCategory.startsWith('scroll_')) {
-        let ov = _findBatchScrollOverlay(task);
+    
+    let targetId = null;
+    let baseCategory = fieldCategory;
+    const match = fieldCategory.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body)_(.+)$/);
+    if (match) {
+        baseCategory = match[1];
+        targetId = match[2];
+    }
+    
+    const type = baseCategory.startsWith('scroll_') ? 'scroll' : 'textcard';
+
+    if (baseCategory.startsWith('scroll_')) {
+        let ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
         if (!ov) {
-            ov = window.ReelsOverlay ? window.ReelsOverlay.createScrollOverlay({ start: 0, end: 9999 }) : { scroll_title: '', content: '', type: 'scroll' };
-            ov.scroll_title = '';
-            ov.content = '';
-            ov.fixed_text = false;
-            task.overlays.push(ov);
+            // Find template overlay to clone
+            const state = window._reelsState;
+            const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+            const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && o.type === 'scroll') : [];
+            const templateOv = targetId ? templateList.find(o => o.id === targetId) : templateList[0];
+            if (templateOv) {
+                ov = JSON.parse(JSON.stringify(templateOv));
+                ov.scroll_title = '';
+                ov.content = '';
+                ov.fixed_text = false;
+                task.overlays.push(ov);
+            } else {
+                ov = window.ReelsOverlay ? window.ReelsOverlay.createScrollOverlay({ start: 0, end: 9999 }) : { scroll_title: '', content: '', type: 'scroll' };
+                ov.scroll_title = '';
+                ov.content = '';
+                ov.fixed_text = false;
+                task.overlays.push(ov);
+            }
         }
-        if (fieldCategory === 'scroll_title') ov.scroll_title = str;
-        if (fieldCategory === 'scroll_body') ov.content = str;
-    } else if (fieldCategory.startsWith('overlay_')) {
-        let ov = _findBatchTextCardOverlay(task);
+        if (baseCategory === 'scroll_title') ov.scroll_title = str;
+        if (baseCategory === 'scroll_body') ov.content = str;
+    } else if (baseCategory.startsWith('overlay_')) {
+        let ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
         if (!ov) {
-            ov = window.ReelsOverlay ? window.ReelsOverlay.createTextCardOverlay({ start: 0, end: 9999 }) : { title_text: '', body_text: '', footer_text: '', type: 'textcard' };
-            ov.title_text = '';
-            ov.body_text = '';
-            ov.footer_text = '';
-            ov.fixed_text = false;
-            task.overlays.push(ov);
+            // Find template overlay to clone
+            const state = window._reelsState;
+            const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+            const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && (o.type === 'textcard' || !o.type || o.type === '')) : [];
+            const templateOv = targetId ? templateList.find(o => o.id === targetId) : templateList[0];
+            if (templateOv) {
+                ov = JSON.parse(JSON.stringify(templateOv));
+                ov.title_text = '';
+                ov.body_text = '';
+                ov.footer_text = '';
+                ov.fixed_text = false;
+                task.overlays.push(ov);
+            } else {
+                ov = window.ReelsOverlay ? window.ReelsOverlay.createTextCardOverlay({ start: 0, end: 9999 }) : { title_text: '', body_text: '', footer_text: '', type: 'textcard' };
+                ov.title_text = '';
+                ov.body_text = '';
+                ov.footer_text = '';
+                ov.fixed_text = false;
+                task.overlays.push(ov);
+            }
         }
-        if (fieldCategory === 'overlay_title') ov.title_text = str;
-        if (fieldCategory === 'overlay_body') ov.body_text = str;
-        if (fieldCategory === 'overlay_footer') ov.footer_text = str;
-    } else if (fieldCategory === 'cover_text') {
+        if (baseCategory === 'overlay_title') ov.title_text = str;
+        if (baseCategory === 'overlay_body') ov.body_text = str;
+        if (baseCategory === 'overlay_footer') ov.footer_text = str;
+    } else if (baseCategory === 'cover_text') {
         if (!task.cover) task.cover = { enabled: true, overlays: [] };
         let ov = (task.cover.overlays && task.cover.overlays.length > 0) ? task.cover.overlays[0] : null;
         if (!ov) {
@@ -1418,6 +1640,52 @@ function _applyOverlayField(task, fieldCategory, str) {
         }
         ov.title_text = str;
     }
+}
+
+function _applyOverlayFieldWithTarget(task, fieldCategory, str, id, idx, type) {
+    if (!task.overlays) task.overlays = [];
+    let ov = _findBatchOverlayByIdOrIdx(task, id, null, idx, type);
+    if (!ov) {
+        const state = window._reelsState;
+        const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+        const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && (type === 'scroll' ? o.type === 'scroll' : (o.type === 'textcard' || !o.type || o.type === ''))) : [];
+        const templateOv = id ? templateList.find(o => o.id === id) : (idx != null ? templateList[idx] : templateList[0]);
+        
+        if (templateOv) {
+            ov = JSON.parse(JSON.stringify(templateOv));
+            if (type === 'scroll') {
+                ov.scroll_title = '';
+                ov.content = '';
+            } else {
+                ov.title_text = '';
+                ov.body_text = '';
+                ov.footer_text = '';
+            }
+            ov.fixed_text = false;
+            task.overlays.push(ov);
+        } else {
+            if (type === 'scroll') {
+                ov = window.ReelsOverlay ? window.ReelsOverlay.createScrollOverlay({ start: 0, end: 9999 }) : { scroll_title: '', content: '', type: 'scroll' };
+                ov.scroll_title = '';
+                ov.content = '';
+                ov.fixed_text = false;
+                task.overlays.push(ov);
+            } else {
+                ov = window.ReelsOverlay ? window.ReelsOverlay.createTextCardOverlay({ start: 0, end: 9999 }) : { title_text: '', body_text: '', footer_text: '', type: 'textcard' };
+                ov.title_text = '';
+                ov.body_text = '';
+                ov.footer_text = '';
+                ov.fixed_text = false;
+                task.overlays.push(ov);
+            }
+        }
+    }
+
+    if (fieldCategory === 'overlay_title') ov.title_text = str;
+    if (fieldCategory === 'overlay_body') ov.body_text = str;
+    if (fieldCategory === 'overlay_footer') ov.footer_text = str;
+    if (fieldCategory === 'scroll_title') ov.scroll_title = str;
+    if (fieldCategory === 'scroll_body') ov.content = str;
 }
 
 function _syncSelectedTaskOverlayMgrIfNeeded(taskIdx) {
@@ -1475,19 +1743,10 @@ function _updateSubtitleTimeCell(idx) {
     if (typeof _batchAutoSave === 'function') _batchAutoSave();
 }
 
-function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
+function _renderBatchRow(task, idx, subtitlePresets, cardTemplates, textcards, scrolls) {
   try {
     const globalBgVol = parseInt((document.getElementById('reels-bg-volume') || {}).value || '100');
-    // 提取覆层信息
-    const ov = _findBatchTextCardOverlay(task);
-    const textSlots = _collectBatchOverlayTextSlots(task.overlays || []);
-    const title = ov ? (ov.title_text || '') : (textSlots.plain[0] || '');
-    const body = ov ? (ov.body_text || '') : (textSlots.plain[1] || '');
-    const footer = ov ? (ov.footer_text || '') : '';
-    // 滚动字幕覆层信息
-    const scrollOv = _findBatchScrollOverlay(task);
-    const scrollTitle = scrollOv ? (scrollOv.scroll_title || '') : '';
-    const scrollBody = scrollOv ? (scrollOv.content || '') : '';
+    const globalBgmVol = parseInt((document.getElementById('reels-bgm-volume') || {}).value || '30');
     const bgName = _shortName(task.bgPath || task.videoPath || '');
     const audioName = _shortName(task.audioPath || '');
     const srtName = _shortName(task.srtPath || '');
@@ -1789,12 +2048,12 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
                     ${(task.bgmPath || (bgmMode === 'multi' && bgmClipPool.length > 0)) ? `<button class="rbt-field-clear" data-idx="${idx}" data-field="bgm" title="清除配乐">✕</button>` : ''}
                 </div>
                 <div class="rbt-clutter-free-scale" style="height:18px; margin-top:2px;">
-                    <div class="rbt-scale-display" style="font-size:10px;">🎵 Vol: ${task.bgmVolume != null ? task.bgmVolume : 30}%</div>
+                    <div class="rbt-scale-display" style="font-size:10px;">🎵 Vol: ${task.bgmVolume != null ? task.bgmVolume : '—'}%</div>
                     <div class="rbt-scale-controls" style="flex-direction:row; inset:0;">
                         <span style="font-size:10px;color:#888;white-space:nowrap;">🔉</span>
-                        <input type="range" class="rbt-bgm-vol" data-idx="${idx}" min="0" max="1000" value="${task.bgmVolume != null ? task.bgmVolume : 30}"
-                               style="flex:1; min-width:0; height:12px; accent-color:#9b59b6;" title="配乐音量">
-                        <span class="rbt-bgm-vol-label" style="font-size:10px;color:#888;min-width:28px;text-align:right;">${task.bgmVolume != null ? task.bgmVolume : 30}%</span>
+                        <input type="range" class="rbt-bgm-vol" data-idx="${idx}" data-is-null="${task.bgmVolume == null ? 'true' : 'false'}" min="0" max="1000" value="${task.bgmVolume != null ? task.bgmVolume : globalBgmVol}"
+                               style="flex:1; min-width:0; height:12px; accent-color:#9b59b6;" title="配乐音量（双击滑杆或输入框可清空并跟随全局音量）">
+                        <span class="rbt-bgm-vol-label" style="font-size:10px;color:#888;min-width:28px;text-align:right;">${task.bgmVolume != null ? task.bgmVolume + '%' : '全局(' + globalBgmVol + '%)'}</span>
                     </div>
                 </div>
             </td>
@@ -1841,8 +2100,12 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
             </td>
             <td class="rbt-col-cvblurbg rbt-grp-cv" style="text-align:center; font-size:10px;">
                 <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
-                    <input type="checkbox" class="rbt-cvblurbg-check" data-idx="${idx}" ${task.contentVideoBlurBg ? 'checked' : ''} title="使用内容视频作为毛玻璃背景">
-                    ${task.contentVideoBlurBg ? `<span style="color:#8af;font-size:9px;scale:0.9;" title="模糊半径, 亮度比例">${task.contentVideoBlur != null ? task.contentVideoBlur : 40}px, ${task.contentVideoBrightness != null ? task.contentVideoBrightness : 60}%</span>` : ''}
+                    <select class="rbt-cvbgmode-select" data-idx="${idx}" style="font-size:10px; background:#181818; color:#ccc; border:1px solid #333; border-radius:3px; padding:1px 2px; width:65px;">
+                        <option value="none" ${(!task.contentVideoBlurBg && !task.contentVideoDirectBg) ? 'selected' : ''}>常规/无</option>
+                        <option value="blur" ${task.contentVideoBlurBg ? 'selected' : ''}>毛玻璃</option>
+                        <option value="direct" ${task.contentVideoDirectBg ? 'selected' : ''}>直接背景</option>
+                    </select>
+                    ${task.contentVideoBlurBg ? `<span style="color:#8af;font-size:9px;scale:0.85;" title="模糊半径, 亮度比例">${task.contentVideoBlur != null ? task.contentVideoBlur : 40}px, ${task.contentVideoBrightness != null ? task.contentVideoBrightness : 60}%</span>` : ''}
                 </div>
             </td>
             <td class="rbt-col-cvscale rbt-grp-cv">
@@ -1973,21 +2236,36 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates) {
                     ${task.pipPath ? `<button class="rbt-field-clear" data-idx="${idx}" data-field="pip" title="清除图像覆层">✕</button>` : ''}
                 </div>
             </td>
-            <td class="rbt-col-title rbt-grp-ovl">
-                <textarea class="rbt-textarea rbt-title-input" data-idx="${idx}" rows="2" title="双击放大编辑" style="${title === '标题文字' ? 'color:#ff5555;' : ''}">${_escHtml(title)}</textarea>
-            </td>
-            <td class="rbt-col-body rbt-grp-ovl">
-                <textarea class="rbt-textarea rbt-body-input" data-idx="${idx}" rows="2" title="双击放大编辑" style="${body === '内容文字' ? 'color:#ff5555;' : ''}">${_escHtml(body)}</textarea>
-            </td>
-            <td class="rbt-col-footer rbt-grp-ovl">
-                <textarea class="rbt-textarea rbt-footer-input" data-idx="${idx}" rows="2" title="双击放大编辑">${_escHtml(footer)}</textarea>
-            </td>
-            <td class="rbt-col-scroll-title rbt-grp-ovl">
-                <textarea class="rbt-textarea rbt-scroll-title-input" data-idx="${idx}" rows="2" title="双击放大编辑">${_escHtml(scrollTitle)}</textarea>
-            </td>
-            <td class="rbt-col-scroll-body rbt-grp-ovl">
-                <textarea class="rbt-textarea rbt-scroll-body-input" data-idx="${idx}" rows="2" title="双击放大编辑">${_escHtml(scrollBody)}</textarea>
-            </td>
+            ${textcards.map((templateOv, oIdx) => {
+                const ov = _findBatchOverlayByIdOrIdx(task, templateOv.id, templateOv.name, oIdx, 'textcard');
+                const title = ov ? (ov.title_text || '') : '';
+                const body = ov ? (ov.body_text || '') : '';
+                const footer = ov ? (ov.footer_text || '') : '';
+                return `
+                    <td class="rbt-col-title rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <textarea class="rbt-textarea rbt-title-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" rows="2" title="双击放大编辑" style="${title === '标题文字' ? 'color:#ff5555;' : ''}">${_escHtml(title)}</textarea>
+                    </td>
+                    <td class="rbt-col-body rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <textarea class="rbt-textarea rbt-body-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" rows="2" title="双击放大编辑" style="${body === '内容文字' ? 'color:#ff5555;' : ''}">${_escHtml(body)}</textarea>
+                    </td>
+                    <td class="rbt-col-footer rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <textarea class="rbt-textarea rbt-footer-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" rows="2" title="双击放大编辑">${_escHtml(footer)}</textarea>
+                    </td>
+                `;
+            }).join('')}
+            ${scrolls.map((templateOv, oIdx) => {
+                const ov = _findBatchOverlayByIdOrIdx(task, templateOv.id, templateOv.name, oIdx, 'scroll');
+                const scrollTitle = ov ? (ov.scroll_title || '') : '';
+                const scrollBody = ov ? (ov.content || '') : '';
+                return `
+                    <td class="rbt-col-scroll-title rbt-grp-ovl" data-scroll-id="${templateOv.id}">
+                        <textarea class="rbt-textarea rbt-scroll-title-input" data-idx="${idx}" data-scroll-id="${templateOv.id}" data-scroll-idx="${oIdx}" rows="2" title="双击放大编辑">${_escHtml(scrollTitle)}</textarea>
+                    </td>
+                    <td class="rbt-col-scroll-body rbt-grp-ovl" data-scroll-id="${templateOv.id}">
+                        <textarea class="rbt-textarea rbt-scroll-body-input" data-idx="${idx}" data-scroll-id="${templateOv.id}" data-scroll-idx="${oIdx}" rows="2" title="双击放大编辑">${_escHtml(scrollBody)}</textarea>
+                    </td>
+                `;
+            }).join('')}
             <td class="rbt-col-subtime rbt-grp-ovl">
                 ${_renderSubtitleTimeCell(task, idx)}
             </td>
@@ -2074,6 +2352,8 @@ function _bindBatchTableEvents() {
             reelsSelectTask(window._reelsState.selectedIdx);
         }
     });
+
+
 
     // ── Language searchable picker ──
     _initLangPicker(container);
@@ -2900,7 +3180,7 @@ function _bindBatchTableEvents() {
         const cvTrimStart = cvTrimStartRaw !== '' ? parseFloat(cvTrimStartRaw) : null;
         const cvTrimEnd = cvTrimEndRaw !== '' ? parseFloat(cvTrimEndRaw) : null;
         const cvVol = cvVolRaw !== '' ? parseInt(cvVolRaw, 10) : null;
-        const blurBgMode = container.querySelector('#rbt-batch-cvblurbg')?.value || 'keep';
+        const cvBgMode = container.querySelector('#rbt-batch-cvbgmode')?.value || 'keep';
         const blurVal = parseInt(container.querySelector('#rbt-batch-cvblur')?.value) ?? 40;
         const brightnessVal = parseInt(container.querySelector('#rbt-batch-cvbrightness')?.value) ?? 60;
 
@@ -2936,8 +3216,11 @@ function _bindBatchTableEvents() {
         if (cvX) parts.push(`X ${cvX}`);
         if (cvY) parts.push(`Y ${cvY}`);
         if (cvVol != null && !isNaN(cvVol)) parts.push(`视频音量 ${cvVol}%`);
-        if (blurBgMode !== 'keep') {
-            parts.push(`毛玻璃背景 ${blurBgMode === 'on' ? '开启' : '关闭'}`);
+        if (cvBgMode !== 'keep') {
+            let modeText = '无/常规';
+            if (cvBgMode === 'blur') modeText = '毛玻璃';
+            else if (cvBgMode === 'direct') modeText = '直接背景';
+            parts.push(`背景模式 ${modeText}`);
         }
         parts.push(`模糊度 ${blurVal}px`);
         parts.push(`亮度 ${brightnessVal}%`);
@@ -2952,8 +3235,16 @@ function _bindBatchTableEvents() {
             if (cvX) task.contentVideoX = cvX;
             if (cvY) task.contentVideoY = cvY;
             if (cvVol != null && !isNaN(cvVol)) task.contentVideoVolume = cvVol;
-            if (blurBgMode === 'on') task.contentVideoBlurBg = true;
-            else if (blurBgMode === 'off') task.contentVideoBlurBg = false;
+            if (cvBgMode === 'blur') {
+                task.contentVideoBlurBg = true;
+                task.contentVideoDirectBg = false;
+            } else if (cvBgMode === 'direct') {
+                task.contentVideoBlurBg = false;
+                task.contentVideoDirectBg = true;
+            } else if (cvBgMode === 'none') {
+                task.contentVideoBlurBg = false;
+                task.contentVideoDirectBg = false;
+            }
             task.contentVideoBlur = blurVal;
             task.contentVideoBrightness = brightnessVal;
         }
@@ -3346,11 +3637,23 @@ function _bindBatchTableEvents() {
     container.querySelector('#rbt-paste-txtcontent')?.addEventListener('click', () => {
         _batchPasteTxtContent();
     });
-    container.querySelector('#rbt-paste-btn')?.addEventListener('click', () => {
-        _batchPasteFromSheet();
-    });
-    container.querySelector('#rbt-paste-scroll-btn')?.addEventListener('click', () => {
-        _batchPasteScrollFromSheet();
+    // ── Tiled toolbar paste buttons delegation ──
+    container.addEventListener('click', (e) => {
+        const pasteCardBtn = e.target.closest('.rbt-paste-card-btn');
+        if (pasteCardBtn) {
+            e.preventDefault();
+            const cardId = pasteCardBtn.dataset.cardId || null;
+            _batchPasteFromSheet(cardId);
+            return;
+        }
+        
+        const pasteScrollBtn = e.target.closest('.rbt-paste-scroll-btn-tiled');
+        if (pasteScrollBtn) {
+            e.preventDefault();
+            const scrollId = pasteScrollBtn.dataset.scrollId || null;
+            _batchPasteScrollFromSheet(scrollId);
+            return;
+        }
     });
     container.querySelector('#rbt-paste-ai-raw-btn')?.addEventListener('click', () => {
         _batchPasteAiScript();
@@ -3557,6 +3860,12 @@ function _bindBatchTableEvents() {
         // 点击“设置配乐”按钮，先选文件，然后应用到勾选的行
         _batchTableState._bgmBatchMode = true;
         container.querySelector('#rbt-file-bgm').click();
+    });
+    container.querySelector('#rbt-bgm-select-all')?.addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        container.querySelectorAll('.rbt-bgm-check').forEach(cb => {
+            cb.checked = checked;
+        });
     });
     container.querySelector('#rbt-file-bgm')?.addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -3833,6 +4142,90 @@ function _bindBatchTableEvents() {
             return;
         }
 
+        // ── 精确落到 audio 单元格时，直接设为人声 ──
+        if (dropCell && dropCell.dataset.field === 'audio') {
+            const row = dropCell.closest('.rbt-row');
+            if (row && files[0]) {
+                const idx = parseInt(row.dataset.idx);
+                const task = window._reelsState.tasks[idx];
+                if (task) {
+                    let filePath = files[0].path;
+                    if (!filePath && window.electronAPI && window.electronAPI.getFilePath) {
+                        try { filePath = window.electronAPI.getFilePath(files[0]); } catch (_) { }
+                    }
+                    filePath = filePath || files[0].name;
+                    task.audioPath = filePath;
+                    _renderBatchTable();
+                    if (typeof showToast === 'function') showToast(`✅ 已设置第 ${idx + 1} 行人声音频`, 'success');
+                }
+            }
+            return;
+        }
+
+        // ── 精确落到 srt 单元格时 ──
+        if (dropCell && dropCell.dataset.field === 'srt') {
+            const row = dropCell.closest('.rbt-row');
+            if (row && files[0]) {
+                const idx = parseInt(row.dataset.idx);
+                const task = window._reelsState.tasks[idx];
+                if (task) {
+                    let filePath = files[0].path;
+                    if (!filePath && window.electronAPI && window.electronAPI.getFilePath) {
+                        try { filePath = window.electronAPI.getFilePath(files[0]); } catch (_) { }
+                    }
+                    filePath = filePath || files[0].name;
+                    task.srtPath = filePath;
+                    _readSrtFileToTask(task, files[0]);
+                    _renderBatchTable();
+                    if (typeof showToast === 'function') showToast(`✅ 已更新第 ${idx + 1} 行字幕文件`, 'success');
+                }
+            }
+            return;
+        }
+
+        // ── 精确落到 contentvideo 单元格时 ──
+        if (dropCell && dropCell.dataset.field === 'contentvideo') {
+            const row = dropCell.closest('.rbt-row');
+            if (row && files[0]) {
+                const idx = parseInt(row.dataset.idx);
+                const task = window._reelsState.tasks[idx];
+                if (task) {
+                    let filePath = files[0].path;
+                    if (!filePath && window.electronAPI && window.electronAPI.getFilePath) {
+                        try { filePath = window.electronAPI.getFilePath(files[0]); } catch (_) { }
+                    }
+                    filePath = filePath || files[0].name;
+                    task.contentVideoPath = filePath;
+                    if (task.contentVideoScale == null) task.contentVideoScale = 100;
+                    if (task.contentVideoX == null) task.contentVideoX = 'center';
+                    if (task.contentVideoY == null) task.contentVideoY = 'center';
+                    _renderBatchTable();
+                    if (typeof showToast === 'function') showToast(`✅ 已设置第 ${idx + 1} 行内容视频`, 'success');
+                }
+            }
+            return;
+        }
+
+        // ── 精确落到 pip 单元格时 ──
+        if (dropCell && dropCell.dataset.field === 'pip') {
+            const row = dropCell.closest('.rbt-row');
+            if (row && files[0]) {
+                const idx = parseInt(row.dataset.idx);
+                const task = window._reelsState.tasks[idx];
+                if (task) {
+                    let filePath = files[0].path;
+                    if (!filePath && window.electronAPI && window.electronAPI.getFilePath) {
+                        try { filePath = window.electronAPI.getFilePath(files[0]); } catch (_) { }
+                    }
+                    filePath = filePath || files[0].name;
+                    task.pipPath = filePath;
+                    _renderBatchTable();
+                    if (typeof showToast === 'function') showToast(`✅ 已设置第 ${idx + 1} 行图像覆层`, 'success');
+                }
+            }
+            return;
+        }
+
         // ── 精确落到 cover_media 单元格时，直接设为封面背景 ──
         if (dropCell && dropCell.dataset.field === 'cover_media') {
             const row = dropCell.closest('.rbt-row');
@@ -3880,21 +4273,26 @@ function _bindBatchTableEvents() {
             }
         }
 
-        // 按类型依次分配（最多的类型先处理，其他自动填充）
-        const assignments = [];
-        if (groups.hook.length) assignments.push(['hook', groups.hook]);
-        if (groups.bg.length) assignments.push(['bg', groups.bg]);
-        if (groups.audio.length) assignments.push(['audio', groups.audio]);
-        if (groups.srt.length) assignments.push(['srt', groups.srt]);
-        if (groups.txt.length) assignments.push(['txt', groups.txt]);
-
-        if (assignments.length === 0) {
-            alert('未识别到支持的文件类型');
-            return;
-        }
-
         // 依次批量分配（异步串行）
         (async () => {
+            const assignments = [];
+            if (groups.hook.length) assignments.push(['hook', groups.hook]);
+            if (groups.bg.length) assignments.push(['bg', groups.bg]);
+            
+            if (groups.audio.length) {
+                const choice = await _showAudioRouteSelectionDialog(groups.audio.length);
+                if (choice === 'cancel') return;
+                assignments.push([choice, groups.audio]);
+            }
+            
+            if (groups.srt.length) assignments.push(['srt', groups.srt]);
+            if (groups.txt.length) assignments.push(['txt', groups.txt]);
+
+            if (assignments.length === 0) {
+                alert('未识别到支持的文件类型');
+                return;
+            }
+
             for (const [field, fieldFiles] of assignments) {
                 await _batchAssignFiles(fieldFiles, field);
             }
@@ -3913,7 +4311,15 @@ function _bindBatchTableEvents() {
 
     const _clearTaskField = (task, field) => {
         if (!task) return;
-        switch (field) {
+        let targetId = null;
+        let baseField = field;
+        const match = field.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body)_(.+)$/);
+        if (match) {
+            baseField = match[1];
+            targetId = match[2];
+        }
+
+        switch (baseField) {
             case 'cover_media':
                 if (task.cover) {
                     task.cover.enabled = false;
@@ -3990,6 +4396,7 @@ function _bindBatchTableEvents() {
                 task.contentVideoY = 'center';
                 task.contentVideoCrop = '';
                 task.contentVideoBlurBg = false;
+                task.contentVideoDirectBg = false;
                 break;
             case 'cvTrim':
             case 'cvtrim':
@@ -4003,6 +4410,7 @@ function _bindBatchTableEvents() {
             case 'cvBlurBg':
             case 'cvblurbg':
                 task.contentVideoBlurBg = false;
+                task.contentVideoDirectBg = false;
                 break;
             case 'overlay':
                 if (task.overlays && task.overlays.length > 0) {
@@ -4018,33 +4426,57 @@ function _bindBatchTableEvents() {
                         } else if (ov.type === 'text') {
                             ov.content = '';
                         }
-                        // image/video 类型不清空 content（content 是文件路径）
                     }
                 }
                 break;
             case 'overlay_title':
                 if (task.overlays && task.overlays.length > 0) {
-                    for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.title_text = '';
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.title_text = '';
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.title_text = '';
+                    }
                 }
                 break;
             case 'overlay_body':
                 if (task.overlays && task.overlays.length > 0) {
-                    for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.body_text = '';
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.body_text = '';
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.body_text = '';
+                    }
                 }
                 break;
             case 'overlay_footer':
                 if (task.overlays && task.overlays.length > 0) {
-                    for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.footer_text = '';
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.footer_text = '';
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.footer_text = '';
+                    }
                 }
                 break;
             case 'scroll_title':
                 if (task.overlays && task.overlays.length > 0) {
-                    for (const ov of task.overlays) if (!ov.fixed_text && ov.type === 'scroll') ov.scroll_title = '';
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
+                        if (ov) ov.scroll_title = '';
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && ov.type === 'scroll') ov.scroll_title = '';
+                    }
                 }
                 break;
             case 'scroll_body':
                 if (task.overlays && task.overlays.length > 0) {
-                    for (const ov of task.overlays) if (!ov.fixed_text && ov.type === 'scroll') ov.content = '';
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
+                        if (ov) ov.content = '';
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && ov.type === 'scroll') ov.content = '';
+                    }
                 }
                 break;
             case 'exportName':
@@ -4085,6 +4517,13 @@ function _bindBatchTableEvents() {
         e.stopPropagation();
         const field = btn.dataset.clearCol;
         if (!field) return;
+
+        let baseField = field;
+        const match = field.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body)_(.+)$/);
+        if (match) {
+            baseField = match[1];
+        }
+
         const labelMap = {
             hook: 'Hook',
             bg: '背景素材',
@@ -4115,7 +4554,7 @@ function _bindBatchTableEvents() {
         };
         const { state, indices, label } = _getClearTargets();
         if (!state || indices.length === 0) return;
-        const fieldLabel = labelMap[field] || '该列';
+        const fieldLabel = labelMap[baseField] || '该列';
         if (!confirm(`确定清空${label}的${fieldLabel}？`)) return;
         for (const idx of indices) _clearTaskField(state.tasks[idx], field);
 
@@ -4210,12 +4649,7 @@ function _bindBatchTableEvents() {
             if (confirm(`剪贴板有 ${lines.length} 条数据，当前只有 ${state.tasks.length} 行。\n是否自动创建 ${newRows.length} 行新任务？`)) {
                 for (const str of newRows) {
                     const taskName = _generateUniqueCardName(state.tasks, 'card');
-                    const newTask = {
-                        baseName: taskName, fileName: `${taskName}.mp4`,
-                        bgPath: null, bgSrcUrl: null, audioPath: null, srtPath: null,
-                        segments: [], videoPath: null, srcUrl: null, overlays: [],
-                        aligned: false, bgScale: 100, bgDurScale: 100, audioDurScale: 100
-                    };
+                    const newTask = _createTaskFromTemplate(state, taskName);
                     if (fieldCategory === 'aiScript') newTask.aiScript = str;
                     else if (fieldCategory === 'ttsText') newTask.ttsText = str;
                     else if (fieldCategory === 'txtContent') { newTask.txtContent = str; }
@@ -4538,6 +4972,7 @@ function _bindBatchTableEvents() {
                 if (label) label.textContent = e.target.value + '%';
                 const display = e.target.closest('td')?.querySelector('.rbt-scale-display');
                 if (display) display.textContent = '🎵 Vol: ' + e.target.value + '%';
+                e.target.dataset.isNull = 'false'; // USER INTERACTED!
                 // Sync volume to task for real-time preview
                 const idx = parseInt(e.target.dataset.idx);
                 const task = window._reelsState && window._reelsState.tasks[idx];
@@ -4727,15 +5162,26 @@ function _bindBatchTableEvents() {
                     _batchTableState.selectedRows.delete(idx);
                 }
                 _updateBatchSelectCount();
-            } else if (e.target.classList.contains('rbt-cvblurbg-check')) {
+            } else if (e.target.classList.contains('rbt-cvbgmode-select')) {
                 const idx = parseInt(e.target.dataset.idx);
                 const task = window._reelsState?.tasks?.[idx];
                 if (task) {
-                    task.contentVideoBlurBg = e.target.checked;
+                    const mode = e.target.value;
+                    if (mode === 'blur') {
+                        task.contentVideoBlurBg = true;
+                        task.contentVideoDirectBg = false;
+                    } else if (mode === 'direct') {
+                        task.contentVideoBlurBg = false;
+                        task.contentVideoDirectBg = true;
+                    } else {
+                        task.contentVideoBlurBg = false;
+                        task.contentVideoDirectBg = false;
+                    }
                     if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
                     if (idx === window._reelsState.selectedIdx && window.reelsSyncBackgroundTabUI) {
                         window.reelsSyncBackgroundTabUI(task);
                     }
+                    if (typeof _renderBatchTable === 'function') _renderBatchTable();
                 }
             } else if (e.target.classList.contains('rbt-card-tpl-select')) {
                 const idx = parseInt(e.target.dataset.idx);
@@ -4908,7 +5354,7 @@ function _bindBatchTableEvents() {
                     case 'bg': task.bgPath = ''; task.videoPath = ''; task.bgSrcUrl = ''; task.bgMode = 'single'; task.bgClipPool = []; task.bgClipActivePool = []; task.bgClipOrder = 'random'; task.bgTransition = 'crossfade'; task.bgTransDur = 0.5; break;
                     case 'bgClipSettings': task.bgClipSettings = {}; break;
                     case 'bgm': task.bgmPath = ''; task.bgmMode = 'single'; task.bgmClipPool = []; task.bgmClipActivePool = []; task.bgmClipOrder = 'random'; break;
-                    case 'contentvideo': task.contentVideoPath = ''; task.contentVideoTrimStart = null; task.contentVideoTrimEnd = null; task.contentVideoScale = 100; task.contentVideoX = 'center'; task.contentVideoY = 'center'; task.contentVideoCrop = ''; task.contentVideoBlurBg = false; break;
+                    case 'contentvideo': task.contentVideoPath = ''; task.contentVideoTrimStart = null; task.contentVideoTrimEnd = null; task.contentVideoScale = 100; task.contentVideoX = 'center'; task.contentVideoY = 'center'; task.contentVideoCrop = ''; task.contentVideoBlurBg = false; task.contentVideoDirectBg = false; break;
                     case 'tts_text': task.ttsText = ''; break;
                     case 'pip': task.pipPath = ''; break;
                     case 'audio': task.audioPath = ''; break;
@@ -5011,6 +5457,28 @@ function _bindBatchTableEvents() {
                 _batchTableState._bgmBatchMode = false;
                 _batchTableState._bgmSingleIdx = idx;
                 container.querySelector('#rbt-file-bgm').click();
+                return;
+            }
+
+            // 双击音量滑块 → 恢复为全局默认 (删除自定义覆盖)
+            if (e.target.classList.contains('rbt-bgm-vol') || e.target.classList.contains('rbt-bgvol-slider') || e.target.classList.contains('rbt-voicevol-slider')) {
+                const idx = parseInt(e.target.dataset.idx);
+                const task = window._reelsState.tasks[idx];
+                if (task) {
+                    if (e.target.classList.contains('rbt-bgm-vol')) {
+                        delete task.bgmVolume;
+                    } else if (e.target.classList.contains('rbt-bgvol-slider')) {
+                        delete task.bgVideoVolume;
+                    } else if (e.target.classList.contains('rbt-voicevol-slider')) {
+                        delete task.voiceVolume;
+                    }
+                    _renderBatchTable();
+                    if (idx === window._reelsState.selectedIdx) {
+                        window.reelsSyncBackgroundTabUI(task);
+                        if (typeof _applyPreviewAudioMix === 'function') _applyPreviewAudioMix();
+                    }
+                    if (typeof window.reelsSaveHistory === 'function') window.reelsSaveHistory();
+                }
                 return;
             }
         });
@@ -5729,24 +6197,24 @@ function _applyBatchTableChanges(stateOverride = null, options = {}) {
         const idx = parseInt(el.dataset.idx);
         const task = state.tasks[idx];
         if (!task) return;
-        if (el.value.trim() === '' && !_findBatchTextCardOverlay(task)) return;
-        _applyOverlayField(task, 'overlay_title', el.value);
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_title', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
     });
 
     bodyInputs.forEach(el => {
         const idx = parseInt(el.dataset.idx);
         const task = state.tasks[idx];
         if (!task) return;
-        if (el.value.trim() === '' && !_findBatchTextCardOverlay(task)) return;
-        _applyOverlayField(task, 'overlay_body', el.value);
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_body', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
     });
 
     footerInputs.forEach(el => {
         const idx = parseInt(el.dataset.idx);
         const task = state.tasks[idx];
         if (!task) return;
-        if (el.value.trim() === '' && !_findBatchTextCardOverlay(task)) return;
-        _applyOverlayField(task, 'overlay_footer', el.value);
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_footer', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
     });
 
     // ── 滚动字幕列 ──
@@ -5757,43 +6225,16 @@ function _applyBatchTableChanges(stateOverride = null, options = {}) {
         const idx = parseInt(el.dataset.idx);
         const task = state.tasks[idx];
         if (!task) return;
-        const val = el.value.trim();
-        let scrollOv = _findBatchScrollOverlay(task);
-        if (!scrollOv && val) {
-            const ReelsOverlay = window.ReelsOverlay;
-            if (ReelsOverlay) {
-                scrollOv = ReelsOverlay.createScrollOverlay({
-                    scroll_title: val, content: '', start: 0, end: 9999,
-                });
-                scrollOv.fixed_text = false;
-
-                if (!task.overlays) task.overlays = [];
-                task.overlays.push(scrollOv);
-            }
-        } else if (scrollOv) {
-            scrollOv.scroll_title = el.value;
-        }
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.scrollId, null, el.dataset.scrollIdx, 'scroll')) return;
+        _applyOverlayFieldWithTarget(task, 'scroll_title', el.value, el.dataset.scrollId, el.dataset.scrollIdx, 'scroll');
     });
 
     scrollBodyInputs.forEach(el => {
         const idx = parseInt(el.dataset.idx);
         const task = state.tasks[idx];
         if (!task) return;
-        const val = el.value.trim();
-        let scrollOv = _findBatchScrollOverlay(task);
-        if (!scrollOv && val) {
-            const ReelsOverlay = window.ReelsOverlay;
-            if (ReelsOverlay) {
-                scrollOv = ReelsOverlay.createScrollOverlay({
-                    scroll_title: '', content: val, start: 0, end: 9999,
-                });
-                scrollOv.fixed_text = false;
-                if (!task.overlays) task.overlays = [];
-                task.overlays.push(scrollOv);
-            }
-        } else if (scrollOv) {
-            scrollOv.content = el.value;
-        }
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.scrollId, null, el.dataset.scrollIdx, 'scroll')) return;
+        _applyOverlayFieldWithTarget(task, 'scroll_body', el.value, el.dataset.scrollId, el.dataset.scrollIdx, 'scroll');
     });
 
     // ── 封面卡片文案 ──
@@ -5966,7 +6407,7 @@ function _applyBatchTableChanges(stateOverride = null, options = {}) {
 // 7. Paste from Google Sheets
 // ═══════════════════════════════════════════════════════
 
-async function _batchPasteFromSheet() {
+async function _batchPasteFromSheet(targetId = null) {
     // ── 第一步：让用户选模式 ──
     const mode = await _showPasteModeDialog();
     if (!mode) return;
@@ -6077,7 +6518,7 @@ async function _batchPasteFromSheet() {
         let entryIdx = 0;
         for (let i = 0; i < state.tasks.length && entryIdx < entries.length; i++) {
             const task = state.tasks[i];
-            const ov = (task.overlays && task.overlays.length > 0) ? task.overlays[0] : null;
+            const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
             // 判断是不是空文案（title 和 body 都空，或者是默认占位符）
             const titleVal = ov ? (ov.title_text || '') : '';
             const bodyVal = ov ? (ov.body_text || '') : '';
@@ -6085,14 +6526,14 @@ async function _batchPasteFromSheet() {
             const isEmpty = isDefault(titleVal) && isDefault(bodyVal);
 
             if (isEmpty) {
-                _setTaskText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer);
+                _setTaskText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer, targetId);
                 entryIdx++;
                 filled++;
             }
         }
         // 剩余的追加为新行
         while (entryIdx < entries.length) {
-            _createNewTextRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer);
+            _createNewTextRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer, targetId);
             entryIdx++;
             created++;
         }
@@ -6100,7 +6541,7 @@ async function _batchPasteFromSheet() {
     } else if (mode === 'new') {
         // ═══ 添加新行模式：全部新建 ═══
         for (const entry of entries) {
-            _createNewTextRow(state, entry.title, entry.body, ReelsOverlay, entry.footer);
+            _createNewTextRow(state, entry.title, entry.body, ReelsOverlay, entry.footer, targetId);
             created++;
         }
 
@@ -6108,10 +6549,10 @@ async function _batchPasteFromSheet() {
         // ═══ 覆盖模式：从第1行开始往下覆盖 ═══
         for (let i = 0; i < entries.length; i++) {
             if (i < state.tasks.length) {
-                _setTaskText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer);
+                _setTaskText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer, targetId);
                 filled++;
             } else {
-                _createNewTextRow(state, entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer);
+                _createNewTextRow(state, entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer, targetId);
                 created++;
             }
         }
@@ -6127,7 +6568,7 @@ async function _batchPasteFromSheet() {
     alert(`✅ 粘贴完成：${parts.join('，')}`);
 }
 
-async function _batchPasteScrollFromSheet() {
+async function _batchPasteScrollFromSheet(targetId = null) {
     const mode = await _showPasteModeDialog();
     if (!mode) return;
 
@@ -6228,31 +6669,31 @@ async function _batchPasteScrollFromSheet() {
         let entryIdx = 0;
         for (let i = 0; i < state.tasks.length && entryIdx < entries.length; i++) {
             const task = state.tasks[i];
-            const scrollOv = _findBatchScrollOverlay(task);
+            const scrollOv = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
             const isEmpty = !scrollOv || (!(scrollOv.scroll_title || '').trim() && !(scrollOv.content || '').trim());
             if (isEmpty) {
-                _setTaskScrollText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay);
+                _setTaskScrollText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, targetId);
                 entryIdx++;
                 filled++;
             }
         }
         while (entryIdx < entries.length) {
-            _createNewScrollRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay);
+            _createNewScrollRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, targetId);
             entryIdx++;
             created++;
         }
     } else if (mode === 'new') {
         for (const entry of entries) {
-            _createNewScrollRow(state, entry.title, entry.body, ReelsOverlay);
+            _createNewScrollRow(state, entry.title, entry.body, ReelsOverlay, targetId);
             created++;
         }
     } else if (mode === 'overwrite') {
         for (let i = 0; i < entries.length; i++) {
             if (i < state.tasks.length) {
-                _setTaskScrollText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay);
+                _setTaskScrollText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, targetId);
                 filled++;
             } else {
-                _createNewScrollRow(state, entries[i].title, entries[i].body, ReelsOverlay);
+                _createNewScrollRow(state, entries[i].title, entries[i].body, ReelsOverlay, targetId);
                 created++;
             }
         }
@@ -8726,16 +9167,30 @@ async function _batchPasteAiScript() {
 }
 
 // ── 辅助：设置一行的文案 ──
-function _setTaskText(task, title, body, ReelsOverlay, footer) {
+function _setTaskText(task, title, body, ReelsOverlay, footer, targetId = null) {
     if (!task.overlays) task.overlays = [];
-    let ov = _findBatchTextCardOverlay(task);
+    let ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
     if (!ov) {
-        ov = ReelsOverlay.createTextCardOverlay({
-            title_text: '', body_text: '', footer_text: '',
-            start: 0, end: 9999,
-        });
-        ov.fixed_text = false;
-        task.overlays.push(ov);
+        // Clone from template overlay with targetId if it exists to preserve styling
+        const state = window._reelsState;
+        const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+        const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && (o.type === 'textcard' || !o.type || o.type === '')) : [];
+        const templateOv = targetId ? templateList.find(o => o.id === targetId) : templateList[0];
+        if (templateOv) {
+            ov = JSON.parse(JSON.stringify(templateOv));
+            ov.title_text = '';
+            ov.body_text = '';
+            ov.footer_text = '';
+            ov.fixed_text = false;
+            task.overlays.push(ov);
+        } else {
+            ov = ReelsOverlay.createTextCardOverlay({
+                title_text: '', body_text: '', footer_text: '',
+                start: 0, end: 9999,
+            });
+            ov.fixed_text = false;
+            task.overlays.push(ov);
+        }
     }
     ov.title_text = title;
     ov.body_text = body;
@@ -8745,35 +9200,37 @@ function _setTaskText(task, title, body, ReelsOverlay, footer) {
 }
 
 // ── 辅助：新建一行并填入文案 ──
-function _createNewTextRow(state, title, body, ReelsOverlay, footer) {
+function _createNewTextRow(state, title, body, ReelsOverlay, footer, targetId = null) {
     const taskName = _generateUniqueCardName(state.tasks, 'card');
-    state.tasks.push({
-        baseName: taskName,
-        fileName: `${taskName}.mp4`,
-        bgPath: null, bgSrcUrl: null,
-        audioPath: null, srtPath: null,
-        segments: [],
-        videoPath: null, srcUrl: null,
-        overlays: [ReelsOverlay.createTextCardOverlay({
-            title_text: title,
-            body_text: body,
-            footer_text: footer || '',
-            start: 0, end: 9999,
-        })],
-    });
+    const newTask = _createTaskFromTemplate(state, taskName);
+    _setTaskText(newTask, title, body, ReelsOverlay, footer, targetId);
+    state.tasks.push(newTask);
 }
 
 // ── 辅助：设置滚动字幕文案 ──
-function _setTaskScrollText(task, title, body, ReelsOverlay) {
+function _setTaskScrollText(task, title, body, ReelsOverlay, targetId = null) {
     if (!task.overlays) task.overlays = [];
-    let scrollOv = _findBatchScrollOverlay(task);
+    let scrollOv = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
     if (!scrollOv) {
-        scrollOv = ReelsOverlay.createScrollOverlay({
-            scroll_title: title, content: body,
-            start: 0, end: 9999,
-        });
-        scrollOv.fixed_text = false;
-        task.overlays.push(scrollOv);
+        // Clone template scroll overlay if available
+        const state = window._reelsState;
+        const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
+        const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && o.type === 'scroll') : [];
+        const templateOv = targetId ? templateList.find(o => o.id === targetId) : templateList[0];
+        if (templateOv) {
+            scrollOv = JSON.parse(JSON.stringify(templateOv));
+            scrollOv.scroll_title = '';
+            scrollOv.content = '';
+            scrollOv.fixed_text = false;
+            task.overlays.push(scrollOv);
+        } else {
+            scrollOv = ReelsOverlay.createScrollOverlay({
+                scroll_title: title, content: body,
+                start: 0, end: 9999,
+            });
+            scrollOv.fixed_text = false;
+            task.overlays.push(scrollOv);
+        }
     } else {
         scrollOv.scroll_title = title;
         scrollOv.content = body;
@@ -8781,21 +9238,11 @@ function _setTaskScrollText(task, title, body, ReelsOverlay) {
 }
 
 // ── 辅助：新建一行并填入滚动字幕 ──
-function _createNewScrollRow(state, title, body, ReelsOverlay) {
+function _createNewScrollRow(state, title, body, ReelsOverlay, targetId = null) {
     const taskName = _generateUniqueCardName(state.tasks, 'scroll');
-    state.tasks.push({
-        baseName: taskName,
-        fileName: `${taskName}.mp4`,
-        bgPath: null, bgSrcUrl: null,
-        audioPath: null, srtPath: null,
-        segments: [],
-        videoPath: null, srcUrl: null,
-        overlays: [ReelsOverlay.createScrollOverlay({
-            scroll_title: title,
-            content: body,
-            start: 0, end: 9999,
-        })],
-    });
+    const newTask = _createTaskFromTemplate(state, taskName);
+    _setTaskScrollText(newTask, title, body, ReelsOverlay, targetId);
+    state.tasks.push(newTask);
 }
 
 // ── 模式选择弹窗 ──
@@ -9608,16 +10055,31 @@ function _batchAddEmptyRow() {
     const ReelsOverlay = window.ReelsOverlay;
     if (!state || !ReelsOverlay) return;
     const taskName = _generateUniqueCardName(state.tasks, 'card');
-    state.tasks.push({
-        baseName: taskName,
-        fileName: `${taskName}.mp4`,
-        bgPath: null, bgSrcUrl: null,
-        audioPath: null, srtPath: null,
-        segments: [],
-        videoPath: null, srcUrl: null,
-        overlays: [],
-        ttsText: '', ttsVoiceId: '', pipPath: '', status: '',
-    });
+    const newTask = _createTaskFromTemplate(state, taskName);
+    
+    // Clear texts in overlays of the new task so it starts empty
+    if (newTask.overlays) {
+        newTask.overlays.forEach(ov => {
+            if (ov && !ov.fixed_text) {
+                if (ov.type === 'textcard' || !ov.type || ov.type === '') {
+                    ov.title_text = '';
+                    ov.body_text = '';
+                    ov.footer_text = '';
+                } else if (ov.type === 'scroll') {
+                    ov.scroll_title = '';
+                    ov.content = '';
+                } else if (ov.type === 'text') {
+                    ov.content = '';
+                }
+            }
+        });
+    }
+    newTask.ttsText = '';
+    newTask.ttsVoiceId = '';
+    newTask.pipPath = '';
+    newTask.status = '';
+    
+    state.tasks.push(newTask);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -10488,7 +10950,11 @@ function _batchImportFolder(files) {
 
         // 生成预览 URL
         if (g.bg) {
-            try { task.bgSrcUrl = URL.createObjectURL(g.bg); } catch (e) { }
+            if (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function' && task.bgPath) {
+                task.bgSrcUrl = window.electronAPI.toFileUrl(task.bgPath);
+            } else {
+                try { task.bgSrcUrl = URL.createObjectURL(g.bg); } catch (e) { }
+            }
         }
 
         // 读取 SRT 内容
@@ -10965,10 +11431,44 @@ function _openCoverModal(idx) {
 }
 
 /**
+ * 显示音频导入选择对话框（分发为人声还是配乐）
+ */
+function _showAudioRouteSelectionDialog(fileCount) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'background:#1e1e2e;border:1px solid #444;border-radius:12px;padding:24px;width:340px;color:#eee;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:system-ui, sans-serif;';
+        dialog.innerHTML = `
+            <h3 style="margin:0 0 14px;font-size:16px;color:#b8a0ff;display:flex;align-items:center;gap:6px;">🎵 导入音频文件 · ${fileCount} 个文件</h3>
+            <div style="margin-bottom:16px;color:#bbb;font-size:13px;line-height:1.4;">检测到您拖入了音频文件，请选择它们的用途（分配到哪个角色）：</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <button data-type="audio" style="padding:12px;border:1px solid rgba(94,92,230,0.3);border-radius:8px;background:rgba(94,92,230,0.15);color:#b8b7ff;cursor:pointer;text-align:left;font-size:13px;display:flex;align-items:center;gap:8px;">
+                    🎙️ <b>导入为人声配音 (Audio)</b>
+                </button>
+                <button data-type="bgm" style="padding:12px;border:1px solid rgba(155,89,182,0.3);border-radius:8px;background:rgba(155,89,182,0.15);color:#d39bf5;cursor:pointer;text-align:left;font-size:13px;display:flex;align-items:center;gap:8px;">
+                    🎵 <b>导入为背景配乐 (BGM)</b>
+                </button>
+            </div>
+            <button data-type="cancel" style="margin-top:16px;padding:6px;border:1px solid #444;border-radius:6px;background:#2a2a35;color:#aaa;cursor:pointer;width:100%;font-size:13px;">取消</button>
+        `;
+        dialog.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                overlay.remove();
+                resolve(btn.dataset.type);
+            });
+        });
+        overlay.appendChild(dialog);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); resolve('cancel'); } });
+        document.body.appendChild(overlay);
+    });
+}
+
+/**
  * 显示批量分配模式对话框
  */
 function _showBatchModeDialog(fileCount, field) {
-    const fieldLabel = { bg: '背景素材', audio: '人声-音频文件', srt: '人声-SRT字幕', txt: '人声-断行文案', hook: '前置Hook', pip: '图像覆层' }[field] || field;
+    const fieldLabel = { bg: '背景素材', audio: '人声-音频文件', srt: '人声-SRT字幕', txt: '人声-断行文案', hook: '前置Hook', pip: '图像覆层', bgm: '配乐' }[field] || field;
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
@@ -11042,6 +11542,13 @@ function _assignFileToTask(task, file, field) {
         if (task.contentVideoScale == null) task.contentVideoScale = 100;
         if (task.contentVideoX == null) task.contentVideoX = 'center';
         if (task.contentVideoY == null) task.contentVideoY = 'center';
+    } else if (field === 'bgm') {
+        if (task.bgmMode === 'multi') {
+            if (!task.bgmClipPool) task.bgmClipPool = [];
+            if (!task.bgmClipPool.includes(filePath)) task.bgmClipPool.push(filePath);
+        } else {
+            task.bgmPath = filePath;
+        }
     }
 }
 
@@ -11100,6 +11607,12 @@ async function _batchAssignFiles(files, field) {
                 else if (field === 'txt') occupied = !!tk.txtPath;
                 else if (field === 'pip') occupied = !!tk.pipPath;
                 else if (field === 'contentvideo') occupied = !!tk.contentVideoPath;
+                else if (field === 'bgm') {
+                    const hasMultiBgm = tk.bgmMode === 'multi'
+                        && Array.isArray(tk.bgmClipPool)
+                        && tk.bgmClipPool.some(Boolean);
+                    occupied = !!(tk.bgmPath || hasMultiBgm);
+                }
                 if (!occupied) break;
                 taskIdx++;
             }

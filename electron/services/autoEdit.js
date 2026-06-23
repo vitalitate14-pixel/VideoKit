@@ -2054,6 +2054,11 @@ async function autoEditByScript(opts = {}) {
         }
 
         const outputPath = opts.outputPath || opts.output_path || path.join(outputDir, `auto_edit_${sessionId}.mp4`);
+        try {
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        } catch (e) {
+            console.warn(`[AutoEdit] Failed to create directory: ${e.message}`);
+        }
         if (tempClips.length === 1) {
             emitProgress({
                 percent: 86,

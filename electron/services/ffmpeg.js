@@ -102,6 +102,17 @@ function _resolveMediaPath(filePath) {
 
 /** 获取音频/视频时长（秒） */
 async function getDuration(filePath) {
+    if (!filePath || typeof filePath !== 'string') return null;
+    let cleanPath = filePath;
+    if (cleanPath.startsWith('local-media://')) {
+        cleanPath = cleanPath.replace(/^local-media:\/\//i, '');
+    }
+    // On Windows, if cleanPath starts with "/", e.g. "/C:/Users/...", remove the leading "/"
+    if (process.platform === 'win32' && cleanPath.startsWith('/') && cleanPath.includes(':')) {
+        cleanPath = cleanPath.substring(1);
+    }
+    filePath = cleanPath;
+
     // 路径自动修复：如果不是绝对路径或文件不存在，尝试搜索
     if (filePath && (!path.isAbsolute(filePath) || !fs.existsSync(filePath))) {
         const bareFileName = path.basename(filePath);
@@ -834,10 +845,21 @@ function escapeAssPathForFilter(assPath) {
     return normalized
         .replace(/\\/g, '\\\\')
         .replace(/:/g, '\\:')
-        .replace(/'/g, "'\\''");
+        .replace(/'/g, "'\\''")
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)')
+        .replace(/\[/g, '\\[')
+        .replace(/\]/g, '\\]')
+        .replace(/ /g, '\\ ');
 }
 
+let _cachedFlatFontsDir = null;
+
 function resolveLibassFontsDir() {
+    if (_cachedFlatFontsDir && fs.existsSync(_cachedFlatFontsDir)) {
+        return _cachedFlatFontsDir;
+    }
+
     const candidates = [];
     try {
         const { app } = require('electron');
@@ -846,12 +868,58 @@ function resolveLibassFontsDir() {
         }
     } catch { }
     candidates.push(path.join(__dirname, '..', '..', 'assets', 'fonts'));
+    
+    let sourceFontsDir = '';
     for (const dir of candidates) {
         try {
-            if (dir && fs.existsSync(dir)) return dir;
+            if (dir && fs.existsSync(dir)) {
+                sourceFontsDir = dir;
+                break;
+            }
         } catch { }
     }
-    return '';
+
+    if (!sourceFontsDir) return '';
+
+    // Create a temporary flat directory to copy all font files so libass on Windows can find them
+    try {
+        const flatDir = path.join(os.tmpdir(), `videokit_flat_fonts_${crypto.createHash('md5').update(sourceFontsDir).digest('hex')}`);
+        
+        if (!fs.existsSync(flatDir)) {
+            fs.mkdirSync(flatDir, { recursive: true });
+        }
+
+        // Recursively copy all ttf/otf files to flatDir
+        function copyFontsRecursively(srcDir) {
+            const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(srcDir, entry.name);
+                if (entry.isDirectory()) {
+                    copyFontsRecursively(fullPath);
+                } else if (entry.isFile()) {
+                    const ext = path.extname(entry.name).toLowerCase();
+                    if (ext === '.ttf' || ext === '.otf') {
+                        const destPath = path.join(flatDir, entry.name);
+                        if (!fs.existsSync(destPath)) {
+                            try {
+                                fs.copyFileSync(fullPath, destPath);
+                            } catch (e) {
+                                console.error(`[resolveLibassFontsDir] Copy font failed: ${fullPath} -> ${destPath}`, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log(`[resolveLibassFontsDir] Generating flat fonts directory from ${sourceFontsDir} to ${flatDir}...`);
+        copyFontsRecursively(sourceFontsDir);
+        _cachedFlatFontsDir = flatDir;
+        return flatDir;
+    } catch (e) {
+        console.error('[resolveLibassFontsDir] Flattening fonts directory failed, falling back to source path', e);
+        return sourceFontsDir;
+    }
 }
 
 function parseResolutionText(resolutionText) {
@@ -1975,6 +2043,12 @@ async function concatVideo(opts) {
     if (!fs.existsSync(introPath)) throw new Error(`找不到前置素材: ${introPath}`);
     if (!fs.existsSync(mainPath)) throw new Error(`找不到正片素材: ${mainPath}`);
 
+    try {
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    } catch (e) {
+        console.warn(`[ConcatVideo] Failed to create directory: ${e.message}`);
+    }
+
     const util = require('util');
     const { execFile } = require('child_process');
     const execFileAsync = util.promisify(execFile);
@@ -2165,4 +2239,5 @@ module.exports = {
     concatClips,
     concatClipsWithTransitions,
     hasAudioTrack,
+    escapeAssPathForFilter,
 };
