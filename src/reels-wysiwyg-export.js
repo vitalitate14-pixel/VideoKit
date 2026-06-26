@@ -386,11 +386,32 @@ async function reelsWysiwygExport(params) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const renderer = new ReelsCanvasRenderer(canvas);
 
-    // 获取时长：优先自定义时长，否则音频时长，否则覆层视频时长，否则背景视频时长
+    // 获取时长：优先文字翻转器，其次自定义时长，否则音频时长，否则覆层视频时长，否则背景视频时长
     let duration = 0;
     const _audioDurFactor = (audioDurScale || 100) / 100;
     const _bgDurFactor = (bgDurScale || 100) / 100;
-    if (customDuration > 0) {
+
+    let maxFlipperDuration = 0;
+    if (Array.isArray(taskOverlays)) {
+        for (const ov of taskOverlays) {
+            if (ov && !ov.disabled && ov.flipper_enabled) {
+                const text = (ov.type === 'textcard') ? (ov.body_text || '') : (ov.content || '');
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                const flipper_lines = parseInt(ov.flipper_lines) || 2;
+                const flipper_duration = parseFloat(ov.flipper_duration) || 2.0;
+                const totalChunks = Math.ceil(lines.length / flipper_lines);
+                const flipperDur = (parseFloat(ov.start) || 0) + (totalChunks * flipper_duration);
+                if (flipperDur > maxFlipperDuration) {
+                    maxFlipperDuration = flipperDur;
+                }
+            }
+        }
+    }
+
+    if (maxFlipperDuration > 0) {
+        duration = maxFlipperDuration;
+        log(`使用文字翻转器计算所得时长: ${duration}s`);
+    } else if (customDuration > 0) {
         duration = customDuration;
         log(`使用自定义时长: ${duration}s`);
     } else {

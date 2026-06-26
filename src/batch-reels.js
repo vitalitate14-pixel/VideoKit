@@ -5019,6 +5019,25 @@ function _getPreviewDuration() {
     const task = _getSelectedTask();
     const audio = document.getElementById('reels-preview-audio');
     const video = document.getElementById('reels-preview-video');
+    
+    // ⏱ 文字翻转器 (Dynamic Flipper) 时长优先
+    let maxFlipperDuration = 0;
+    if (_reelsState.overlayProxy && _reelsState.overlayProxy.overlayMgr) {
+        for (const ov of (_reelsState.overlayProxy.overlayMgr.overlays || [])) {
+            if (ov && !ov.disabled && ov.flipper_enabled) {
+                const text = (ov.type === 'textcard') ? (ov.body_text || '') : (ov.content || '');
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                const flipper_lines = parseInt(ov.flipper_lines) || 2;
+                const flipper_duration = parseFloat(ov.flipper_duration) || 2.0;
+                const totalChunks = Math.ceil(lines.length / flipper_lines);
+                const flipperDur = (parseFloat(ov.start) || 0) + (totalChunks * flipper_duration);
+                if (flipperDur > maxFlipperDuration) {
+                    maxFlipperDuration = flipperDur;
+                }
+            }
+        }
+    }
+
     const subDur = task && task.segments && task.segments.length > 0
         ? (task.segments[task.segments.length - 1].end || 0)
         : 0;
@@ -5033,6 +5052,10 @@ function _getPreviewDuration() {
     const hookDur = _reelsState.hookDuration || 0;
     const coverDur = (task && task.cover && task.cover.enabled) ? (parseFloat(task.cover.duration) || 0.01) : 0;
     const offsetDur = hookDur + coverDur;
+
+    if (maxFlipperDuration > 0) {
+        return maxFlipperDuration + offsetDur;
+    }
 
     // 自定义时长优先
     if (task && task.customDuration && task.customDuration > 0) {
@@ -9596,7 +9619,25 @@ async function reelsStartExport() {
                 const parallelConcurrency = Math.min(3, Math.max(1, Math.floor(cpuCores / 2)));
                 let estimatedDuration = 0;
                 try {
-                    if (task.customDuration > 0) {
+                    let maxFlipperDuration = 0;
+                    if (task && Array.isArray(task.overlays)) {
+                        for (const ov of task.overlays) {
+                            if (ov && !ov.disabled && ov.flipper_enabled) {
+                                const text = (ov.type === 'textcard') ? (ov.body_text || '') : (ov.content || '');
+                                const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                                const flipper_lines = parseInt(ov.flipper_lines) || 2;
+                                const flipper_duration = parseFloat(ov.flipper_duration) || 2.0;
+                                const totalChunks = Math.ceil(lines.length / flipper_lines);
+                                const flipperDur = (parseFloat(ov.start) || 0) + (totalChunks * flipper_duration);
+                                if (flipperDur > maxFlipperDuration) {
+                                    maxFlipperDuration = flipperDur;
+                                }
+                            }
+                        }
+                    }
+                    if (maxFlipperDuration > 0) {
+                        estimatedDuration = maxFlipperDuration;
+                    } else if (task.customDuration > 0) {
                         estimatedDuration = task.customDuration;
                     } else if ((task.audioPath || voiceSource) && window.electronAPI.getMediaDuration) {
                         estimatedDuration = await window.electronAPI.getMediaDuration(task.audioPath || voiceSource);
@@ -10080,6 +10121,18 @@ function reelsExportSRT() {
 /**
  * 收集当前工程状态（供模板系统调用）
  */
+function _cloneProjectDataForSave(value) {
+    const seen = new WeakSet();
+    return JSON.parse(JSON.stringify(value, (key, val) => {
+        if (key && key.startsWith('_') && key !== '_subtitlePreset' && key !== '_overlayPresetName') return undefined;
+        if (typeof val === 'object' && val !== null) {
+            if (seen.has(val)) return undefined;
+            seen.add(val);
+        }
+        return val;
+    }));
+}
+
 function collectCurrentProjectState() {
     _syncCurrentOverlayEditorToSelectedTask();
     const style = _readStyleFromUI();
@@ -10090,6 +10143,10 @@ function collectCurrentProjectState() {
         quality: (document.getElementById('reels-quality') || {}).value || 'medium',
         suffix: (document.getElementById('reels-suffix') || {}).value || '_subtitled',
         namingMode: (document.getElementById('reels-export-naming-mode-outer') || {}).value || (document.getElementById('reels-naming-mode') || {}).value || localStorage.getItem('reels_naming_mode') || 'text',
+        namingStartDate: localStorage.getItem('reels_naming_start_date') || '',
+        namingVidsPerDay: parseInt(localStorage.getItem('reels_naming_vids_per_day') || '3') || 3,
+        namingPrefix: localStorage.getItem('reels_naming_prefix') || '',
+        namingSuffix: localStorage.getItem('reels_naming_suffix') || '',
         voiceVolume: parseFloat((document.getElementById('reels-voice-volume') || {}).value || '100') || 100,
         bgVolume: _getGlobalBgVolumePercent(),
         bgmVolume: _getGlobalBgmVolumePercent(),
@@ -10108,8 +10165,8 @@ function collectCurrentProjectState() {
         subtitleStyleApplyAll: _isStyleApplyAllEnabled(),
     };
     return {
-        tasks: _reelsState.tasks,
-        backgroundLibrary: _reelsState.backgroundLibrary || [],
+        tasks: _cloneProjectDataForSave(_reelsState.tasks),
+        backgroundLibrary: _cloneProjectDataForSave(_reelsState.backgroundLibrary || []),
         style: globalStyle,
         exportOpts,
         selectedIdx: _reelsState.selectedIdx,
@@ -10152,7 +10209,7 @@ function applyRestoredProject(result) {
         const tab = _getActiveTab();
         if (tab) {
             try {
-                tab.tasks = JSON.parse(JSON.stringify(_reelsState.tasks));
+                tab.tasks = _cloneProjectDataForSave(_reelsState.tasks);
             } catch (_) {
                 tab.tasks = _reelsState.tasks.map(t => ({ ...t }));
             }
@@ -10178,7 +10235,21 @@ function applyRestoredProject(result) {
             setVal('reels-naming-mode', opts.namingMode);
             setVal('reels-export-naming-mode-outer', opts.namingMode);
             localStorage.setItem('reels_naming_mode', opts.namingMode);
+            
+            // Sync gear button visibility
+            const configBtnOuter = document.getElementById('reels-export-naming-config-btn');
+            if (configBtnOuter) {
+                configBtnOuter.style.display = (opts.namingMode === 'index' || opts.namingMode === 'date-auto') ? 'inline-block' : 'none';
+            }
+            const configBtnInner = document.getElementById('reels-naming-config-btn');
+            if (configBtnInner) {
+                configBtnInner.style.display = (opts.namingMode === 'index' || opts.namingMode === 'date-auto') ? 'inline-block' : 'none';
+            }
         }
+        if (opts.namingStartDate !== undefined) localStorage.setItem('reels_naming_start_date', opts.namingStartDate || '');
+        if (opts.namingVidsPerDay !== undefined) localStorage.setItem('reels_naming_vids_per_day', String(opts.namingVidsPerDay));
+        if (opts.namingPrefix !== undefined) localStorage.setItem('reels_naming_prefix', opts.namingPrefix || '');
+        if (opts.namingSuffix !== undefined) localStorage.setItem('reels_naming_suffix', opts.namingSuffix || '');
         if (opts.voiceVolume !== undefined && opts.voiceVolume !== null) setVal('reels-voice-volume', String(opts.voiceVolume));
         if (opts.bgVolume !== undefined && opts.bgVolume !== null) setVal('reels-bg-volume', String(opts.bgVolume));
         if (opts.bgmVolume !== undefined && opts.bgmVolume !== null) setVal('reels-bgm-volume', String(opts.bgmVolume));
@@ -10292,6 +10363,10 @@ function reelsSaveProject() {
         quality: (document.getElementById('reels-quality') || {}).value || 'medium',
         suffix: (document.getElementById('reels-suffix') || {}).value || '_subtitled',
         namingMode: (document.getElementById('reels-export-naming-mode-outer') || {}).value || (document.getElementById('reels-naming-mode') || {}).value || localStorage.getItem('reels_naming_mode') || 'text',
+        namingStartDate: localStorage.getItem('reels_naming_start_date') || '',
+        namingVidsPerDay: parseInt(localStorage.getItem('reels_naming_vids_per_day') || '3') || 3,
+        namingPrefix: localStorage.getItem('reels_naming_prefix') || '',
+        namingSuffix: localStorage.getItem('reels_naming_suffix') || '',
         voiceVolume: parseFloat((document.getElementById('reels-voice-volume') || {}).value || '100') || 100,
         bgVolume: _getGlobalBgVolumePercent(),
         useGPU: (document.getElementById('reels-use-gpu') || {}).checked || false,

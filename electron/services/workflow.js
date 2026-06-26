@@ -75,7 +75,8 @@ async function ttsWorkflow(data) {
         tail_silence = 0,
         key_index = null,
         output_dir: rawOutputDir = '',
-        gladia_keys = null
+        gladia_keys = null,
+        language = 'english'
     } = data;
 
     if (!text || !voice_id) throw new Error('缺少必要参数');
@@ -225,7 +226,7 @@ async function ttsWorkflow(data) {
             const arrayPath = path.join(metadataGroup, `${fileName}_audio_text_withtime.json`);
             const textPath = path.join(metadataGroup, `${fileName}_transcription.txt`);
 
-            const result = await gladia.transcribeAudio(sourcePath, activeGladiaKeys, 'english');
+            const result = await gladia.transcribeAudio(sourcePath, activeGladiaKeys, language);
 
             fs.writeFileSync(arrayPath, JSON.stringify(result.wordTimeInfo, null, 4), 'utf-8');
             fs.writeFileSync(textPath, result.fullText, 'utf-8');
@@ -234,13 +235,24 @@ async function ttsWorkflow(data) {
             const subtitleUtils = require('./subtitleUtils');
             const { audioSubtitleSearchDifferentStrong } = require('./subtitleAlignment');
 
+            // 映射语言简码 (例如 "中文" -> "zh", "english" -> "en")
+            let langCode = 'en';
+            if (subtitleUtils.LANGUAGES) {
+                for (const [code, info] of Object.entries(subtitleUtils.LANGUAGES)) {
+                    if (info.name === language || info.code === language || info.language === language) {
+                        langCode = code;
+                        break;
+                    }
+                }
+            }
+
             const sourceTextWithInfo = subtitleUtils.readTextWithGoogleDoc(subtitleTxtPath);
             const translateTextDict = {};
             const targetSrtPath = path.join(audioGroup, `${taskPrefix}.srt`);
             const targetFcpxmlPath = export_fcpxml ? path.join(audioGroup, `${taskPrefix}.fcpxml`) : null;
 
             const alignResult = audioSubtitleSearchDifferentStrong(
-                'en', audioGroup, taskPrefix,
+                langCode, audioGroup, taskPrefix,
                 result.wordTimeInfo, result.fullText,
                 sourceTextWithInfo, translateTextDict,
                 false, // genMergeSrt

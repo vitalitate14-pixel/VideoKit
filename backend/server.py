@@ -1960,6 +1960,7 @@ def elevenlabs_tts_workflow():
     export_mp4 = data.get('export_mp4', False)
     export_fcpxml = data.get('export_fcpxml', True)  # 默认导出 FCPXML
     seamless_fcpxml = data.get('seamless_fcpxml', True)  # 默认无缝字幕
+    language = data.get('language', 'english')
     try:
         tail_silence = float(data.get('tail_silence', 0) or 0)
     except (TypeError, ValueError):
@@ -2147,13 +2148,20 @@ def elevenlabs_tts_workflow():
                 generation_subtitle_array_path = os.path.join(metadata_group, f'{file_name}_audio_text_withtime.json')
                 generation_subtitle_text_path = os.path.join(metadata_group, f'{file_name}_transcription.txt')
                 
-                # 通过 Gladia 转录
-                # Gladia 需要完整的语言名称，不是简写
-                current_language = 'english'  # 默认英语
+                # 寻找匹配的语言信息，Gladia 需要完整的语言名称，不是简写
+                lang_info = None
+                for k, v in LANGUAGES.items():
+                    if v.get("name") == language or k == language or v.get("language") == language:
+                        lang_info = v
+                        break
+                
+                lang_gladia = lang_info["language"] if lang_info else "english"
+                lang_code = lang_info["code"] if lang_info else "en"
+
                 progress_generator = transcribe_audio_from_gladia(
                     source_path,
                     gladia_keys,
-                    current_language,
+                    lang_gladia,
                     generation_subtitle_array_path,
                     generation_subtitle_text_path,
                     5.0  # audio_cut_length
@@ -2176,7 +2184,7 @@ def elevenlabs_tts_workflow():
                     target_fcpxml_path = os.path.join(metadata_group, f'{task_prefix}-subtitle.fcpxml')
 
                     audio_subtitle_search_diffent_strong(
-                        current_language, metadata_group, file_name,
+                        lang_code, metadata_group, file_name,
                         generation_subtitle_array, generation_subtitle_text,
                         source_text_with_info, {},  # 无翻译文本
                         False, False,  # gen_merge_srt, source_up_order

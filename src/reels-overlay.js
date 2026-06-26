@@ -66,6 +66,13 @@ function createTextOverlay(opts = {}) {
         anim_out_duration: opts.anim_out_duration || 0.3,
         // 文本布局
         text_layout: opts.text_layout || { align: 'center', left_pad: 10, right_pad: 10, top_pad: 10, bottom_pad: 10, line_spacing: 0 },
+        // 文字翻转器
+        flipper_enabled: opts.flipper_enabled || false,
+        flipper_duration: opts.flipper_duration ?? 2.0,
+        flipper_lines: opts.flipper_lines ?? 2,
+        flipper_loop: opts.flipper_loop ?? false,
+        flipper_effect: opts.flipper_effect || 'none',
+        flipper_transition_duration: opts.flipper_transition_duration ?? 0.3,
     };
 }
 
@@ -230,6 +237,9 @@ function createTextCardOverlay(opts = {}) {
         padding_right: opts.padding_right ?? 40,
         title_body_gap: opts.title_body_gap ?? 42,  // 标题与正文间距
         body_footer_gap: opts.body_footer_gap ?? 42, // 正文与结尾间距
+        layout_mode: opts.layout_mode || 'flow',
+        side_by_side_gap: opts.side_by_side_gap ?? 90,
+        side_by_side_title_ratio: opts.side_by_side_title_ratio ?? 50,
         // ── 自适应限制 ──
         max_height: opts.max_height ?? 1400,
         auto_shrink: opts.auto_shrink === true,
@@ -270,6 +280,13 @@ function createTextCardOverlay(opts = {}) {
         title_styled_ranges: opts.title_styled_ranges || null,
         body_styled_ranges: opts.body_styled_ranges || null,
         footer_styled_ranges: opts.footer_styled_ranges || null,
+        // 文字翻转器
+        flipper_enabled: opts.flipper_enabled || false,
+        flipper_duration: opts.flipper_duration ?? 2.0,
+        flipper_lines: opts.flipper_lines ?? 2,
+        flipper_loop: opts.flipper_loop ?? false,
+        flipper_effect: opts.flipper_effect || 'none',
+        flipper_transition_duration: opts.flipper_transition_duration ?? 0.3,
     };
 }
 
@@ -769,6 +786,142 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
     if (origOv.disabled) return;
     
     let ov = origOv;
+
+    // ── 文字翻转器 (Dynamic Flipper) 拦截 ──
+    if (ov.flipper_enabled && !ov._flipper_drawing && (ov.type === 'text' || ov.type === 'textcard')) {
+        const text = (ov.type === 'textcard') ? (ov.body_text || '') : (ov.content || '');
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        if (lines.length > 0) {
+            const flipper_lines = parseInt(ov.flipper_lines) || 2;
+            const flipper_duration = parseFloat(ov.flipper_duration) || 2.0;
+            const totalChunks = Math.ceil(lines.length / flipper_lines);
+            const startSec = parseFloat(ov.start || 0);
+            const t = currentTime - startSec;
+            
+            if (t >= 0) {
+                let chunkIndex = Math.floor(t / flipper_duration);
+                const rawTransDuration = parseFloat(ov.flipper_transition_duration);
+                const transitionDuration = Math.min(isNaN(rawTransDuration) ? 0.3 : rawTransDuration, flipper_duration);
+                const phase = t % flipper_duration;
+                
+                let inTransition = false;
+                let transitionProgress = 0;
+                let prevChunkIndex = -1;
+                let currentChunkIndex = chunkIndex;
+                
+                if (ov.flipper_loop) {
+                    currentChunkIndex = currentChunkIndex % totalChunks;
+                    prevChunkIndex = (currentChunkIndex - 1 + totalChunks) % totalChunks;
+                    if (phase < transitionDuration) {
+                        inTransition = true;
+                        transitionProgress = phase / transitionDuration;
+                    }
+                } else {
+                    if (currentChunkIndex < totalChunks) {
+                        prevChunkIndex = currentChunkIndex - 1;
+                        if (phase < transitionDuration && currentChunkIndex > 0) {
+                            inTransition = true;
+                            transitionProgress = phase / transitionDuration;
+                        }
+                    } else {
+                        currentChunkIndex = -1;
+                    }
+                }
+                
+                const getChunkText = (idx) => {
+                    if (idx < 0 || idx >= totalChunks) return '';
+                    const startLine = idx * flipper_lines;
+                    return lines.slice(startLine, startLine + flipper_lines).join('\n');
+                };
+
+                const effect = ov.flipper_effect || 'none';
+                
+                if (inTransition && effect !== 'none') {
+                    // 1. 绘制静态背景/标题/结尾
+                    if (ov.type === 'textcard') {
+                        const ovStatic = Object.assign({}, origOv);
+                        ovStatic._flipper_drawing = true;
+                        ovStatic.body_text = '';
+                        ovStatic._original_body_text = getChunkText(currentChunkIndex); // 测量占位
+                        drawOverlay(ctx, ovStatic, currentTime, canvasW, canvasH);
+                    }
+                    
+                    // 2. 绘制淡出/移出中的前一组文字
+                    const ovOld = Object.assign({}, origOv);
+                    ovOld._flipper_drawing = true;
+                    ovOld.card_enabled = false;
+                    ovOld.card_border_enabled = false;
+                    ovOld.card_blur_enabled = false;
+                    
+                    if (ov.type === 'textcard') {
+                        ovOld.title_text = '';
+                        ovOld.footer_text = '';
+                        ovOld.body_text = getChunkText(prevChunkIndex);
+                        ovOld._original_title_text = origOv.title_text;
+                        ovOld._original_footer_text = origOv.footer_text;
+                        ovOld._original_body_text = getChunkText(currentChunkIndex); // Keep baseline aligned to ovNew!
+                    } else {
+                        ovOld.content = getChunkText(prevChunkIndex);
+                    }
+                    
+                    const origOpacity = ov.opacity ?? 255;
+                    if (effect === 'fade') {
+                        ovOld.opacity = origOpacity * (1 - transitionProgress);
+                    } else if (effect === 'slide') {
+                        ovOld.opacity = origOpacity * (1 - transitionProgress);
+                        if (ov.type === 'textcard') {
+                            ovOld.body_offset_y = (parseFloat(origOv.body_offset_y) || 0) - transitionProgress * 40;
+                        } else {
+                            ovOld.y = (parseFloat(origOv.y) || 0) - transitionProgress * 40;
+                        }
+                    }
+                    drawOverlay(ctx, ovOld, currentTime, canvasW, canvasH);
+                    
+                    // 3. 绘制淡入/移入中的新一组文字
+                    const ovNew = Object.assign({}, origOv);
+                    ovNew._flipper_drawing = true;
+                    ovNew.card_enabled = false;
+                    ovNew.card_border_enabled = false;
+                    ovNew.card_blur_enabled = false;
+                    
+                    if (ov.type === 'textcard') {
+                        ovNew.title_text = '';
+                        ovNew.footer_text = '';
+                        ovNew.body_text = getChunkText(currentChunkIndex);
+                        ovNew._original_title_text = origOv.title_text;
+                        ovNew._original_footer_text = origOv.footer_text;
+                        ovNew._original_body_text = getChunkText(currentChunkIndex);
+                    } else {
+                        ovNew.content = getChunkText(currentChunkIndex);
+                    }
+                    
+                    if (effect === 'fade') {
+                        ovNew.opacity = origOpacity * transitionProgress;
+                    } else if (effect === 'slide') {
+                        ovNew.opacity = origOpacity * transitionProgress;
+                        if (ov.type === 'textcard') {
+                            ovNew.body_offset_y = (parseFloat(origOv.body_offset_y) || 0) + (1 - transitionProgress) * 40;
+                        } else {
+                            ovNew.y = (parseFloat(origOv.y) || 0) + (1 - transitionProgress) * 40;
+                        }
+                    }
+                    drawOverlay(ctx, ovNew, currentTime, canvasW, canvasH);
+                    return;
+                } else {
+                    // 硬切模式
+                    ov = Object.assign({}, origOv);
+                    ov._flipper_drawing = true;
+                    const txt = getChunkText(currentChunkIndex);
+                    if (ov.type === 'textcard') {
+                        ov.body_text = txt;
+                        ov._original_body_text = txt;
+                    } else {
+                        ov.content = txt;
+                    }
+                }
+            }
+        }
+    }
     
     // ── 时间切片模式拦截 (分段正文) ──
     if (ov._subtitleTimeMode === 'split' && ov._subtitleTimeSlices && ov.type === 'textcard' && !ov._fcpxml_generating) {
@@ -1275,6 +1428,58 @@ function _drawTextOverlay(ctx, ov, x, y, w, h, currentTime) {
  * 自动适配：根据文案长短调整蒙版大小和位置
  */
 function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime) {
+    const originalOverlay = ov;
+    if (ov.body_follow_title) {
+        const indep = ov.independent_effects;
+        const strokeC = (indep ? ov.title_stroke_color : ov.text_stroke_color) || '#000000';
+        const strokeW = (indep ? ov.title_stroke_width : ov.text_stroke_width) ?? 0;
+        const shadowC = (indep ? ov.title_shadow_color : ov.text_shadow_color) || '#000000';
+        const shadowBlur = (indep ? ov.title_shadow_blur : ov.text_shadow_blur) ?? 0;
+        const shadowX = (indep ? ov.title_shadow_x : ov.text_shadow_x) ?? 0;
+        const shadowY = (indep ? ov.title_shadow_y : ov.text_shadow_y) ?? 0;
+
+        ov = Object.assign({}, ov, {
+            body_font_family: ov.title_font_family,
+            body_fontsize: ov.title_fontsize,
+            body_font_weight: ov.title_font_weight,
+            body_bold: ov.title_bold,
+            body_italic: ov.title_italic,
+            body_color: ov.title_color,
+            body_letter_spacing: ov.title_letter_spacing,
+            body_line_spacing: ov.title_line_spacing,
+            
+            body_stroke_color: strokeC,
+            body_stroke_width: strokeW,
+            body_shadow_color: shadowC,
+            body_shadow_blur: shadowBlur,
+            body_shadow_x: shadowX,
+            body_shadow_y: shadowY,
+
+            title_stroke_color: strokeC,
+            title_stroke_width: strokeW,
+            title_shadow_color: shadowC,
+            title_shadow_blur: shadowBlur,
+            title_shadow_x: shadowX,
+            title_shadow_y: shadowY,
+
+            body_bg_enabled: ov.title_bg_enabled,
+            body_bg_mode: ov.title_bg_mode,
+            body_bg_color: ov.title_bg_color,
+            body_bg_opacity: ov.title_bg_opacity,
+            body_bg_radius: ov.title_bg_radius,
+            body_bg_pad_h: ov.title_bg_pad_h,
+            body_bg_pad_top: ov.title_bg_pad_top,
+            body_bg_pad_bottom: ov.title_bg_pad_bottom,
+
+            independent_effects: true
+        });
+    }
+    if (ov !== originalOverlay) ov._sideBySideCacheOwner = originalOverlay;
+
+    if (ov.layout_mode === 'side_by_side') {
+        _drawTextCardSideBySideOverlay(ctx, ov, x, y, w, h, canvasW, canvasH);
+        return;
+    }
     // 注意：auto_center_v 仅控制垂直居中，不应改动 X（避免手动 X 被每帧覆盖）
     
     // 关键修正：必须明确指定为 alphabetic，否则由于上层可能污染 ctx.textBaseline='top'
@@ -1535,9 +1740,32 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
         total: autoH, tf: titleFont, bf: bodyFont, ff: footerFont,
         hasT: hasTitle, hasB: hasBody, hasF: hasFooter } = m;
 
-    const drawTitleLines = ov.title_text ? titleLines : [];
-    const drawBodyLines = ov.body_text ? bodyLines : [];
-    const drawFooterLines = ov.footer_text ? footerLines : [];
+    let drawTitleLines = [];
+    if (ov.title_text) {
+        ctx.save();
+        ctx.font = titleFont;
+        ctx.letterSpacing = `${ov.title_letter_spacing || 0}px`;
+        drawTitleLines = _wrapText(ctx, ov.title_uppercase ? ov.title_text.toUpperCase() : ov.title_text, tW);
+        ctx.restore();
+    }
+
+    let drawBodyLines = [];
+    if (ov.body_text) {
+        ctx.save();
+        ctx.font = bodyFont;
+        ctx.letterSpacing = `${ov.body_letter_spacing || 0}px`;
+        drawBodyLines = _wrapText(ctx, ov.body_text, bW);
+        ctx.restore();
+    }
+
+    let drawFooterLines = [];
+    if (ov.footer_text) {
+        ctx.save();
+        ctx.font = footerFont;
+        ctx.letterSpacing = `${ov.footer_letter_spacing || 0}px`;
+        drawFooterLines = _wrapText(ctx, ov.footer_text, fW);
+        ctx.restore();
+    }
 
     // ── 计算总高度与锚点 ──
     // 自动适配开：高度跟随内容；无适配：手动设定的 h 或回退到内容。
@@ -2318,6 +2546,312 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
         ctx.lineTo(x + w + 16, guideY_bot);
         ctx.strokeStyle = '#4c9eff';
         ctx.lineWidth = 1;
+    }
+}
+
+function _drawTextCardSideBySideOverlay(ctx, ov, x, y, w, h, canvasW, canvasH) {
+    ctx.save();
+    ctx.textBaseline = 'alphabetic';
+    const cacheOwner = ov._sideBySideCacheOwner || ov;
+
+    const padL = ov.padding_left ?? 40;
+    const padR = ov.padding_right ?? 40;
+    const padT = ov.padding_top ?? 28;
+    const padB = ov.padding_bottom ?? 28;
+    const gap = ov.side_by_side_gap ?? ov.title_body_gap ?? 80;
+    const titleRatio = Math.max(10, Math.min(90, ov.side_by_side_title_ratio ?? 50)) / 100;
+    const contentW = Math.max(1, w - padL - padR - gap);
+    const titleBoxW = contentW * titleRatio;
+    const bodyBoxW = contentW - titleBoxW;
+
+    // ── 标题与正文的字号与排版测量 ──
+    const titleFontSize = ov.title_fontsize ?? 60;
+    const titleWeight = _resolveOverlayFontWeight(ov.title_font_weight, ov.title_bold ? 900 : 400);
+    const titleItalic = ov.title_italic ? 'italic' : 'normal';
+    const titleFamily = ov.title_font_family || 'Crimson Pro';
+    const titleFallback = _resolveOverlayFallback(titleFamily);
+    const titleFont = `${titleItalic} ${titleWeight} ${titleFontSize}px "${titleFamily}", ${titleFallback}`;
+
+    const bodyFontSize = ov.body_fontsize ?? 40;
+    const bodyWeight = _resolveOverlayFontWeight(ov.body_font_weight, ov.body_bold ? 700 : 400);
+    const bodyItalic = ov.body_italic ? 'italic' : 'normal';
+    const bodyFamily = ov.body_font_family || 'Arial';
+    const bodyFallback = _resolveOverlayFallback(bodyFamily);
+    const bodyFont = `${bodyItalic} ${bodyWeight} ${bodyFontSize}px "${bodyFamily}", ${bodyFallback}`;
+    _ensureSideBySideFontsReady(titleFont, bodyFont);
+
+    const titleText = ov.title_uppercase !== false ? String(ov.title_text || '').toUpperCase() : String(ov.title_text || '');
+    const titleBgPadH = ov.title_bg_pad_h ?? Math.max(20, Math.round(titleFontSize * 0.55));
+    const titleTextW = Math.max(1, titleBoxW - titleBgPadH * 2);
+    ctx.font = titleFont;
+    ctx.letterSpacing = `${ov.title_letter_spacing || 0}px`;
+    const titleLines = titleText ? _wrapText(ctx, titleText, titleTextW) : [];
+    ctx.letterSpacing = '0px';
+    const titleLineH = titleFontSize * 1.3 + parseFloat(ov.title_line_spacing || 0);
+    const titleMetrics = _measureSideTextBlock('title', titleFont, titleLines, titleFontSize, titleLineH);
+    const titleTextH = titleMetrics.height;
+
+    const bodyText = String(ov.body_text || '');
+    const bodyBgPadH = ov.body_bg_pad_h ?? Math.max(20, Math.round(bodyFontSize * 0.55));
+    const bodyTextW = Math.max(1, bodyBoxW - bodyBgPadH * 2);
+    ctx.font = bodyFont;
+    ctx.letterSpacing = `${ov.body_letter_spacing || 0}px`;
+    const bodyLines = bodyText ? _wrapText(ctx, bodyText, bodyTextW) : [];
+    ctx.letterSpacing = '0px';
+    const bodyLineH = bodyFontSize * 1.3 + parseFloat(ov.body_line_spacing || 0);
+    const bodyMetrics = _measureSideTextBlock('body', bodyFont, bodyLines, bodyFontSize, bodyLineH);
+    const bodyTextH = bodyMetrics.height;
+
+    // 计算各区段在 block 模式下的独立高度 (以便 auto_fit 动态计算总卡片高)
+    const titleBgPadTop = ov.title_bg_pad_top ?? Math.max(12, Math.round(titleFontSize * 0.35));
+    const titleBgPadBottom = ov.title_bg_pad_bottom ?? Math.max(12, Math.round(titleFontSize * 0.35));
+    const titleSecH = titleText ? (titleTextH + titleBgPadTop + titleBgPadBottom) : 0;
+
+    const bodyBgPadTop = ov.body_bg_pad_top ?? Math.max(12, Math.round(bodyFontSize * 0.35));
+    const bodyBgPadBottom = ov.body_bg_pad_bottom ?? Math.max(12, Math.round(bodyFontSize * 0.35));
+    const bodySecH = bodyText ? (bodyTextH + bodyBgPadTop + bodyBgPadBottom) : 0;
+
+    // ── 确定卡片最终高度 ──
+    const maxContentH = Math.max(titleSecH, bodySecH);
+    const autoH = padT + maxContentH + padB;
+    const useAutoFit = (ov.auto_fit === true || ov.auto_fit === 1 || ov.auto_fit === '1');
+    let cardH = useAutoFit ? autoH : (h > 0 ? h : autoH);
+    const maxH = ov.max_height ?? 1400;
+    if (useAutoFit && ov.auto_shrink && maxH > 0 && cardH > maxH) {
+        cardH = maxH;
+    }
+
+    // ── 确定垂直起点 cardY ──
+    const useAutoCenterV = (ov.auto_center_v === true || ov.auto_center_v === 1 || ov.auto_center_v === '1');
+    let cardY = y;
+    const isAbsoluteLayout = ov.layout_mode === 'absolute';
+    if (!isAbsoluteLayout) {
+        const originalCenterY = y + (h > 0 ? h : cardH) / 2;
+        cardY = useAutoFit ? (originalCenterY - cardH / 2) : y;
+    }
+    if (useAutoCenterV) {
+        cardY = (canvasH - cardH) / 2;
+    }
+
+    // 保存计算值，利于交互选中等功能
+    ov._renderedH = cardH;
+    ov._renderedY = cardY;
+
+    // ── 1. 磨砂玻璃背景 ──
+    if (ov.card_blur_enabled) {
+        const blurPx = Math.max(1, Math.min(40, parseFloat(ov.card_blur_amount ?? 10)));
+        ctx.save();
+        _roundRectIndividual(ctx, x, cardY, w, cardH,
+            ov.radius_tl || 0, ov.radius_tr || 0, ov.radius_br || 0, ov.radius_bl || 0);
+        ctx.clip();
+        ctx.filter = `blur(${blurPx}px)`;
+        ctx.drawImage(ctx.canvas, 0, 0);
+        ctx.filter = 'none';
+        ctx.restore();
+    }
+
+    // ── 2. 绘制卡片全局背景 ──
+    if (ov.card_enabled !== false) {
+        const cardAlpha = (ov.card_opacity ?? 80) / 100;
+        ctx.save();
+        ctx.globalAlpha = cardAlpha * ctx.globalAlpha;
+        let fillStyle = ov.card_color || '#FFFFFF';
+        ctx.fillStyle = fillStyle;
+        _roundRectIndividual(ctx, x, cardY, w, cardH,
+            ov.radius_tl || 0, ov.radius_tr || 0, ov.radius_br || 0, ov.radius_bl || 0);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // ── 3. 绘制卡片全局边框 ──
+    if (ov.card_border_enabled) {
+        const borderW = parseFloat(ov.card_border_width ?? 3);
+        const borderOp = (ov.card_border_opacity ?? 100) / 100;
+        const borderStyle = ov.card_border_style || 'solid';
+        ctx.save();
+        ctx.globalAlpha = borderOp * ctx.globalAlpha;
+        ctx.strokeStyle = ov.card_border_color || '#FFD700';
+        ctx.lineWidth = borderW;
+        ctx.lineJoin = 'round';
+        if (borderStyle === 'dashed') {
+            ctx.setLineDash([borderW * 4, borderW * 3]);
+        } else if (borderStyle === 'dotted') {
+            ctx.setLineDash([borderW, borderW * 2]);
+        }
+        _roundRectIndividual(ctx, x, cardY, w, cardH,
+            ov.radius_tl || 0, ov.radius_tr || 0, ov.radius_br || 0, ov.radius_bl || 0);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // ── 4. 绘制两侧内容 ──
+    const titleX = x + padL;
+    const bodyX = titleX + titleBoxW + gap;
+    const boxY = cardY + padT;
+    const boxH = Math.max(1, cardH - padT - padB);
+
+    drawSideSection('title', titleLines, titleFont, titleFontSize, titleBgPadH, titleBgPadTop, titleBgPadBottom, titleMetrics, titleX, boxY, titleBoxW, boxH);
+    drawSideSection('body', bodyLines, bodyFont, bodyFontSize, bodyBgPadH, bodyBgPadTop, bodyBgPadBottom, bodyMetrics, bodyX, boxY, bodyBoxW, boxH);
+
+    if (ov.debug_layout) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(76,158,255,0.75)';
+        ctx.setLineDash([8, 5]);
+        ctx.strokeRect(x, cardY, w, cardH);
+        ctx.restore();
+    }
+    ctx.restore();
+
+    function _ensureSideBySideFontsReady(...fontList) {
+        if (typeof document === 'undefined' || !document.fonts) return;
+        const fontKey = fontList.join('|');
+        if (cacheOwner._sideBySideFontKey === fontKey) return;
+        cacheOwner._sideBySideFontKey = fontKey;
+        cacheOwner._sideBySideFontsReady = false;
+        cacheOwner._sideBySideFontLoadPending = true;
+        Promise.allSettled(fontList.map(font => document.fonts.load(font)))
+            .then(() => document.fonts.ready)
+            .then(() => {
+                cacheOwner._sideBySideFontsReady = true;
+                cacheOwner._sideBySideFontLoadPending = false;
+                if (typeof reelsUpdatePreview === 'function') {
+                    requestAnimationFrame(() => reelsUpdatePreview());
+                }
+            })
+            .catch(() => {
+                cacheOwner._sideBySideFontLoadPending = false;
+            });
+    }
+
+    function _measureSideTextBlock(prefix, fontStr, lines, fontSize, lineH) {
+        if (!lines || lines.length === 0) return { height: 0, firstAscent: fontSize * 0.8, lastDescent: fontSize * 0.22 };
+        if (!cacheOwner._sideBySideMetricCache || typeof cacheOwner._sideBySideMetricCache !== 'object') {
+            cacheOwner._sideBySideMetricCache = {};
+        }
+        const cacheKey = [
+            prefix,
+            fontStr,
+            fontSize,
+            lineH,
+            ctx.letterSpacing || '',
+            lines.join('\n'),
+        ].join('|');
+        const cached = cacheOwner._sideBySideMetricCache[cacheKey];
+        if (cached && cacheOwner._sideBySideFontLoadPending && !cacheOwner._sideBySideFontsReady) {
+            return cached;
+        }
+        ctx.save();
+        ctx.font = fontStr;
+        let firstAscent = 0;
+        let lastDescent = 0;
+        for (let i = 0; i < lines.length; i++) {
+            const m = ctx.measureText(lines[i] || 'H');
+            const asc = Number(m.actualBoundingBoxAscent);
+            const desc = Number(m.actualBoundingBoxDescent);
+            if (i === 0) firstAscent = Number.isFinite(asc) && asc > 0 ? asc : fontSize * 0.8;
+            if (i === lines.length - 1) lastDescent = Number.isFinite(desc) && desc >= 0 ? desc : fontSize * 0.22;
+        }
+        ctx.restore();
+        const measured = {
+            height: firstAscent + lastDescent + Math.max(0, lines.length - 1) * lineH,
+            firstAscent,
+            lastDescent,
+        };
+        if (cached) {
+            const sameHeight = Math.abs(cached.height - measured.height) < 0.5;
+            const sameAscent = Math.abs(cached.firstAscent - measured.firstAscent) < 0.5;
+            const sameDescent = Math.abs(cached.lastDescent - measured.lastDescent) < 0.5;
+            if (sameHeight && sameAscent && sameDescent) return cached;
+        }
+        cacheOwner._sideBySideMetricCache[cacheKey] = measured;
+        return measured;
+    }
+
+    function drawSideSection(prefix, lines, fontStr, fontSize, bgPadH, bgPadT, bgPadB, textMetrics, sx, sy, sw, sh) {
+        if (lines.length === 0) return;
+        const indep = ov.independent_effects;
+        const color = ov[`${prefix}_color`] || '#ffffff';
+        const align = ov[`${prefix}_align`] || 'center';
+        const valign = ov[`${prefix}_valign`] || 'middle';
+        const letterSpacing = ov[`${prefix}_letter_spacing`] || 0;
+        const lineSpacing = ov[`${prefix}_line_spacing`] || 0;
+        const fx = resolveSideFx(prefix);
+
+        // 如果开启了独立效果且显式启用了区段背景，或者在禁用全局卡片背景时默认为真
+        const bgEnabled = (indep && ov[`${prefix}_bg_enabled`] === true) || (ov.card_enabled === false && ov[`${prefix}_bg_enabled`] !== false);
+        const bgColor = ov[`${prefix}_bg_color`] || ov.card_color || '#4a1405';
+        const bgOpacity = (ov[`${prefix}_bg_opacity`] ?? ov.card_opacity ?? 80) / 100;
+        const bgRadius = ov[`${prefix}_bg_radius`] ?? ov.radius_tl ?? 12;
+
+        const bgW = Math.min(sw, Math.max(1, Math.max(...lines.map(line => ctx.measureText(line).width), 0) + bgPadH * 2));
+        const bgH = Math.min(sh, Math.max(1, textMetrics.height + bgPadT + bgPadB));
+        
+        // 若独立区段背景关闭，整个渲染框占满 sw 以便左右对齐正确；若开启则使用测量宽度居中
+        const boxW = bgEnabled ? bgW : sw;
+        let bgX = sx + (sw - boxW) / 2 + (ov[`${prefix}_offset_x`] || 0);
+        let bgY = sy + (ov[`${prefix}_offset_y`] || 0);
+        if (valign === 'middle' || valign === 'center') bgY = sy + (sh - bgH) / 2 + (ov[`${prefix}_offset_y`] || 0);
+        else if (valign === 'bottom') bgY = sy + sh - bgH + (ov[`${prefix}_offset_y`] || 0);
+
+        if (bgEnabled) {
+            ctx.save();
+            ctx.globalAlpha *= Math.max(0, Math.min(1, bgOpacity));
+            ctx.fillStyle = bgColor;
+            _roundRect(ctx, bgX, bgY, boxW, bgH, bgRadius);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        const textX = bgX + bgPadH;
+        const alignW = Math.max(1, boxW - bgPadH * 2);
+        let ty = bgY + bgPadT + textMetrics.firstAscent;
+        ctx.font = fontStr;
+        ctx.letterSpacing = `${letterSpacing}px`;
+        if (fx.shadowBlur > 0 || fx.shadowX || fx.shadowY) {
+            ctx.shadowColor = fx.shadowColor;
+            ctx.shadowBlur = fx.shadowBlur;
+            ctx.shadowOffsetX = fx.shadowX;
+            ctx.shadowOffsetY = fx.shadowY;
+        }
+        for (const line of lines) {
+            const lx = _alignX(ctx, line, textX, alignW, align, letterSpacing);
+            if (fx.strokeW > 0) {
+                ctx.save();
+                ctx.lineJoin = 'round';
+                ctx.strokeStyle = fx.strokeColor;
+                ctx.lineWidth = fx.strokeW * 2;
+                ctx.strokeText(line, lx, ty);
+                ctx.restore();
+            }
+            ctx.fillStyle = color;
+            ctx.fillText(line, lx, ty);
+            ty += fontSize * 1.3 + parseFloat(lineSpacing || 0);
+        }
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.letterSpacing = '0px';
+
+        if ((prefix === 'title' && ov.debug_title) || (prefix === 'body' && ov.debug_body)) {
+            ctx.save();
+            ctx.strokeStyle = prefix === 'title' ? 'rgba(255,215,0,0.85)' : 'rgba(110,198,255,0.85)';
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(bgX, bgY, boxW, bgH);
+            ctx.restore();
+        }
+    }
+
+    function resolveSideFx(prefix) {
+        const indep = ov.independent_effects;
+        return {
+            strokeW: indep ? (ov[`${prefix}_stroke_width`] ?? 0) : (ov.text_stroke_width ?? 0),
+            strokeColor: indep ? (ov[`${prefix}_stroke_color`] || '#000000') : (ov.text_stroke_color || '#000000'),
+            shadowBlur: indep ? (ov[`${prefix}_shadow_blur`] ?? 0) : (ov.text_shadow_blur ?? 0),
+            shadowColor: indep ? (ov[`${prefix}_shadow_color`] || '#000000') : (ov.text_shadow_color || '#000000'),
+            shadowX: indep ? (ov[`${prefix}_shadow_x`] ?? 0) : (ov.text_shadow_x ?? 0),
+            shadowY: indep ? (ov[`${prefix}_shadow_y`] ?? 0) : (ov.text_shadow_y ?? 0),
+        };
     }
 }
 

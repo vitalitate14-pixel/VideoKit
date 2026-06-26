@@ -958,14 +958,14 @@ function _renderBatchTable() {
                         <span style="color:rgba(255,255,255,0.2);margin:0 2px;">|</span>
                         <button class="rbt-btn" id="rbt-paste-txtcontent" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从剪贴板粘贴到人声-断行文案列">粘贴人声-断行文案</button>
                         ${textcards.length > 0 ? textcards.map((ov, oIdx) => `
-                            <button class="rbt-btn rbt-paste-card-btn" data-card-id="${ov.id}" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴文案到该卡片(支持标题/内容/结尾多列格式)">粘贴覆层文案-${_escHtml(ov.name || `卡片${oIdx + 1}`)}</button>
+                            <button class="rbt-btn rbt-paste-card-btn" data-card-id="${ov.id}" data-card-idx="${oIdx}" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴文案到该卡片(支持标题/内容/结尾多列格式)">粘贴覆层文案-${_escHtml(ov.name || `卡片${oIdx + 1}`)}</button>
                         `).join('') : `
-                            <button class="rbt-btn rbt-paste-card-btn" data-card-id="" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴文案并自动创建卡片">粘贴覆层文案</button>
+                            <button class="rbt-btn rbt-paste-card-btn" data-card-id="" data-card-idx="0" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴文案并自动创建卡片">粘贴覆层文案</button>
                         `}
                         ${scrolls.length > 0 ? scrolls.map((ov, oIdx) => `
-                            <button class="rbt-btn rbt-paste-scroll-btn-tiled" data-scroll-id="${ov.id}" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格批量粘贴滚动字幕到该图层">粘贴滚动字幕-${_escHtml(ov.name || `滚动${oIdx + 1}`)}</button>
+                            <button class="rbt-btn rbt-paste-scroll-btn-tiled" data-scroll-id="${ov.id}" data-scroll-idx="${oIdx}" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格批量粘贴滚动字幕到该图层">粘贴滚动字幕-${_escHtml(ov.name || `滚动${oIdx + 1}`)}</button>
                         `).join('') : `
-                            <button class="rbt-btn rbt-paste-scroll-btn-tiled" data-scroll-id="" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴滚动字幕并自动创建滚动层">粘贴滚动字幕</button>
+                            <button class="rbt-btn rbt-paste-scroll-btn-tiled" data-scroll-id="" data-scroll-idx="0" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="从 Google 表格粘贴滚动字幕并自动创建滚动层">粘贴滚动字幕</button>
                         `}
                         <button class="rbt-btn" id="rbt-paste-clip-ab" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#ccc;" title="A/B双版文案">粘贴剪辑文案 (A/B版)</button>
                         <button class="rbt-btn" id="rbt-bulk-create-btn" style="padding:2px 8px;font-size:11px;background:rgba(124,92,255,0.15);border:1px solid rgba(124,92,255,0.3);color:#b8a0ff;font-weight:600;" title="类似Canva大量制作：表格数据 × 覆层模板 = 批量任务">🧩 大量制作</button>
@@ -1230,6 +1230,12 @@ function _renderBatchTable() {
                                     <th class="rbt-col-title rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>覆层标题-${_escHtml(cardName)}</span><button class="rbt-th-paste" data-paste-col="overlay_title_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_title_${targetId}" title="清空该列">清</button></div></th>
                                     <th class="rbt-col-body rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>覆层内容-${_escHtml(cardName)}</span><button class="rbt-th-paste" data-paste-col="overlay_body_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_body_${targetId}" title="清空该列">清</button></div></th>
                                     <th class="rbt-col-footer rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>覆层结尾-${_escHtml(cardName)}</span><button class="rbt-th-paste" data-paste-col="overlay_footer_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_footer_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-flipper-enabled rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>${_escHtml(cardName)}-启用翻转</span><button class="rbt-th-paste" data-paste-col="overlay_flipper_enabled_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_flipper_enabled_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-flipper-duration rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>${_escHtml(cardName)}-翻转间隔</span><button class="rbt-th-paste" data-paste-col="overlay_flipper_duration_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_flipper_duration_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-flipper-lines rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>${_escHtml(cardName)}-翻转行数</span><button class="rbt-th-paste" data-paste-col="overlay_flipper_lines_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_flipper_lines_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-flipper-effect rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>${_escHtml(cardName)}-翻转效果</span><button class="rbt-th-paste" data-paste-col="overlay_flipper_effect_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_flipper_effect_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-flipper-loop rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>${_escHtml(cardName)}-翻转循环</span><button class="rbt-th-paste" data-paste-col="overlay_flipper_loop_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_flipper_loop_${targetId}" title="清空该列">清</button></div></th>
+                                    <th class="rbt-col-flipper-transition-duration rbt-grp-ovl" data-card-id="${targetId}"><div class="rbt-th-wrap"><span>${_escHtml(cardName)}-过渡时长</span><button class="rbt-th-paste" data-paste-col="overlay_flipper_transition_duration_${targetId}" title="从剪贴板粘贴到该列">📋</button><button class="rbt-th-clear" data-clear-col="overlay_flipper_transition_duration_${targetId}" title="清空该列">清</button></div></th>
                                 `;
                             }).join('')}
                             ${activeScrolls.map((ov, oIdx) => {
@@ -1572,7 +1578,7 @@ function _applyOverlayField(task, fieldCategory, str) {
     
     let targetId = null;
     let baseCategory = fieldCategory;
-    const match = fieldCategory.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body)_(.+)$/);
+    const match = fieldCategory.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body|overlay_flipper_enabled|overlay_flipper_duration|overlay_flipper_lines|overlay_flipper_effect|overlay_flipper_loop|overlay_flipper_transition_duration)_(.+)$/);
     if (match) {
         baseCategory = match[1];
         targetId = match[2];
@@ -1631,6 +1637,30 @@ function _applyOverlayField(task, fieldCategory, str) {
         if (baseCategory === 'overlay_title') ov.title_text = str;
         if (baseCategory === 'overlay_body') ov.body_text = str;
         if (baseCategory === 'overlay_footer') ov.footer_text = str;
+        if (baseCategory === 'overlay_flipper_enabled') {
+            const lower = String(str).trim().toLowerCase();
+            ov.flipper_enabled = (lower === 'true' || lower === '1' || lower === 'yes' || lower === '启用' || lower === '开启' || lower === 'on');
+        }
+        if (baseCategory === 'overlay_flipper_duration') {
+            ov.flipper_duration = parseFloat(str) || 2.0;
+        }
+        if (baseCategory === 'overlay_flipper_lines') {
+            ov.flipper_lines = parseInt(str, 10) || 2;
+        }
+        if (baseCategory === 'overlay_flipper_effect') {
+            const effect = String(str).trim().toLowerCase();
+            if (effect === 'fade' || effect === '淡入' || effect === '淡入淡出') ov.flipper_effect = 'fade';
+            else if (effect === 'slide' || effect === '向上滑动' || effect === '滑动') ov.flipper_effect = 'slide';
+            else ov.flipper_effect = 'none';
+        }
+        if (baseCategory === 'overlay_flipper_loop') {
+            const lower = String(str).trim().toLowerCase();
+            ov.flipper_loop = (lower === 'true' || lower === '1' || lower === 'yes' || lower === '循环' || lower === 'on');
+        }
+        if (baseCategory === 'overlay_flipper_transition_duration') {
+            const parsed = parseFloat(str);
+            ov.flipper_transition_duration = isNaN(parsed) ? 0.3 : parsed;
+        }
     } else if (baseCategory === 'cover_text') {
         if (!task.cover) task.cover = { enabled: true, overlays: [] };
         let ov = (task.cover.overlays && task.cover.overlays.length > 0) ? task.cover.overlays[0] : null;
@@ -1686,6 +1716,30 @@ function _applyOverlayFieldWithTarget(task, fieldCategory, str, id, idx, type) {
     if (fieldCategory === 'overlay_footer') ov.footer_text = str;
     if (fieldCategory === 'scroll_title') ov.scroll_title = str;
     if (fieldCategory === 'scroll_body') ov.content = str;
+    if (fieldCategory === 'overlay_flipper_enabled') {
+        const lower = String(str).trim().toLowerCase();
+        ov.flipper_enabled = (lower === 'true' || lower === '1' || lower === 'yes' || lower === '启用' || lower === '开启' || lower === 'on');
+    }
+    if (fieldCategory === 'overlay_flipper_duration') {
+        ov.flipper_duration = parseFloat(str) || 2.0;
+    }
+    if (fieldCategory === 'overlay_flipper_lines') {
+        ov.flipper_lines = parseInt(str, 10) || 2;
+    }
+    if (fieldCategory === 'overlay_flipper_effect') {
+        const effect = String(str).trim().toLowerCase();
+        if (effect === 'fade' || effect === '淡入' || effect === '淡入淡出') ov.flipper_effect = 'fade';
+        else if (effect === 'slide' || effect === '向上滑动' || effect === '滑动') ov.flipper_effect = 'slide';
+        else ov.flipper_effect = 'none';
+    }
+    if (fieldCategory === 'overlay_flipper_loop') {
+        const lower = String(str).trim().toLowerCase();
+        ov.flipper_loop = (lower === 'true' || lower === '1' || lower === 'yes' || lower === '循环' || lower === 'on');
+    }
+    if (fieldCategory === 'overlay_flipper_transition_duration') {
+        const parsed = parseFloat(str);
+        ov.flipper_transition_duration = isNaN(parsed) ? 0.3 : parsed;
+    }
 }
 
 function _syncSelectedTaskOverlayMgrIfNeeded(taskIdx) {
@@ -2241,6 +2295,12 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates, textcards, s
                 const title = ov ? (ov.title_text || '') : '';
                 const body = ov ? (ov.body_text || '') : '';
                 const footer = ov ? (ov.footer_text || '') : '';
+                const flipperEnabled = ov ? !!ov.flipper_enabled : !!templateOv.flipper_enabled;
+                const flipperDuration = ov ? (ov.flipper_duration ?? 2.0) : (templateOv.flipper_duration ?? 2.0);
+                const flipperLines = ov ? (ov.flipper_lines ?? 2) : (templateOv.flipper_lines ?? 2);
+                const flipperEffect = ov ? (ov.flipper_effect || 'none') : (templateOv.flipper_effect || 'none');
+                const flipperLoop = ov ? !!ov.flipper_loop : !!templateOv.flipper_loop;
+                const flipperTransitionDuration = ov ? (ov.flipper_transition_duration ?? 0.3) : (templateOv.flipper_transition_duration ?? 0.3);
                 return `
                     <td class="rbt-col-title rbt-grp-ovl" data-card-id="${templateOv.id}">
                         <textarea class="rbt-textarea rbt-title-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" rows="2" title="双击放大编辑" style="${title === '标题文字' ? 'color:#ff5555;' : ''}">${_escHtml(title)}</textarea>
@@ -2250,6 +2310,24 @@ function _renderBatchRow(task, idx, subtitlePresets, cardTemplates, textcards, s
                     </td>
                     <td class="rbt-col-footer rbt-grp-ovl" data-card-id="${templateOv.id}">
                         <textarea class="rbt-textarea rbt-footer-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" rows="2" title="双击放大编辑">${_escHtml(footer)}</textarea>
+                    </td>
+                    <td class="rbt-col-flipper-enabled rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <input type="text" class="rbt-input rbt-flipper-enabled-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" value="${flipperEnabled ? '启用' : '关闭'}" placeholder="启用/关闭" style="width:100%;text-align:center;font-size:11px;">
+                    </td>
+                    <td class="rbt-col-flipper-duration rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <input type="text" class="rbt-input rbt-flipper-duration-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" value="${flipperDuration}" placeholder="2.0" style="width:100%;text-align:center;font-size:11px;">
+                    </td>
+                    <td class="rbt-col-flipper-lines rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <input type="text" class="rbt-input rbt-flipper-lines-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" value="${flipperLines}" placeholder="2" style="width:100%;text-align:center;font-size:11px;">
+                    </td>
+                    <td class="rbt-col-flipper-effect rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <input type="text" class="rbt-input rbt-flipper-effect-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" value="${flipperEffect}" placeholder="none/fade/slide" style="width:100%;text-align:center;font-size:11px;">
+                    </td>
+                    <td class="rbt-col-flipper-loop rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <input type="text" class="rbt-input rbt-flipper-loop-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" value="${flipperLoop ? '循环' : '不循环'}" placeholder="循环/不循环" style="width:100%;text-align:center;font-size:11px;">
+                    </td>
+                    <td class="rbt-col-flipper-transition-duration rbt-grp-ovl" data-card-id="${templateOv.id}">
+                        <input type="text" class="rbt-input rbt-flipper-transition-duration-input" data-idx="${idx}" data-card-id="${templateOv.id}" data-card-idx="${oIdx}" value="${flipperTransitionDuration}" placeholder="0.3" style="width:100%;text-align:center;font-size:11px;">
                     </td>
                 `;
             }).join('')}
@@ -3643,7 +3721,8 @@ function _bindBatchTableEvents() {
         if (pasteCardBtn) {
             e.preventDefault();
             const cardId = pasteCardBtn.dataset.cardId || null;
-            _batchPasteFromSheet(cardId);
+            const cardIdx = pasteCardBtn.dataset.cardIdx != null ? parseInt(pasteCardBtn.dataset.cardIdx) : null;
+            _batchPasteFromSheet(cardId, cardIdx);
             return;
         }
         
@@ -3651,7 +3730,8 @@ function _bindBatchTableEvents() {
         if (pasteScrollBtn) {
             e.preventDefault();
             const scrollId = pasteScrollBtn.dataset.scrollId || null;
-            _batchPasteScrollFromSheet(scrollId);
+            const scrollIdx = pasteScrollBtn.dataset.scrollIdx != null ? parseInt(pasteScrollBtn.dataset.scrollIdx) : null;
+            _batchPasteScrollFromSheet(scrollId, scrollIdx);
             return;
         }
     });
@@ -3939,6 +4019,12 @@ function _bindBatchTableEvents() {
         else if (target.classList.contains('rbt-scroll-title-input')) fieldCategory = 'scroll_title';
         else if (target.classList.contains('rbt-scroll-body-input')) fieldCategory = 'scroll_body';
         else if (target.classList.contains('rbt-tts-voice-input')) fieldCategory = 'ttsVoiceId';
+        else if (target.classList.contains('rbt-flipper-enabled-input')) fieldCategory = 'overlay_flipper_enabled';
+        else if (target.classList.contains('rbt-flipper-duration-input')) fieldCategory = 'overlay_flipper_duration';
+        else if (target.classList.contains('rbt-flipper-lines-input')) fieldCategory = 'overlay_flipper_lines';
+        else if (target.classList.contains('rbt-flipper-effect-input')) fieldCategory = 'overlay_flipper_effect';
+        else if (target.classList.contains('rbt-flipper-loop-input')) fieldCategory = 'overlay_flipper_loop';
+        else if (target.classList.contains('rbt-flipper-transition-duration-input')) fieldCategory = 'overlay_flipper_transition_duration';
         else if (target.dataset.field) fieldCategory = target.dataset.field;
 
         let maxCols = Math.max(...tsvRows.map(r => r.length));
@@ -4313,7 +4399,7 @@ function _bindBatchTableEvents() {
         if (!task) return;
         let targetId = null;
         let baseField = field;
-        const match = field.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body)_(.+)$/);
+        const match = field.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body|overlay_flipper_enabled|overlay_flipper_duration|overlay_flipper_lines|overlay_flipper_effect|overlay_flipper_loop|overlay_flipper_transition_duration)_(.+)$/);
         if (match) {
             baseField = match[1];
             targetId = match[2];
@@ -4439,6 +4525,66 @@ function _bindBatchTableEvents() {
                     }
                 }
                 break;
+            case 'overlay_flipper_enabled':
+                if (task.overlays && task.overlays.length > 0) {
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.flipper_enabled = false;
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.flipper_enabled = false;
+                    }
+                }
+                break;
+            case 'overlay_flipper_duration':
+                if (task.overlays && task.overlays.length > 0) {
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.flipper_duration = 2.0;
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.flipper_duration = 2.0;
+                    }
+                }
+                break;
+            case 'overlay_flipper_lines':
+                if (task.overlays && task.overlays.length > 0) {
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.flipper_lines = 2;
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.flipper_lines = 2;
+                    }
+                }
+                break;
+            case 'overlay_flipper_effect':
+                if (task.overlays && task.overlays.length > 0) {
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.flipper_effect = 'none';
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.flipper_effect = 'none';
+                    }
+                }
+                break;
+            case 'overlay_flipper_loop':
+                if (task.overlays && task.overlays.length > 0) {
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.flipper_loop = false;
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.flipper_loop = false;
+                    }
+                }
+                break;
+            case 'overlay_flipper_transition_duration':
+                if (task.overlays && task.overlays.length > 0) {
+                    if (targetId) {
+                        const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+                        if (ov) ov.flipper_transition_duration = 0.3;
+                    } else {
+                        for (const ov of task.overlays) if (!ov.fixed_text && (ov.type === 'textcard' || !ov.type || ov.type === '')) ov.flipper_transition_duration = 0.3;
+                    }
+                }
+                break;
             case 'overlay_body':
                 if (task.overlays && task.overlays.length > 0) {
                     if (targetId) {
@@ -4519,7 +4665,7 @@ function _bindBatchTableEvents() {
         if (!field) return;
 
         let baseField = field;
-        const match = field.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body)_(.+)$/);
+        const match = field.match(/^(overlay_title|overlay_body|overlay_footer|scroll_title|scroll_body|overlay_flipper_enabled|overlay_flipper_duration|overlay_flipper_lines|overlay_flipper_effect|overlay_flipper_loop)_(.+)$/);
         if (match) {
             baseField = match[1];
         }
@@ -4544,6 +4690,12 @@ function _bindBatchTableEvents() {
             overlay_title: '覆层标题',
             overlay_body: '覆层内容',
             overlay_footer: '覆层结尾',
+            overlay_flipper_enabled: '启用翻转',
+            overlay_flipper_duration: '翻转间隔',
+            overlay_flipper_lines: '翻转行数',
+            overlay_flipper_effect: '翻转效果',
+            overlay_flipper_loop: '翻转循环',
+            overlay_flipper_transition_duration: '过渡时长',
             scroll_title: '滚动标题',
             scroll_body: '滚动内容',
             cover_media: '封面素材',
@@ -5552,7 +5704,12 @@ function _showMultiColumnPasteModal(tsvRows, startIdx, initialFieldCategory = nu
         { v: 'overlay_body', l: '🔠 覆层内容' },
         { v: 'overlay_footer', l: '🔠 覆层结尾' },
         { v: 'scroll_title', l: '⏫ 滚动标题' },
-        { v: 'scroll_body', l: '⏫ 滚动内容' }
+        { v: 'scroll_body', l: '⏫ 滚动内容' },
+        { v: 'overlay_flipper_enabled', l: '⏱ 启用文字翻转' },
+        { v: 'overlay_flipper_duration', l: '⏱ 翻转间隔时长(秒)' },
+        { v: 'overlay_flipper_lines', l: '⏱ 翻转行数' },
+        { v: 'overlay_flipper_effect', l: '⏱ 翻转效果(none/fade/slide)' },
+        { v: 'overlay_flipper_loop', l: '⏱ 翻转循环(循环/不循环)' }
     ];
 
     let maxCols = Math.max(...tsvRows.map(r => r.length));
@@ -6192,6 +6349,12 @@ function _applyBatchTableChanges(stateOverride = null, options = {}) {
     const bodyInputs = container.querySelectorAll('.rbt-body-input');
     const footerInputs = container.querySelectorAll('.rbt-footer-input');
     const cardTplSelects = container.querySelectorAll('.rbt-card-tpl-select');
+    const flipperEnabledInputs = container.querySelectorAll('.rbt-flipper-enabled-input');
+    const flipperDurationInputs = container.querySelectorAll('.rbt-flipper-duration-input');
+    const flipperLinesInputs = container.querySelectorAll('.rbt-flipper-lines-input');
+    const flipperEffectInputs = container.querySelectorAll('.rbt-flipper-effect-input');
+    const flipperLoopInputs = container.querySelectorAll('.rbt-flipper-loop-input');
+    const flipperTransitionDurationInputs = container.querySelectorAll('.rbt-flipper-transition-duration-input');
 
     titleInputs.forEach(el => {
         const idx = parseInt(el.dataset.idx);
@@ -6199,6 +6362,54 @@ function _applyBatchTableChanges(stateOverride = null, options = {}) {
         if (!task) return;
         if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
         _applyOverlayFieldWithTarget(task, 'overlay_title', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
+    });
+
+    flipperEnabledInputs.forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const task = state.tasks[idx];
+        if (!task) return;
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_flipper_enabled', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
+    });
+
+    flipperDurationInputs.forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const task = state.tasks[idx];
+        if (!task) return;
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_flipper_duration', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
+    });
+
+    flipperLinesInputs.forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const task = state.tasks[idx];
+        if (!task) return;
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_flipper_lines', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
+    });
+
+    flipperEffectInputs.forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const task = state.tasks[idx];
+        if (!task) return;
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_flipper_effect', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
+    });
+
+    flipperLoopInputs.forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const task = state.tasks[idx];
+        if (!task) return;
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_flipper_loop', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
+    });
+
+    flipperTransitionDurationInputs.forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const task = state.tasks[idx];
+        if (!task) return;
+        if (el.value.trim() === '' && !_findBatchOverlayByIdOrIdx(task, el.dataset.cardId, null, el.dataset.cardIdx, 'textcard')) return;
+        _applyOverlayFieldWithTarget(task, 'overlay_flipper_transition_duration', el.value, el.dataset.cardId, el.dataset.cardIdx, 'textcard');
     });
 
     bodyInputs.forEach(el => {
@@ -6407,7 +6618,7 @@ function _applyBatchTableChanges(stateOverride = null, options = {}) {
 // 7. Paste from Google Sheets
 // ═══════════════════════════════════════════════════════
 
-async function _batchPasteFromSheet(targetId = null) {
+async function _batchPasteFromSheet(targetId = null, targetIdx = null) {
     // ── 第一步：让用户选模式 ──
     const mode = await _showPasteModeDialog();
     if (!mode) return;
@@ -6430,9 +6641,12 @@ async function _batchPasteFromSheet(targetId = null) {
     const isSingleColumn = rows.every(r => r.length === 1);
     let splitMode = 0;
     if (isSingleColumn) {
-        const modeStr = await _showSplitPromptDialog('检测到您粘贴的内容只有一列。\\n如果这列内容内部自带多行文本，你可以选用以下格式快速智能拆分：');
-        if (modeStr === '2') splitMode = 2;
+        const modeStr = await _showSplitPromptDialog('检测到您粘贴的内容只有一列。\\n如果这列内容内部自带多行文本，你可以选用以下格式快速智能拆分：', true);
+        if (modeStr === '1') splitMode = 1;
+        else if (modeStr === '2') splitMode = 2;
         else if (modeStr === '3') splitMode = 3;
+        else if (modeStr === '4') splitMode = 4;
+        else if (modeStr === '5') splitMode = 5;
     }
 
     const state = window._reelsState;
@@ -6473,7 +6687,13 @@ async function _batchPasteFromSheet(targetId = null) {
             let lines = rowText.split('\n').map(l => l.trim()).filter(l => l);
             if (lines.length === 0) continue;
 
-            if (splitMode === 2) {
+            if (splitMode === 1) {
+                title = rowText.trim();
+            } else if (splitMode === 4) {
+                body = rowText.trim();
+            } else if (splitMode === 5) {
+                footer = rowText.trim();
+            } else if (splitMode === 2) {
                 if (lines.length >= 1) title = lines[0];
                 if (lines.length >= 2) body = lines.slice(1).join('\n');
             } else if (splitMode === 3) {
@@ -6518,7 +6738,7 @@ async function _batchPasteFromSheet(targetId = null) {
         let entryIdx = 0;
         for (let i = 0; i < state.tasks.length && entryIdx < entries.length; i++) {
             const task = state.tasks[i];
-            const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+            const ov = _findBatchOverlayByIdOrIdx(task, targetId, null, targetIdx, 'textcard');
             // 判断是不是空文案（title 和 body 都空，或者是默认占位符）
             const titleVal = ov ? (ov.title_text || '') : '';
             const bodyVal = ov ? (ov.body_text || '') : '';
@@ -6526,14 +6746,14 @@ async function _batchPasteFromSheet(targetId = null) {
             const isEmpty = isDefault(titleVal) && isDefault(bodyVal);
 
             if (isEmpty) {
-                _setTaskText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer, targetId);
+                _setTaskText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer, targetId, targetIdx);
                 entryIdx++;
                 filled++;
             }
         }
         // 剩余的追加为新行
         while (entryIdx < entries.length) {
-            _createNewTextRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer, targetId);
+            _createNewTextRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, entries[entryIdx].footer, targetId, targetIdx);
             entryIdx++;
             created++;
         }
@@ -6541,7 +6761,7 @@ async function _batchPasteFromSheet(targetId = null) {
     } else if (mode === 'new') {
         // ═══ 添加新行模式：全部新建 ═══
         for (const entry of entries) {
-            _createNewTextRow(state, entry.title, entry.body, ReelsOverlay, entry.footer, targetId);
+            _createNewTextRow(state, entry.title, entry.body, ReelsOverlay, entry.footer, targetId, targetIdx);
             created++;
         }
 
@@ -6549,10 +6769,10 @@ async function _batchPasteFromSheet(targetId = null) {
         // ═══ 覆盖模式：从第1行开始往下覆盖 ═══
         for (let i = 0; i < entries.length; i++) {
             if (i < state.tasks.length) {
-                _setTaskText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer, targetId);
+                _setTaskText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer, targetId, targetIdx);
                 filled++;
             } else {
-                _createNewTextRow(state, entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer, targetId);
+                _createNewTextRow(state, entries[i].title, entries[i].body, ReelsOverlay, entries[i].footer, targetId, targetIdx);
                 created++;
             }
         }
@@ -6568,7 +6788,7 @@ async function _batchPasteFromSheet(targetId = null) {
     alert(`✅ 粘贴完成：${parts.join('，')}`);
 }
 
-async function _batchPasteScrollFromSheet(targetId = null) {
+async function _batchPasteScrollFromSheet(targetId = null, targetIdx = null) {
     const mode = await _showPasteModeDialog();
     if (!mode) return;
 
@@ -6589,9 +6809,11 @@ async function _batchPasteScrollFromSheet(targetId = null) {
     const isSingleColumn = rows.every(r => r.length === 1);
     let splitMode = 0;
     if (isSingleColumn) {
-        const modeStr = await _showSplitPromptDialog('检测到您粘贴的内容只有一列且支持滚动。\\n如果单列内容有多行文本，你可以套用智能格式提取：');
-        if (modeStr === '2') splitMode = 2;
+        const modeStr = await _showSplitPromptDialog('检测到您粘贴的内容只有一列且支持滚动。\\n如果单列内容有多行文本，你可以套用智能格式提取：', false);
+        if (modeStr === '1') splitMode = 1;
+        else if (modeStr === '2') splitMode = 2;
         else if (modeStr === '3') splitMode = 3;
+        else if (modeStr === '4') splitMode = 4;
     }
 
     const state = window._reelsState;
@@ -6632,7 +6854,11 @@ async function _batchPasteScrollFromSheet(targetId = null) {
             let lines = rowText.split('\n').map(l => l.trim()).filter(l => l);
             if (lines.length === 0) continue;
 
-            if (splitMode === 2) {
+            if (splitMode === 1) {
+                title = rowText.trim();
+            } else if (splitMode === 4) {
+                body = rowText.trim();
+            } else if (splitMode === 2) {
                 if (lines.length >= 1) title = lines[0];
                 if (lines.length >= 2) body = lines.slice(1).join('\n');
             } else if (splitMode === 3) {
@@ -6669,31 +6895,31 @@ async function _batchPasteScrollFromSheet(targetId = null) {
         let entryIdx = 0;
         for (let i = 0; i < state.tasks.length && entryIdx < entries.length; i++) {
             const task = state.tasks[i];
-            const scrollOv = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
+            const scrollOv = _findBatchOverlayByIdOrIdx(task, targetId, null, targetIdx, 'scroll');
             const isEmpty = !scrollOv || (!(scrollOv.scroll_title || '').trim() && !(scrollOv.content || '').trim());
             if (isEmpty) {
-                _setTaskScrollText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, targetId);
+                _setTaskScrollText(task, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, targetId, targetIdx);
                 entryIdx++;
                 filled++;
             }
         }
         while (entryIdx < entries.length) {
-            _createNewScrollRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, targetId);
+            _createNewScrollRow(state, entries[entryIdx].title, entries[entryIdx].body, ReelsOverlay, targetId, targetIdx);
             entryIdx++;
             created++;
         }
     } else if (mode === 'new') {
         for (const entry of entries) {
-            _createNewScrollRow(state, entry.title, entry.body, ReelsOverlay, targetId);
+            _createNewScrollRow(state, entry.title, entry.body, ReelsOverlay, targetId, targetIdx);
             created++;
         }
     } else if (mode === 'overwrite') {
         for (let i = 0; i < entries.length; i++) {
             if (i < state.tasks.length) {
-                _setTaskScrollText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, targetId);
+                _setTaskScrollText(state.tasks[i], entries[i].title, entries[i].body, ReelsOverlay, targetId, targetIdx);
                 filled++;
             } else {
-                _createNewScrollRow(state, entries[i].title, entries[i].body, ReelsOverlay, targetId);
+                _createNewScrollRow(state, entries[i].title, entries[i].body, ReelsOverlay, targetId, targetIdx);
                 created++;
             }
         }
@@ -6706,7 +6932,7 @@ async function _batchPasteScrollFromSheet(targetId = null) {
     const parts = [];
     if (filled) parts.push(`填充 ${filled} 行`);
     if (created) parts.push(`新建 ${created} 行`);
-    alert(`滚动字幕粘贴完成：${parts.join('，')}`);
+    alert(`✅ 滚动字幕粘贴完成：${parts.join('，')}`);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -6744,6 +6970,11 @@ const _RBT_COLUMNS = [
     { key: 'title', label: '覆层标题', default: true },
     { key: 'body', label: '覆层内容', default: true },
     { key: 'footer', label: '覆层结尾', default: true },
+    { key: 'flipper-enabled', label: '启用翻转', default: true },
+    { key: 'flipper-duration', label: '翻转间隔', default: true },
+    { key: 'flipper-lines', label: '翻转行数', default: true },
+    { key: 'flipper-effect', label: '翻转效果', default: true },
+    { key: 'flipper-loop', label: '翻转循环', default: true },
     { key: 'scroll-title', label: '滚动标题', default: true },
     { key: 'scroll-body', label: '滚动内容', default: true },
     { key: 'subtime', label: '字幕时间', default: true },
@@ -7175,7 +7406,7 @@ function _showColumnSettingsPopup(anchor) {
         {
             name: '无字幕动画Reels',
             desc: '背景素材 + 覆层(标题/内容/结尾) + 图像覆层 + 配乐',
-            cols: ['bg', 'bgscale', 'bgdurscale', 'bgm', 'title', 'body', 'footer', 'dur', 'tpl', 'exportname']
+            cols: ['bg', 'bgscale', 'bgdurscale', 'bgm', 'title', 'body', 'footer', 'flipper-enabled', 'flipper-duration', 'flipper-lines', 'flipper-effect', 'flipper-loop', 'dur', 'tpl', 'exportname']
         },
         {
             name: '动态字幕(手动)',
@@ -7200,7 +7431,7 @@ function _showColumnSettingsPopup(anchor) {
         {
             name: '达芬奇剪辑',
             desc: '背景 + 内容视频(裁切/缩放/位置/音量) + 覆层文案 + 配乐',
-            cols: ['bg', 'bgscale', 'bgdurscale', 'contentvideo', 'cvtrim', 'cvcrop', 'cvblurbg', 'cvscale', 'cvpos', 'cvvol', 'bgm', 'title', 'body', 'footer', 'dur', 'tpl', 'exportname']
+            cols: ['bg', 'bgscale', 'bgdurscale', 'contentvideo', 'cvtrim', 'cvcrop', 'cvblurbg', 'cvscale', 'cvpos', 'cvvol', 'bgm', 'title', 'body', 'footer', 'flipper-enabled', 'flipper-duration', 'flipper-lines', 'flipper-effect', 'flipper-loop', 'dur', 'tpl', 'exportname']
         },
         {
             name: '加Hook版口播',
@@ -7215,7 +7446,7 @@ function _showColumnSettingsPopup(anchor) {
         { label: '背景控制', keys: ['hook', 'bg', 'clippool', 'bgclipsettings', 'bgscale', 'bgdurscale', 'bgvol', 'bgm'] },
         { label: '内容视频', keys: ['contentvideo', 'cvtrim', 'cvcrop', 'cvblurbg', 'cvscale', 'cvpos', 'cvvol'] },
         { label: '人声音轨', keys: ['ai_script', 'tts_text', 'txtcontent', 'tts_voice', 'srt', 'audio', 'voicevol', 'audiodurscale'] },
-        { label: '文字覆层', keys: ['pip', 'title', 'body', 'footer', 'scroll-title', 'scroll-body', 'subtime'] },
+        { label: '文字覆层', keys: ['pip', 'title', 'body', 'footer', 'flipper-enabled', 'flipper-duration', 'flipper-lines', 'flipper-effect', 'flipper-loop', 'scroll-title', 'scroll-body', 'subtime'] },
         { label: '基础配置', keys: ['dur', 'tpl', 'exportname'] },
     ];
 
@@ -9167,15 +9398,15 @@ async function _batchPasteAiScript() {
 }
 
 // ── 辅助：设置一行的文案 ──
-function _setTaskText(task, title, body, ReelsOverlay, footer, targetId = null) {
+function _setTaskText(task, title, body, ReelsOverlay, footer, targetId = null, targetIdx = null) {
     if (!task.overlays) task.overlays = [];
-    let ov = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'textcard');
+    let ov = _findBatchOverlayByIdOrIdx(task, targetId, null, targetIdx, 'textcard');
     if (!ov) {
         // Clone from template overlay with targetId if it exists to preserve styling
         const state = window._reelsState;
         const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
         const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && (o.type === 'textcard' || !o.type || o.type === '')) : [];
-        const templateOv = targetId ? templateList.find(o => o.id === targetId) : templateList[0];
+        const templateOv = targetId ? templateList.find(o => o.id === targetId) : (targetIdx != null && targetIdx >= 0 && targetIdx < templateList.length ? templateList[targetIdx] : templateList[0]);
         if (templateOv) {
             ov = JSON.parse(JSON.stringify(templateOv));
             ov.title_text = '';
@@ -9200,23 +9431,23 @@ function _setTaskText(task, title, body, ReelsOverlay, footer, targetId = null) 
 }
 
 // ── 辅助：新建一行并填入文案 ──
-function _createNewTextRow(state, title, body, ReelsOverlay, footer, targetId = null) {
+function _createNewTextRow(state, title, body, ReelsOverlay, footer, targetId = null, targetIdx = null) {
     const taskName = _generateUniqueCardName(state.tasks, 'card');
     const newTask = _createTaskFromTemplate(state, taskName);
-    _setTaskText(newTask, title, body, ReelsOverlay, footer, targetId);
+    _setTaskText(newTask, title, body, ReelsOverlay, footer, targetId, targetIdx);
     state.tasks.push(newTask);
 }
 
 // ── 辅助：设置滚动字幕文案 ──
-function _setTaskScrollText(task, title, body, ReelsOverlay, targetId = null) {
+function _setTaskScrollText(task, title, body, ReelsOverlay, targetId = null, targetIdx = null) {
     if (!task.overlays) task.overlays = [];
-    let scrollOv = _findBatchOverlayByIdOrIdx(task, targetId, null, null, 'scroll');
+    let scrollOv = _findBatchOverlayByIdOrIdx(task, targetId, null, targetIdx, 'scroll');
     if (!scrollOv) {
         // Clone template scroll overlay if available
         const state = window._reelsState;
         const templateTask = state.tasks[state.selectedIdx] || state.tasks[0];
         const templateList = templateTask ? (templateTask.overlays || []).filter(o => o && !o.fixed_text && o.type === 'scroll') : [];
-        const templateOv = targetId ? templateList.find(o => o.id === targetId) : templateList[0];
+        const templateOv = targetId ? templateList.find(o => o.id === targetId) : (targetIdx != null && targetIdx >= 0 && targetIdx < templateList.length ? templateList[targetIdx] : templateList[0]);
         if (templateOv) {
             scrollOv = JSON.parse(JSON.stringify(templateOv));
             scrollOv.scroll_title = '';
@@ -9238,10 +9469,10 @@ function _setTaskScrollText(task, title, body, ReelsOverlay, targetId = null) {
 }
 
 // ── 辅助：新建一行并填入滚动字幕 ──
-function _createNewScrollRow(state, title, body, ReelsOverlay, targetId = null) {
+function _createNewScrollRow(state, title, body, ReelsOverlay, targetId = null, targetIdx = null) {
     const taskName = _generateUniqueCardName(state.tasks, 'scroll');
     const newTask = _createTaskFromTemplate(state, taskName);
-    _setTaskScrollText(newTask, title, body, ReelsOverlay, targetId);
+    _setTaskScrollText(newTask, title, body, ReelsOverlay, targetId, targetIdx);
     state.tasks.push(newTask);
 }
 
@@ -9315,7 +9546,7 @@ function _showPasteDialog(titleStr = '📋 粘贴表格数据') {
     });
 }
 
-function _showSplitPromptDialog(messageText) {
+function _showSplitPromptDialog(messageText, hasFooter = false) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10001;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);';
@@ -9328,6 +9559,20 @@ function _showSplitPromptDialog(messageText) {
                 <div style="font-size:13px;line-height:1.6;margin-bottom:20px;color:#ccc;">${htmlMessage}</div>
                 
                 <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
+                    <button class="rbt-split-btn" data-val="1" style="padding:12px;background:#2a2a3a;border:1px solid #4a4a6a;border-radius:8px;color:#cce;cursor:pointer;text-align:left;transition:all 0.2s;">
+                        <div style="font-weight:bold;margin-bottom:4px;color:#a78bfa;font-size:14px;">[ 全部内容用于标题 ]</div>
+                        <div style="font-size:12px;color:#aaa;">全文内容作为标题，正文和结尾留空</div>
+                    </button>
+                    <button class="rbt-split-btn" data-val="4" style="padding:12px;background:#2a2a3a;border:1px solid #4a4a6a;border-radius:8px;color:#cce;cursor:pointer;text-align:left;transition:all 0.2s;">
+                        <div style="font-weight:bold;margin-bottom:4px;color:#a78bfa;font-size:14px;">[ 全部内容用于正文 ]</div>
+                        <div style="font-size:12px;color:#aaa;">全文内容作为正文，标题 and 结尾留空</div>
+                    </button>
+                    ${hasFooter ? `
+                    <button class="rbt-split-btn" data-val="5" style="padding:12px;background:#2a2a3a;border:1px solid #4a4a6a;border-radius:8px;color:#cce;cursor:pointer;text-align:left;transition:all 0.2s;">
+                        <div style="font-weight:bold;margin-bottom:4px;color:#a78bfa;font-size:14px;">[ 全部内容用于结尾 ]</div>
+                        <div style="font-size:12px;color:#aaa;">全文内容作为结尾，标题和正文留空</div>
+                    </button>
+                    ` : ''}
                     <button class="rbt-split-btn" data-val="2" style="padding:12px;background:#2a2a3a;border:1px solid #4a4a6a;border-radius:8px;color:#cce;cursor:pointer;text-align:left;transition:all 0.2s;">
                         <div style="font-weight:bold;margin-bottom:4px;color:#a78bfa;font-size:14px;">[ 拆为两段 ]</div>
                         <div style="font-size:12px;color:#aaa;">首行提取为标题，其余内容合并为正文</div>
@@ -10408,6 +10653,7 @@ async function _runSingleTTS(idx, batchOutputDir = '') {
     try {
         const gladiaKeysText = document.getElementById('gladia-keys')?.value || '';
         const gladiaKeys = gladiaKeysText.split('\n').map(k => k.trim()).filter(Boolean);
+        const language = document.getElementById('rbt-align-lang')?.value || '英语';
         const response = await apiFetch(`${API_BASE}/elevenlabs/tts-workflow`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -10424,7 +10670,8 @@ async function _runSingleTTS(idx, batchOutputDir = '') {
                 export_fcpxml: false,
                 seamless_fcpxml: true,
                 output_dir: batchOutputDir || '',
-                gladia_keys: gladiaKeys
+                gladia_keys: gladiaKeys,
+                language: language
             })
         });
         const data = await response.json();
@@ -12229,6 +12476,12 @@ function _buildBatchAlignSourceTextCandidates(tasks, lbMaxChars) {
             addCandidate(rowIndex, 'overlay_title', '覆层标题', row.querySelector('.rbt-title-input')?.value || '', task);
             addCandidate(rowIndex, 'overlay_body', '覆层内容', row.querySelector('.rbt-body-input')?.value || '', task);
             addCandidate(rowIndex, 'scroll_body', '滚动字幕', row.querySelector('.rbt-scroll-body-input')?.value || '', task);
+            addCandidate(rowIndex, 'overlay_flipper_enabled', '启用翻转', row.querySelector('.rbt-flipper-enabled-input')?.value || '', task);
+            addCandidate(rowIndex, 'overlay_flipper_duration', '翻转间隔', row.querySelector('.rbt-flipper-duration-input')?.value || '', task);
+            addCandidate(rowIndex, 'overlay_flipper_lines', '翻转行数', row.querySelector('.rbt-flipper-lines-input')?.value || '', task);
+            addCandidate(rowIndex, 'overlay_flipper_effect', '翻转效果', row.querySelector('.rbt-flipper-effect-input')?.value || '', task);
+            addCandidate(rowIndex, 'overlay_flipper_loop', '翻转循环', row.querySelector('.rbt-flipper-loop-input')?.value || '', task);
+            addCandidate(rowIndex, 'overlay_flipper_transition_duration', '过渡时长', row.querySelector('.rbt-flipper-transition-duration-input')?.value || '', task);
         });
     }
 
@@ -12240,6 +12493,12 @@ function _buildBatchAlignSourceTextCandidates(tasks, lbMaxChars) {
         ['overlay_title', '覆层标题'],
         ['overlay_body', '覆层内容'],
         ['scroll_body', '滚动字幕'],
+        ['overlay_flipper_enabled', '启用翻转'],
+        ['overlay_flipper_duration', '翻转间隔'],
+        ['overlay_flipper_lines', '翻转行数'],
+        ['overlay_flipper_effect', '翻转效果'],
+        ['overlay_flipper_loop', '翻转循环'],
+        ['overlay_flipper_transition_duration', '过渡时长'],
     ];
 
     (tasks || []).forEach((task, rowIndex) => {
@@ -12255,6 +12514,12 @@ function _buildBatchAlignSourceTextCandidates(tasks, lbMaxChars) {
             if (field === 'overlay_title') rawText = _findBatchTextCardOverlay(task)?.title_text || '';
             if (field === 'overlay_body') rawText = _findBatchTextCardOverlay(task)?.body_text || '';
             if (field === 'scroll_body') rawText = _findBatchScrollOverlay(task)?.content || '';
+            if (field === 'overlay_flipper_enabled') rawText = _findBatchTextCardOverlay(task)?.flipper_enabled ? '启用' : '关闭';
+            if (field === 'overlay_flipper_duration') rawText = String(_findBatchTextCardOverlay(task)?.flipper_duration ?? '2.0');
+            if (field === 'overlay_flipper_lines') rawText = String(_findBatchTextCardOverlay(task)?.flipper_lines ?? '2');
+            if (field === 'overlay_flipper_effect') rawText = _findBatchTextCardOverlay(task)?.flipper_effect || 'none';
+            if (field === 'overlay_flipper_loop') rawText = _findBatchTextCardOverlay(task)?.flipper_loop ? '循环' : '不循环';
+            if (field === 'overlay_flipper_transition_duration') rawText = String(_findBatchTextCardOverlay(task)?.flipper_transition_duration ?? '0.3');
             addCandidate(rowIndex, field, label, rawText, task);
         });
     });
@@ -13983,6 +14248,7 @@ function _injectBatchTableCSS() {
         .rbt-col-tts_voice { width:100px; }
         .rbt-col-dur { width:70px; text-align:center; }
         .rbt-col-subtime { width:100px; min-width:80px; }
+        .rbt-col-flipper-enabled, .rbt-col-flipper-duration, .rbt-col-flipper-lines, .rbt-col-flipper-effect, .rbt-col-flipper-loop, .rbt-col-flipper-transition-duration { width:80px; text-align:center; }
         .rbt-col-tpl { width:120px; }
         .rbt-col-act { width:70px; white-space:nowrap; }
         .rbt-file-name {

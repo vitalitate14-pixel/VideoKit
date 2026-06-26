@@ -877,7 +877,16 @@ async function autoEditByScript(opts = {}) {
     const manualSubtitleMap = opts.manualSubtitleMap || opts.manual_subtitle_map || {};
     const manualTranscripts = opts.manualTranscripts || opts.manual_transcripts || {};
 
-    const outputDir = opts.outputDir || opts.output_dir || path.join(path.dirname(clips[0]), `auto_edit_${Date.now()}`);
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}_${hh}${mm}`;
+    const firstClipName = path.basename(clips[0], path.extname(clips[0]));
+
+    const outputDir = opts.outputDir || opts.output_dir || path.join(path.dirname(clips[0]), `auto_edit_${dateStr}_${firstClipName}`);
     fs.mkdirSync(outputDir, { recursive: true });
 
     const ignoreMismatch = opts.ignoreMismatch === true || opts.ignore_mismatch === true;

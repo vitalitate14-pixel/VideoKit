@@ -31,7 +31,17 @@ class ReelsOverlayPanel {
         this.container = containerEl;
         this.videoCanvas = videoCanvas;
         this._selectedOv = null;
+        this._renderRaf = null;
         this._init();
+    }
+
+    _requestRender() {
+        if (!this.videoCanvas) return;
+        if (this._renderRaf) cancelAnimationFrame(this._renderRaf);
+        this._renderRaf = requestAnimationFrame(() => {
+            this._renderRaf = null;
+            if (this.videoCanvas) this.videoCanvas.render();
+        });
     }
 
     _init() {
@@ -276,6 +286,10 @@ class ReelsOverlayPanel {
                             <div class="rop-slider-combo"><input type="range" id="rop-offset-y" class="rop-range rop-defaultable" data-default="0" min="-500" max="500" value="0"><input type="number" class="rop-num-readout" data-link="rop-offset-y" min="-500" max="500" value="0"><button class="rop-reset-btn" data-target="rop-offset-y" title="恢复默认">↺</button></div>
                             <label>标题与正文间距</label>
                             <div class="rop-slider-combo"><input type="range" id="rop-title-body-gap" class="rop-range rop-defaultable" data-default="42" min="0" max="500" value="42"><input type="number" class="rop-num-readout" data-link="rop-title-body-gap" min="0" max="500" value="42"><button class="rop-reset-btn" data-target="rop-title-body-gap" title="恢复默认">↺</button></div>
+                            <label>并排左右间距</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-side-by-side-gap" class="rop-range rop-defaultable" data-default="90" min="0" max="500" value="90"><input type="number" class="rop-num-readout" data-link="rop-side-by-side-gap" min="0" max="500" value="90"><button class="rop-reset-btn" data-target="rop-side-by-side-gap" title="恢复默认">↺</button></div>
+                            <label>标题宽度%</label>
+                            <div class="rop-slider-combo"><input type="range" id="rop-side-by-side-title-ratio" class="rop-range rop-defaultable" data-default="50" min="10" max="90" value="50"><input type="number" class="rop-num-readout" data-link="rop-side-by-side-title-ratio" min="10" max="90" value="50"><button class="rop-reset-btn" data-target="rop-side-by-side-title-ratio" title="恢复默认">↺</button></div>
                             <label>正文与结尾间距</label>
                             <div class="rop-slider-combo"><input type="range" id="rop-body-footer-gap" class="rop-range rop-defaultable" data-default="42" min="0" max="500" value="42"><input type="number" class="rop-num-readout" data-link="rop-body-footer-gap" min="0" max="500" value="42"><button class="rop-reset-btn" data-target="rop-body-footer-gap" title="恢复默认">↺</button></div>
                             <label>文字上边距</label>
@@ -316,6 +330,7 @@ class ReelsOverlayPanel {
                         <label>排版模式</label>
                         <select id="rop-layout-mode" class="rop-select rop-defaultable" data-default="flow">
                             <option value="flow">流式(自动向下贴叠)</option>
+                            <option value="side_by_side">并排(标题 / 正文)</option>
                             <option value="absolute">独立(完全解绑坐标)</option>
                         </select>
                         <label>显示全局卡片框</label><input type="checkbox" id="rop-debug-layout" class="rop-defaultable" data-default="false">
@@ -390,7 +405,43 @@ class ReelsOverlayPanel {
 
 
 
-                <!-- 滚动字幕属性 (scroll覆层独有) -->
+                <!-- ⏱ 动态翻转设置 (适用于文本和文字卡片) -->
+                <div id="rop-flipper-group" class="rop-group" style="display:none; border: 1px dashed var(--accent-primary,#7b8bef); padding: 8px; border-radius: 6px; margin-top: 8px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <div class="rop-group-title" style="margin:0;color:var(--accent-primary,#7b8bef);display:flex;align-items:center;gap:4px;">
+                            <span>⏱ 动态翻转设置</span>
+                        </div>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:var(--accent-primary,#7b8bef);margin:0;font-weight:bold;">
+                            <input type="checkbox" id="rop-flipper-enabled" style="width:14px;height:14px;">
+                            <span>开启翻转</span>
+                        </label>
+                    </div>
+                    <div class="rop-grid" id="rop-flipper-controls" style="margin-top:6px;">
+                        <label>切换间隔(秒)</label>
+                        <input type="number" id="rop-flipper-duration" class="rop-input" step="0.1" min="0.1" value="2.0">
+                        
+                        <label>每次显示行数</label>
+                        <input type="number" id="rop-flipper-lines" class="rop-input" step="1" min="1" value="2">
+                        
+                        <label>切换效果</label>
+                        <select id="rop-flipper-effect" class="rop-select">
+                            <option value="none">硬切 (None)</option>
+                            <option value="fade">渐变淡入淡出 (Fade)</option>
+                            <option value="slide">平滑向上滑动 (Slide)</option>
+                        </select>
+
+                        <label>过渡动画时长(秒)</label>
+                        <input type="number" id="rop-flipper-transition-duration" class="rop-input" step="0.05" min="0.0" value="0.3">
+
+                        <label>播放完循环</label>
+                        <input type="checkbox" id="rop-flipper-loop" style="width:16px;height:16px;">
+                    </div>
+                    <div id="rop-flipper-duration-info" style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.4;background:rgba(123,139,239,0.1);padding:4px 6px;border-radius:4px;">
+                        💡 翻转完毕需: -- 秒 (总行数: --)
+                    </div>
+                </div>
+
+                <!-- 滚动字幕属性 (scroll覆层独合) -->
                 <div id="rop-scroll-props" class="rop-group" style="display:none;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <div class="rop-group-title" style="margin:0;">滚动字幕</div>
@@ -736,7 +787,13 @@ class ReelsOverlayPanel {
                         <label>透明度%</label>
                         <div class="rop-slider-combo"><input type="range" id="rop-title-deco-opacity" class="rop-range rop-defaultable" data-default="100" min="0" max="100" value="100"><input type="number" class="rop-num-readout" data-link="rop-title-deco-opacity" min="0" max="100" value="100"><button class="rop-reset-btn" data-target="rop-title-deco-opacity" title="恢复默认">↺</button></div>
                     </div>
-                    <div class="rop-group-title" style="margin-top:8px;">正文</div>
+                    <div class="rop-group-title" style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>正文</span>
+                        <label style="font-size:11px; font-weight:normal; display:flex; align-items:center; gap:4px; margin-right:8px; cursor:pointer; color:var(--accent);">
+                            <input type="checkbox" id="rop-body-follow-title" class="rop-defaultable" data-default="false" style="margin:0;">
+                            样式跟随标题
+                        </label>
+                    </div>
                     <div style="display:flex;gap:6px;align-items:flex-start;">
                         <textarea id="rop-body-text" class="rop-textarea" rows="4" placeholder="正文文字" style="flex:1;"></textarea>
                         <button class="rop-richtext-btn" data-section="body" title="逐字样式编辑" style="padding:4px 8px;border:1px solid var(--border-color,#555);background:var(--bg-secondary,#2a2a3e);color:var(--accent-primary,#7b8bef);border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;">✎ 富文本</button>
@@ -1284,7 +1341,7 @@ class ReelsOverlayPanel {
             'rop-title-color', 'rop-title-bold', 'rop-title-weight', 'rop-title-uppercase', 'rop-title-align', 'rop-title-valign',
             'rop-title-offset-x', 'rop-title-offset-y', 'rop-title-linespacing', 'rop-title-letterspacing',
             'rop-title-override-w', 'rop-title-override-h', 'rop-title-auto-shrink',
-            'rop-body-text', 'rop-body-font', 'rop-body-fontsize',
+            'rop-body-text', 'rop-body-follow-title', 'rop-body-font', 'rop-body-fontsize',
             'rop-body-color', 'rop-body-bold', 'rop-body-weight', 'rop-body-linespacing', 'rop-body-letterspacing', 'rop-body-align', 'rop-body-valign',
             'rop-body-offset-x', 'rop-body-offset-y',
             'rop-body-override-w', 'rop-body-override-h', 'rop-body-auto-shrink',
@@ -1354,6 +1411,8 @@ class ReelsOverlayPanel {
             'rop-scroll-bg-border-enabled', 'rop-scroll-bg-border-sides', 'rop-scroll-bg-border-color', 'rop-scroll-bg-border-width',
             'rop-scroll-bg-border-style', 'rop-scroll-bg-border-opacity',
             'rop-scroll-bg-blur-enabled', 'rop-scroll-bg-blur-amount',
+            // 文字翻转器
+            'rop-flipper-enabled', 'rop-flipper-duration', 'rop-flipper-lines', 'rop-flipper-loop', 'rop-flipper-effect', 'rop-flipper-transition-duration'
         ];
         for (const fid of fields) {
             const el = this.container.querySelector('#' + fid);
@@ -1958,7 +2017,7 @@ class ReelsOverlayPanel {
                 'footer_color', 'footer_align', 'footer_line_spacing', 'footer_letter_spacing',
                 'auto_fit', 'auto_center_v', 'debug_layout', 'debug_title', 'debug_body', 'debug_footer', 'layout_mode',
                 'padding_top', 'padding_bottom', 'padding_left', 'padding_right',
-                'title_body_gap', 'w',
+                'title_body_gap', 'side_by_side_gap', 'side_by_side_title_ratio', 'w',
             ];
             for (const k of keys) {
                 if (ov[k] !== undefined) props[k] = ov[k];
@@ -2945,6 +3004,7 @@ class ReelsOverlayPanel {
                 this._val('rop-title-offset-x', ov.title_offset_x ?? 0);
                 this._val('rop-title-offset-y', ov.title_offset_y ?? 0);
                 this._val('rop-body-text', ov.body_text || '');
+                this._val('rop-body-follow-title', ov.body_follow_title === true);
                 this._val('rop-body-font', ov.body_font_family || 'Arial');
                 this._refreshWeightOptions('rop-body-weight', ov.body_font_family || 'Arial');
                 this._val('rop-body-fontsize', ov.body_fontsize ?? 40);
@@ -3042,6 +3102,8 @@ class ReelsOverlayPanel {
                 this._val('rop-offset-x', ov.offset_x ?? 0);
                 this._val('rop-offset-y', ov.offset_y ?? 0);
                 this._val('rop-title-body-gap', ov.title_body_gap ?? 42);
+                this._val('rop-side-by-side-gap', ov.side_by_side_gap ?? 90);
+                this._val('rop-side-by-side-title-ratio', ov.side_by_side_title_ratio ?? 50);
                 this._val('rop-layout-mode', ov.layout_mode || 'flow');
                 this._val('rop-debug-layout', ov.debug_layout === true);
                 this._val('rop-debug-title', ov.debug_title === true);
@@ -3057,6 +3119,7 @@ class ReelsOverlayPanel {
                 this._val('rop-title-max-lines', ov.title_max_lines ?? 3);
                 this._val('rop-min-fontsize', ov.min_fontsize ?? 16);
                 this._syncTextcardAutoFitModeUI();
+                this._syncBodyFollowTitleUI();
             }
         }
 
@@ -3201,6 +3264,23 @@ class ReelsOverlayPanel {
 
         // Fixed text flag
         this._val('rop-fixed-text', ov.fixed_text || false);
+        
+        // ⏱ 文字翻转器 (Dynamic Flipper) 同步
+        const hasFlipper = ov.type === 'text' || ov.type === 'textcard';
+        const flipperGroup = this.container.querySelector('#rop-flipper-group');
+        if (flipperGroup) {
+            flipperGroup.style.display = hasFlipper ? 'block' : 'none';
+        }
+        if (hasFlipper) {
+            this._val('rop-flipper-enabled', !!ov.flipper_enabled);
+            this._val('rop-flipper-duration', ov.flipper_duration ?? 2.0);
+            this._val('rop-flipper-lines', ov.flipper_lines ?? 2);
+            this._val('rop-flipper-loop', !!ov.flipper_loop);
+            this._val('rop-flipper-effect', ov.flipper_effect || 'none');
+            this._val('rop-flipper-transition-duration', ov.flipper_transition_duration ?? 0.3);
+            this._updateFlipperInfo(ov);
+        }
+
         this._syncAnimTimingFields('mode', false);
     }
 
@@ -3241,6 +3321,22 @@ class ReelsOverlayPanel {
         }
 
         if (syncOverlay) this._syncToOverlay();
+    }
+
+    _updateFlipperInfo(ov) {
+        if (!ov || (ov.type !== 'text' && ov.type !== 'textcard')) return;
+        const text = (ov.type === 'textcard') ? (ov.body_text || '') : (ov.content || '');
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        const totalLines = lines.length;
+        const flipper_lines = parseInt(this._get('rop-flipper-lines')) || 2;
+        const flipper_duration = parseFloat(this._get('rop-flipper-duration')) || 2.0;
+        const totalChunks = Math.ceil(totalLines / flipper_lines);
+        const totalDur = totalChunks * flipper_duration;
+        
+        const infoEl = this.container.querySelector('#rop-flipper-duration-info');
+        if (infoEl) {
+            infoEl.innerHTML = `💡 翻转完毕需: <strong>${totalDur.toFixed(1)}秒</strong> (总行数: ${totalLines}, 每组显示: ${flipper_lines}行, 切换间隔: ${flipper_duration}s)`;
+        }
     }
 
     _syncToOverlay() {
@@ -3390,6 +3486,7 @@ class ReelsOverlayPanel {
                 const newBodyText = this._get('rop-body-text');
                 if (newBodyText !== ov.body_text) ov.body_styled_ranges = null;
                 ov.body_text = newBodyText;
+                ov.body_follow_title = this._get('rop-body-follow-title');
                 ov.body_offset_x = this._get('rop-body-offset-x');
                 ov.body_offset_y = this._get('rop-body-offset-y');
                 ov.body_font_family = this._get('rop-body-font');
@@ -3501,6 +3598,8 @@ class ReelsOverlayPanel {
                 ov.offset_x = this._get('rop-offset-x');
                 ov.offset_y = this._get('rop-offset-y');
                 ov.title_body_gap = this._get('rop-title-body-gap');
+                ov.side_by_side_gap = this._get('rop-side-by-side-gap');
+                ov.side_by_side_title_ratio = this._get('rop-side-by-side-title-ratio');
                 ov.body_footer_gap = this._get('rop-body-footer-gap');
                 const padTop = this._get('rop-pad-top');
                 const padBottom = this._get('rop-pad-bottom');
@@ -3513,6 +3612,7 @@ class ReelsOverlayPanel {
                 ov.title_max_lines = this._get('rop-title-max-lines');
                 ov.min_fontsize = this._get('rop-min-fontsize');
                 this._syncTextcardAutoFitModeUI();
+                this._syncBodyFollowTitleUI();
             }
         }
 
@@ -3680,8 +3780,19 @@ class ReelsOverlayPanel {
             }
         }
 
-        // Re-render canvas to reflect changes
-        if (this.videoCanvas) this.videoCanvas.render();
+        if (ov.type === 'text' || ov.type === 'textcard') {
+            ov.flipper_enabled = !!this._get('rop-flipper-enabled');
+            ov.flipper_duration = parseFloat(this._get('rop-flipper-duration')) || 2.0;
+            ov.flipper_lines = parseInt(this._get('rop-flipper-lines'), 10) || 2;
+            ov.flipper_loop = !!this._get('rop-flipper-loop');
+            ov.flipper_effect = this._get('rop-flipper-effect') || 'none';
+            const flipperTransParsed = parseFloat(this._get('rop-flipper-transition-duration'));
+            ov.flipper_transition_duration = isNaN(flipperTransParsed) ? 0.3 : flipperTransParsed;
+            this._updateFlipperInfo(ov);
+        }
+
+        // Re-render canvas to reflect changes, coalesced to avoid intermediate frames while applying panel values.
+        this._requestRender();
     }
 
     _applyTextcardStyleToAllTasks(ov) {
@@ -3855,6 +3966,46 @@ class ReelsOverlayPanel {
         toggleControl('rop-pad-bottom', false);
         toggleControl('rop-pad-left', false);
         toggleControl('rop-pad-right', false);
+    }
+
+    _syncBodyFollowTitleUI() {
+        if (!this._selectedOv || this._selectedOv.type !== 'textcard') return;
+        const follow = this._get('rop-body-follow-title') === true;
+        
+        const toggleControl = (id, disabled) => {
+            const el = this.container.querySelector('#' + id);
+            if (!el) return;
+            el.disabled = !!disabled;
+            
+            const row = el.closest('.rop-slider-combo') || el.closest('.rop-grid > div') || el.closest('div');
+            if (row) {
+                row.style.opacity = disabled ? '0.5' : '';
+            }
+            
+            let label = el.previousElementSibling;
+            if (el.closest('.rop-slider-combo')) {
+                label = el.closest('.rop-slider-combo').previousElementSibling;
+            }
+            if (label && label.tagName === 'LABEL') {
+                label.style.opacity = disabled ? '0.55' : '';
+            }
+            
+            const num = this.container.querySelector(`.rop-num-readout[data-link="${id}"]`);
+            if (num) num.disabled = !!disabled;
+            const resetBtn = this.container.querySelector(`.rop-reset-btn[data-target="${id}"]`);
+            if (resetBtn) resetBtn.disabled = !!disabled;
+        };
+
+        const targetIds = [
+            'rop-body-font', 'rop-body-fontsize', 'rop-body-color', 'rop-body-bold', 'rop-body-weight',
+            'rop-body-letterspacing', 'rop-body-linespacing',
+            'rop-body-stroke-color', 'rop-body-stroke-width',
+            'rop-body-shadow-color', 'rop-body-shadow-blur', 'rop-body-shadow-x', 'rop-body-shadow-y',
+            'rop-body-bg-enabled', 'rop-body-bg-mode', 'rop-body-bg-color', 'rop-body-bg-opacity',
+            'rop-body-bg-radius', 'rop-body-bg-pad-h', 'rop-body-bg-pad-top', 'rop-body-bg-pad-bottom'
+        ];
+
+        targetIds.forEach(id => toggleControl(id, follow));
     }
 
     // ═══════════════════════════════════════════════
@@ -4125,6 +4276,7 @@ class ReelsOverlayPanel {
             'auto_fit', 'auto_center_v', 'layout_mode',
             'padding_top', 'padding_bottom', 'padding_left', 'padding_right',
             'title_body_gap', 'body_footer_gap',
+            'side_by_side_gap', 'side_by_side_title_ratio',
             'offset_x', 'offset_y',
             'max_height', 'auto_shrink', 'title_max_lines', 'min_fontsize', 'fullscreen_mask',
             // 独立区段背景
@@ -4141,6 +4293,8 @@ class ReelsOverlayPanel {
             'anim_in_type', 'anim_out_type', 'anim_in_duration', 'anim_out_duration',
             // 富文本样式范围
             'title_styled_ranges', 'body_styled_ranges', 'footer_styled_ranges',
+            // 文字翻转器
+            'flipper_enabled', 'flipper_duration', 'flipper_lines', 'flipper_loop', 'flipper_effect', 'flipper_transition_duration',
         ];
         const result = {};
         for (const k of keys) {

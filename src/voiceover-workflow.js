@@ -567,6 +567,7 @@ async function startVoiceoverWorkflow() {
                 const exportFcpxml = document.getElementById('vw-export-fcpxml')?.checked ?? true;
                 const gladiaKeysText = document.getElementById('gladia-keys')?.value || '';
                 const gladiaKeys = gladiaKeysText.split('\n').map(k => k.trim()).filter(Boolean);
+                const alignLang = document.getElementById('vw-align-lang')?.value || '中文';
                 const ttsResponse = await apiFetch(`${API_BASE}/elevenlabs/tts-workflow`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -585,7 +586,8 @@ async function startVoiceoverWorkflow() {
                         export_fcpxml: exportFcpxml,  // 导出达芬奇字幕
                         seamless_fcpxml: true,  // 默认无缝字幕
                         output_dir: batchOutputDir,
-                        gladia_keys: gladiaKeys
+                        gladia_keys: gladiaKeys,
+                        language: alignLang
                     })
                 });
 

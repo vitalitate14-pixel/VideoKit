@@ -1,0 +1,2311 @@
+/**
+ * reels-preview-v2.js - independent Batch Reels preview window.
+ *
+ * This module intentionally does not reuse the legacy preview media elements or
+ * playback state. It reads the current task/style and renders into its own
+ * canvas so it can evolve without destabilizing the original preview.
+ */
+(function () {
+    'use strict';
+
+    const PREVIEW_ID = 'reels-preview-v2-root';
+    const BTN_ID = 'reels-preview-v2-open-btn';
+    const DEFAULT_W = 1080;
+    const DEFAULT_H = 1920;
+
+    const state = {
+        root: null,
+        canvas: null,
+        renderer: null,
+        bgVideo: null,
+        bgFadeVideo: null,
+        audio: null,
+        bgmAudio: null,
+        contentVideo: null,
+        hookVideo: null,
+        coverVideo: null,
+        bgImage: null,
+        contentImage: null,
+        coverImage: null,
+        multiBgImages: new Map(),
+        raf: null,
+        isOpen: false,
+        isPlaying: false,
+        startedAt: 0,
+        pausedAt: 0,
+        duration: 0,
+        taskSig: '',
+        bgSig: '',
+        audioSig: '',
+        bgmSig: '',
+        contentSig: '',
+        hookSig: '',
+        coverSig: '',
+        dragSeek: false,
+        legacyEls: [],
+        resizeObserver: null,
+        lastLegacyTime: null,
+        viewScale: 1,
+        panX: 0,
+        panY: 0,
+        panning: false,
+        panStartX: 0,
+        panStartY: 0,
+        panOrigX: 0,
+        panOrigY: 0,
+        audioCtx: null,
+        mediaSources: new Map(),
+        gainNodes: new Map(),
+        audioFxNodes: [],
+        audioFxSig: '',
+    };
+    const watermarkImageCache = new Map();
+    const REVERB_PRESETS = {
+        room: { decay: 0.8, duration: 0.6 },
+        hall: { decay: 2.0, duration: 1.5 },
+        church: { decay: 4.0, duration: 3.0 },
+        plate: { decay: 1.2, duration: 1.0 },
+        echo: { decay: 1.5, duration: 0.8 },
+    };
+
+    function init() {
+        injectStyles();
+        installOpenButton();
+    }
+
+    function installOpenButton() {
+        if (document.getElementById(BTN_ID)) return;
+
+        const oldToolbarTitle = Array.from(document.querySelectorAll('#reels-col-preview span'))
+            .find(el => String(el.textContent || '').includes('预览窗口'));
+        const toolbar = oldToolbarTitle ? oldToolbarTitle.parentElement : null;
+
+        const btn = document.createElement('button');
+        btn.id = BTN_ID;
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary';
+        btn.textContent = '切到 V2';
+        btn.title = '在当前预览区域切换新/旧预览';
+        btn.addEventListener('click', toggleInlinePreview);
+
+        if (toolbar) {
+            btn.style.cssText = 'padding:2px 8px;font-size:10px;background:rgba(76,158,255,0.16);border:1px solid rgba(76,158,255,0.35);color:#9fc7ff;';
+            const spacer = toolbar.querySelector('span[style*="flex:1"]');
+            toolbar.insertBefore(btn, spacer || toolbar.children[1] || null);
+        } else {
+            btn.className = 'rpv2-floating-open';
+            document.body.appendChild(btn);
+        }
+    }
+
+    function injectStyles() {
+        if (document.getElementById('reels-preview-v2-style')) return;
+        const style = document.createElement('style');
+        style.id = 'reels-preview-v2-style';
+        style.textContent = `
+            #${PREVIEW_ID} {
+                display: none;
+                flex: 1;
+                min-height: 0;
+                min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
+                background: #07090d;
+                color: #e8edf7;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                overflow: hidden;
+            }
+            #${PREVIEW_ID}.open { display: flex; flex-direction: column; }
+            .rpv2-window {
+                width: 100%;
+                max-width: 100%;
+                height: 100%;
+                min-height: 0;
+                min-width: 0;
+                display: grid;
+                grid-template-rows: minmax(0, 1fr) auto;
+                background: #11151d;
+                overflow: hidden;
+            }
+            .rpv2-controls {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 6px;
+                min-width: 0;
+                max-width: 100%;
+                padding: 8px 10px;
+                box-sizing: border-box;
+                background: #171c26;
+                border-top: 1px solid rgba(142,157,185,0.16);
+                overflow: hidden;
+            }
+            .rpv2-stage-wrap {
+                position: relative;
+                min-width: 0;
+                min-height: 0;
+                display: grid;
+                place-items: center;
+                overflow: hidden;
+                background: #07090d;
+                cursor: grab;
+            }
+            .rpv2-stage-wrap.panning { cursor: grabbing; }
+            .rpv2-stage {
+                position: relative;
+                width: 270px;
+                height: 480px;
+                max-width: calc(100% - 16px);
+                max-height: calc(100% - 16px);
+                aspect-ratio: 9 / 16;
+                background: #000;
+                box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 18px 60px rgba(0,0,0,0.5);
+                transform-origin: center center;
+                will-change: transform;
+            }
+            .rpv2-stage canvas {
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
+            .rpv2-empty {
+                position: absolute;
+                inset: 0;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                color: rgba(232,237,247,0.52);
+                font-size: 13px;
+                text-align: center;
+                padding: 24px;
+                pointer-events: none;
+            }
+            .rpv2-icon-btn {
+                width: 28px;
+                height: 28px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex: 0 0 28px;
+                border: 1px solid rgba(142,157,185,0.28);
+                background: rgba(255,255,255,0.04);
+                color: #e8edf7;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .rpv2-icon-btn:hover { background: rgba(255,255,255,0.09); }
+            .rpv2-pill {
+                font-size: 10px;
+                color: #8fb4ff;
+                border: 1px solid rgba(143,180,255,0.3);
+                background: rgba(143,180,255,0.08);
+                padding: 2px 6px;
+                border-radius: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                flex: 1 1 150px;
+                min-width: 90px;
+                max-width: 240px;
+            }
+            .rpv2-time {
+                flex: 0 0 88px;
+                text-align: center;
+                font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                color: #b6c1d4;
+            }
+            .rpv2-seek {
+                flex: 1 1 110px;
+                min-width: 80px;
+                max-width: 100%;
+                accent-color: #6ea8ff;
+            }
+            .rpv2-zoom-label {
+                width: 38px;
+                text-align: center;
+                font-size: 10px;
+                color: #9aa8bd;
+                font-variant-numeric: tabular-nums;
+                flex: 0 0 38px;
+            }
+            .rpv2-check {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                font-size: 11px;
+                color: #b6c1d4;
+                white-space: nowrap;
+                flex: 0 0 auto;
+            }
+            @media (max-width: 520px) {
+                .rpv2-check { display: none; }
+                .rpv2-pill { flex-basis: 120px; max-width: 170px; }
+                .rpv2-time { flex-basis: 82px; font-size: 10px; }
+                .rpv2-seek { flex-basis: 90px; }
+            }
+            .rpv2-media {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                opacity: 0;
+                pointer-events: none;
+            }
+            .rpv2-floating-open {
+                position: fixed;
+                right: 18px;
+                bottom: 18px;
+                z-index: 9990;
+                padding: 7px 10px;
+                border: 1px solid rgba(76,158,255,0.4);
+                background: #162033;
+                color: #cfe0ff;
+                border-radius: 6px;
+                cursor: pointer;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function ensureDom() {
+        if (state.root) return state.root;
+
+        const root = document.createElement('div');
+        root.id = PREVIEW_ID;
+        root.innerHTML = `
+            <div class="rpv2-window" aria-label="V2 预览">
+                <div class="rpv2-stage-wrap">
+                    <div class="rpv2-stage" data-role="stage">
+                        <canvas data-role="canvas"></canvas>
+                        <div class="rpv2-empty" data-role="empty">请选择一个 Reels 任务</div>
+                    </div>
+                    <video class="rpv2-media" data-role="bg-video" playsinline preload="auto"></video>
+                    <video class="rpv2-media" data-role="bg-fade-video" playsinline preload="auto"></video>
+                    <video class="rpv2-media" data-role="content-video" playsinline preload="auto"></video>
+                    <video class="rpv2-media" data-role="hook-video" playsinline preload="auto" muted></video>
+                    <video class="rpv2-media" data-role="cover-video" playsinline preload="auto" muted></video>
+                    <audio class="rpv2-media" data-role="audio" preload="auto"></audio>
+                    <audio class="rpv2-media" data-role="bgm-audio" preload="auto"></audio>
+                </div>
+                <div class="rpv2-controls">
+                    <span class="rpv2-pill" data-role="title">V2 预览</span>
+                    <button class="rpv2-icon-btn" data-action="play" title="播放/暂停">▶</button>
+                    <div class="rpv2-time" data-role="time">00:00/00:00</div>
+                    <input class="rpv2-seek" data-role="seek" type="range" min="0" max="1000" value="0" step="1">
+                    <label class="rpv2-check" title="循环播放"><input data-role="loop" type="checkbox" checked>循环</label>
+                    <label class="rpv2-check" title="显示字幕"><input data-role="subs" type="checkbox" checked>字幕</label>
+                    <label class="rpv2-check" title="显示覆层"><input data-role="overlays" type="checkbox" checked>覆层</label>
+                    <button class="rpv2-icon-btn" data-action="fit" title="适应窗口">适</button>
+                    <button class="rpv2-icon-btn" data-action="zoom-out" title="缩小">−</button>
+                    <span class="rpv2-zoom-label" data-role="zoom-label">100%</span>
+                    <button class="rpv2-icon-btn" data-action="zoom-in" title="放大">+</button>
+                    <button class="rpv2-icon-btn" data-action="zoom-reset" title="1:1">1:1</button>
+                    <button class="rpv2-icon-btn" data-action="refresh" title="重新加载当前任务">↻</button>
+                </div>
+            </div>
+        `;
+        mountInlineRoot(root);
+
+        state.root = root;
+        state.canvas = root.querySelector('[data-role="canvas"]');
+        state.bgVideo = root.querySelector('[data-role="bg-video"]');
+        state.bgFadeVideo = root.querySelector('[data-role="bg-fade-video"]');
+        state.audio = root.querySelector('[data-role="audio"]');
+        state.bgmAudio = root.querySelector('[data-role="bgm-audio"]');
+        state.contentVideo = root.querySelector('[data-role="content-video"]');
+        state.hookVideo = root.querySelector('[data-role="hook-video"]');
+        state.coverVideo = root.querySelector('[data-role="cover-video"]');
+
+        state.canvas.width = getTargetWidth();
+        state.canvas.height = getTargetHeight();
+        state.renderer = window.ReelsCanvasRenderer ? new window.ReelsCanvasRenderer(state.canvas) : null;
+
+        root.querySelector('[data-action="refresh"]').addEventListener('click', () => loadCurrentTask(true));
+        root.querySelector('[data-action="fit"]').addEventListener('click', () => fitStage(true));
+        root.querySelector('[data-action="zoom-in"]').addEventListener('click', () => zoomView(1.25));
+        root.querySelector('[data-action="zoom-out"]').addEventListener('click', () => zoomView(0.8));
+        root.querySelector('[data-action="zoom-reset"]').addEventListener('click', resetZoomOneToOne);
+        root.querySelector('[data-action="play"]').addEventListener('click', togglePlay);
+        root.querySelector('[data-role="seek"]').addEventListener('input', onSeekInput);
+        root.querySelector('[data-role="seek"]').addEventListener('pointerdown', () => { state.dragSeek = true; });
+        root.querySelector('[data-role="seek"]').addEventListener('pointerup', () => { state.dragSeek = false; });
+        root.querySelector('[data-role="loop"]').addEventListener('change', syncLoopFlags);
+        setupPanZoomHandlers();
+        setupFitObserver();
+
+        for (const media of [state.bgVideo, state.bgFadeVideo, state.audio, state.bgmAudio, state.contentVideo, state.hookVideo, state.coverVideo]) {
+            media.addEventListener('loadedmetadata', () => {
+                state.duration = computeDuration();
+                syncMediaToTime(getCurrentTime());
+                render();
+            });
+            media.addEventListener('ended', onMediaEnded);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (!state.isOpen) return;
+            if (e.key === 'Escape') close();
+            if (e.key === ' ' && !isEditable(e.target)) {
+                e.preventDefault();
+                togglePlay();
+            }
+        });
+
+        return root;
+    }
+
+    function mountInlineRoot(root) {
+        const viewport = document.getElementById('reels-preview-viewport');
+        const host = viewport && viewport.parentElement ? viewport.parentElement : document.body;
+        if (viewport && viewport.nextSibling) {
+            host.insertBefore(root, viewport.nextSibling);
+        } else {
+            host.appendChild(root);
+        }
+        state.legacyEls = [
+            document.getElementById('reels-preview-viewport'),
+            document.getElementById('reels-preview-play')?.closest('div'),
+            document.getElementById('reels-preview-text'),
+            ...getLegacyToolbarZoomEls(),
+        ].filter(Boolean);
+    }
+
+    function toggleInlinePreview() {
+        if (state.isOpen) close();
+        else open();
+    }
+
+    function open() {
+        ensureDom();
+        setLegacyVisible(false);
+        state.root.classList.add('open');
+        state.isOpen = true;
+        updateModeButton();
+        queueFitStage();
+        loadCurrentTask(true);
+        startLoop();
+    }
+
+    function close() {
+        state.isOpen = false;
+        state.root?.classList.remove('open');
+        setLegacyVisible(true);
+        pauseMedia();
+        disconnectAudioGraph();
+        state.isPlaying = false;
+        if (state.raf) cancelAnimationFrame(state.raf);
+        state.raf = null;
+        updatePlayButton();
+        updateModeButton();
+    }
+
+    function setupFitObserver() {
+        if (state.resizeObserver || typeof ResizeObserver === 'undefined') return;
+        const wrap = state.root?.querySelector('.rpv2-stage-wrap');
+        if (!wrap) return;
+        state.resizeObserver = new ResizeObserver(() => fitStage());
+        state.resizeObserver.observe(wrap);
+        window.addEventListener('resize', queueFitStage);
+    }
+
+    function setLegacyVisible(visible) {
+        if (!state.legacyEls.length) {
+            state.legacyEls = [
+                document.getElementById('reels-preview-viewport'),
+                document.getElementById('reels-preview-play')?.closest('div'),
+                document.getElementById('reels-preview-text'),
+                ...getLegacyToolbarZoomEls(),
+            ].filter(Boolean);
+        }
+        for (const el of state.legacyEls) {
+            if (!el) continue;
+            if (visible) {
+                const previous = el.dataset.rpv2PreviousDisplay;
+                el.style.display = previous || '';
+                delete el.dataset.rpv2PreviousDisplay;
+            } else {
+                if (el.dataset.rpv2PreviousDisplay === undefined) {
+                    el.dataset.rpv2PreviousDisplay = el.style.display || '';
+                }
+                el.style.display = 'none';
+            }
+        }
+    }
+
+    function getLegacyToolbarZoomEls() {
+        const root = document.getElementById('reels-col-preview');
+        if (!root) return [];
+        return Array.from(root.querySelectorAll('#reels-preview-zoom-label, button[onclick^="reelsPreviewZoom"]'));
+    }
+
+    function updateModeButton() {
+        const btn = document.getElementById(BTN_ID);
+        if (!btn) return;
+        btn.textContent = state.isOpen ? '切回原预览' : '切到 V2';
+        btn.title = state.isOpen ? '切回原来的预览窗口' : '切换到新的 V2 预览';
+    }
+
+    function startLoop() {
+        if (!state.isOpen) return;
+        if (state.raf) cancelAnimationFrame(state.raf);
+        const tick = () => {
+            if (!state.isOpen) return;
+            loadCurrentTask(false);
+            render();
+            state.raf = requestAnimationFrame(tick);
+        };
+        state.raf = requestAnimationFrame(tick);
+    }
+
+    function loadCurrentTask(force) {
+        const task = getTask();
+        const sig = makeTaskSignature(task);
+        if (!force && sig === state.taskSig) return;
+
+        state.taskSig = sig;
+        state.duration = computeDuration();
+        state.pausedAt = Math.min(state.pausedAt || 0, Math.max(0, state.duration || 0));
+        updateTitle(task);
+        resizeCanvas();
+        loadBackground(task, force);
+        loadAudio(task, force);
+        loadBgm(task, force);
+        loadContent(task, force);
+        loadHook(task, force);
+        loadCover(task, force);
+        applyAudioVolumes(task);
+        syncLoopFlags();
+        syncMediaToTime(state.pausedAt || 0);
+        render();
+    }
+
+    function resizeCanvas() {
+        const w = getTargetWidth();
+        const h = getTargetHeight();
+        if (state.canvas.width !== w || state.canvas.height !== h) {
+            state.canvas.width = w;
+            state.canvas.height = h;
+            if (window.ReelsCanvasRenderer) {
+                state.renderer = new window.ReelsCanvasRenderer(state.canvas);
+            }
+            const stage = state.root.querySelector('[data-role="stage"]');
+            if (stage) stage.style.aspectRatio = `${w} / ${h}`;
+        }
+        queueFitStage();
+    }
+
+    function queueFitStage() {
+        requestAnimationFrame(() => {
+            fitStage(false);
+            requestAnimationFrame(() => fitStage(false));
+        });
+    }
+
+    function fitStage(resetView = false) {
+        if (!state.root || !state.isOpen) return;
+        const wrap = state.root.querySelector('.rpv2-stage-wrap');
+        const stage = state.root.querySelector('[data-role="stage"]');
+        if (!wrap || !stage) return;
+
+        const rect = wrap.getBoundingClientRect();
+        if (rect.width < 40 || rect.height < 40) {
+            requestAnimationFrame(fitStage);
+            return;
+        }
+        const availableW = Math.max(80, rect.width - 12);
+        const availableH = Math.max(80, rect.height - 12);
+        const targetW = getTargetWidth();
+        const targetH = getTargetHeight();
+        const aspect = targetW > 0 && targetH > 0 ? targetW / targetH : DEFAULT_W / DEFAULT_H;
+
+        let stageW = availableW;
+        let stageH = stageW / aspect;
+        if (stageH > availableH) {
+            stageH = availableH;
+            stageW = stageH * aspect;
+        }
+
+        stage.style.width = `${Math.max(60, Math.floor(stageW))}px`;
+        stage.style.height = `${Math.max(60, Math.floor(stageH))}px`;
+        stage.style.aspectRatio = `${targetW} / ${targetH}`;
+        if (resetView) {
+            state.viewScale = 1;
+            state.panX = 0;
+            state.panY = 0;
+        }
+        applyViewTransform();
+    }
+
+    function setupPanZoomHandlers() {
+        const wrap = state.root?.querySelector('.rpv2-stage-wrap');
+        if (!wrap || wrap.dataset.rpv2PanZoomBound === '1') return;
+        wrap.dataset.rpv2PanZoomBound = '1';
+
+        wrap.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const factor = e.deltaY > 0 ? 0.9 : 1.1;
+            zoomView(factor);
+        }, { passive: false });
+
+        wrap.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            state.panning = true;
+            state.panStartX = e.clientX;
+            state.panStartY = e.clientY;
+            state.panOrigX = state.panX;
+            state.panOrigY = state.panY;
+            wrap.classList.add('panning');
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!state.panning) return;
+            state.panX = state.panOrigX + (e.clientX - state.panStartX);
+            state.panY = state.panOrigY + (e.clientY - state.panStartY);
+            applyViewTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!state.panning) return;
+            state.panning = false;
+            wrap.classList.remove('panning');
+        });
+    }
+
+    function zoomView(factor) {
+        state.viewScale = clamp(state.viewScale * factor, 0.1, 5);
+        applyViewTransform();
+    }
+
+    function resetZoomOneToOne() {
+        state.viewScale = 1;
+        state.panX = 0;
+        state.panY = 0;
+        applyViewTransform();
+    }
+
+    function applyViewTransform() {
+        const stage = state.root?.querySelector('[data-role="stage"]');
+        if (stage) {
+            stage.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.viewScale})`;
+        }
+        const label = state.root?.querySelector('[data-role="zoom-label"]');
+        if (label) label.textContent = `${Math.round(state.viewScale * 100)}%`;
+    }
+
+    function loadBackground(task, force) {
+        const bgPath = getBackgroundPath(task);
+        const sig = `${bgPath || ''}`;
+        if (!force && sig === state.bgSig) return;
+        state.bgSig = sig;
+        state.bgImage = null;
+        state.bgVideo.pause();
+        state.bgFadeVideo.pause();
+        state.bgVideo.removeAttribute('src');
+        state.bgFadeVideo.removeAttribute('src');
+
+        if (!bgPath) return;
+        const url = toPlayablePath(bgPath);
+        if (isImagePath(bgPath)) {
+            const img = new Image();
+            img.onload = () => {
+                if (state.bgSig === sig) state.bgImage = img;
+                render();
+            };
+            img.onerror = () => render();
+            img.src = url;
+        } else {
+            state.bgVideo.src = url;
+            state.bgVideo.load();
+        }
+    }
+
+    function loadAudio(task, force) {
+        const audioPath = task && task.audioPath ? task.audioPath : '';
+        const sig = audioPath;
+        if (!force && sig === state.audioSig) return;
+        state.audioSig = sig;
+        state.audio.pause();
+        state.audio.removeAttribute('src');
+        if (audioPath) {
+            state.audio.src = toPlayablePath(audioPath);
+            state.audio.load();
+        }
+    }
+
+    function loadBgm(task, force) {
+        const bgmPath = getBgmPath(task);
+        const sig = bgmPath || '';
+        if (!force && sig === state.bgmSig) return;
+        state.bgmSig = sig;
+        state.bgmAudio.pause();
+        state.bgmAudio.removeAttribute('src');
+        if (bgmPath) {
+            state.bgmAudio.src = toPlayablePath(bgmPath);
+            state.bgmAudio.load();
+        }
+    }
+
+    function loadContent(task, force) {
+        const contentPath = task && task.contentVideoPath ? task.contentVideoPath : '';
+        const sig = contentPath;
+        if (!force && sig === state.contentSig) return;
+        state.contentSig = sig;
+        state.contentImage = null;
+        state.contentVideo.pause();
+        state.contentVideo.removeAttribute('src');
+
+        if (!contentPath) return;
+        const url = toPlayablePath(contentPath);
+        if (isImagePath(contentPath)) {
+            const img = new Image();
+            img.onload = () => {
+                if (state.contentSig === sig) state.contentImage = img;
+                render();
+            };
+            img.src = url;
+        } else {
+            state.contentVideo.src = url;
+            state.contentVideo.load();
+        }
+    }
+
+    function loadHook(task, force) {
+        const hookPath = getHookPath(task);
+        const sig = [
+            hookPath || '',
+            task && task.hookTrimStart != null ? task.hookTrimStart : '',
+            task && task.hookTrimEnd != null ? task.hookTrimEnd : '',
+            task && task.hookSpeed != null ? task.hookSpeed : '',
+        ].join('|');
+        if (!force && sig === state.hookSig) return;
+        state.hookSig = sig;
+        state.hookVideo.pause();
+        state.hookVideo.removeAttribute('src');
+        if (hookPath) {
+            state.hookVideo.src = toPlayablePath(hookPath);
+            state.hookVideo.playbackRate = Math.max(0.01, numberOr(task && task.hookSpeed, 1));
+            state.hookVideo.load();
+        }
+    }
+
+    function loadCover(task, force) {
+        const coverPath = task && task.cover && task.cover.enabled && task.cover.bgPath ? task.cover.bgPath : '';
+        const sig = coverPath || '';
+        if (!force && sig === state.coverSig) return;
+        state.coverSig = sig;
+        state.coverImage = null;
+        state.coverVideo.pause();
+        state.coverVideo.removeAttribute('src');
+        if (!coverPath) return;
+        const url = toPlayablePath(coverPath);
+        if (isImagePath(coverPath)) {
+            const img = new Image();
+            img.onload = () => {
+                if (state.coverSig === sig) state.coverImage = img;
+                render();
+            };
+            img.onerror = () => render();
+            img.src = url;
+        } else {
+            state.coverVideo.src = url;
+            state.coverVideo.load();
+        }
+    }
+
+    function togglePlay() {
+        if (!state.isOpen) return;
+        const task = getTask();
+        if (!task) return;
+
+        if (state.isPlaying) {
+            state.pausedAt = getCurrentTime();
+            pauseMedia();
+            state.isPlaying = false;
+            updatePlayButton();
+            render();
+            return;
+        }
+
+        const dur = computeDuration();
+        if (dur > 0 && state.pausedAt >= dur - 0.02) state.pausedAt = 0;
+        state.startedAt = performance.now() / 1000 - (state.pausedAt || 0);
+        syncMediaToTime(state.pausedAt || 0);
+        playMedia();
+        state.isPlaying = true;
+        updatePlayButton();
+    }
+
+    function playMedia() {
+        const task = getTask();
+        applyAudioVolumes(task);
+        applyPlaybackRates(task);
+        if (state.audioCtx && state.audioCtx.state === 'suspended') {
+            state.audioCtx.resume().catch(() => {});
+        }
+        syncPhasePlayback(getPhaseInfo(state.pausedAt || 0, task), task);
+    }
+
+    function pauseMedia() {
+        state.audio?.pause();
+        state.bgmAudio?.pause();
+        state.bgVideo?.pause();
+        state.bgFadeVideo?.pause();
+        state.contentVideo?.pause();
+        state.hookVideo?.pause();
+        state.coverVideo?.pause();
+    }
+
+    function onMediaEnded() {
+        if (!state.isOpen || isLoopEnabled()) return;
+        const dur = computeDuration();
+        if (dur > 0 && getCurrentTime() >= dur - 0.2) {
+            state.pausedAt = dur;
+            state.isPlaying = false;
+            pauseMedia();
+            updatePlayButton();
+        }
+    }
+
+    function onSeekInput(e) {
+        const dur = computeDuration();
+        const next = dur > 0 ? (parseFloat(e.target.value || '0') / 1000) * dur : 0;
+        state.pausedAt = next;
+        state.startedAt = performance.now() / 1000 - next;
+        syncMediaToTime(next);
+        render();
+    }
+
+    function getCurrentTime() {
+        if (state.isPlaying) {
+            const task = getTask();
+            const offset = getTimelineOffset(task);
+            if (offset > 0) return Math.max(0, (performance.now() / 1000) - state.startedAt);
+            if (state.audio.src && !state.audio.paused) return (state.audio.currentTime || 0) * getAudioDurationScale(task);
+            if (state.bgVideo.src && !state.bgVideo.paused) return (state.bgVideo.currentTime || 0) * getBgDurationScale(task);
+            if (state.contentVideo.src && !state.contentVideo.paused) return state.contentVideo.currentTime || 0;
+            return Math.max(0, (performance.now() / 1000) - state.startedAt);
+        }
+        return state.pausedAt || 0;
+    }
+
+    function syncMediaToTime(time) {
+        const task = getTask();
+        const phase = getPhaseInfo(time, task);
+        const mainTime = phase.mainTime;
+        const bgDur = mediaDuration(state.bgVideo);
+        const audioDur = mediaDuration(state.audio);
+        const bgmDur = mediaDuration(state.bgmAudio);
+        const contentDur = mediaDuration(state.contentVideo);
+        const hookDurRaw = mediaDuration(state.hookVideo);
+        const coverDurRaw = mediaDuration(state.coverVideo);
+        const atTimelineEnd = isAtTimelineEnd(time);
+
+        if (state.audio.src && audioDur > 0) {
+            setMediaTime(state.audio, clamp(mainTime / getAudioDurationScale(task), 0, audioDur));
+        }
+        if (state.bgVideo.src && bgDur > 0) {
+            const bgTime = mainTime / getBgDurationScale(task);
+            setMediaTime(state.bgVideo, isLoopEnabled() ? loopMediaTime(bgTime, bgDur, atTimelineEnd) : clamp(bgTime, 0, bgDur));
+        }
+        if (state.bgmAudio.src && bgmDur > 0) {
+            setMediaTime(state.bgmAudio, loopMediaTime(mainTime, bgmDur, atTimelineEnd));
+        }
+        if (state.contentVideo.src && contentDur > 0) {
+            const trimStart = parseFloat((task || {}).contentVideoTrimStart) || 0;
+            const trimEnd = parseFloat((task || {}).contentVideoTrimEnd) || 0;
+            const usableDur = trimEnd > trimStart ? trimEnd - trimStart : Math.max(0.01, contentDur - trimStart);
+            setMediaTime(state.contentVideo, trimStart + loopMediaTime(mainTime, usableDur, atTimelineEnd));
+        }
+        if (state.hookVideo.src && hookDurRaw > 0) {
+            const trimStart = numberOr(task && task.hookTrimStart, 0);
+            const speed = Math.max(0.01, numberOr(task && task.hookSpeed, 1));
+            const hookTarget = trimStart + Math.max(0, time - phase.coverDuration) * speed;
+            setMediaTime(state.hookVideo, clamp(hookTarget, 0, hookDurRaw));
+        }
+        if (state.coverVideo.src && coverDurRaw > 0) {
+            setMediaTime(state.coverVideo, clamp(time, 0, Math.max(0, coverDurRaw - 0.03)));
+        }
+    }
+
+    function setMediaTime(media, target) {
+        if (!media || !media.src || !Number.isFinite(target)) return;
+        if (Math.abs((media.currentTime || 0) - target) > 0.25) {
+            try { media.currentTime = target; } catch (_) {}
+        }
+    }
+
+    function syncMediaWhilePlaying(time) {
+        if (!state.isPlaying) return;
+        const task = getTask();
+        const phase = getPhaseInfo(time, task);
+        const mainTime = phase.mainTime;
+        const bgDur = mediaDuration(state.bgVideo);
+        const bgmDur = mediaDuration(state.bgmAudio);
+        const contentDur = mediaDuration(state.contentVideo);
+        const hasAudioClock = !!(state.audio.src && !state.audio.paused);
+        const bgIsClock = !hasAudioClock && state.bgVideo.src && !state.bgVideo.paused;
+        const contentIsClock = !hasAudioClock && !bgIsClock && state.contentVideo.src && !state.contentVideo.paused;
+        if (hasAudioClock && state.bgVideo.src && bgDur > 0) {
+            const bgTime = mainTime / getBgDurationScale(task);
+            const target = isLoopEnabled() ? positiveModulo(bgTime, bgDur) : clamp(bgTime, 0, bgDur);
+            setMediaTime(state.bgVideo, target);
+        }
+        if (state.bgmAudio.src && bgmDur > 0) {
+            setMediaTime(state.bgmAudio, positiveModulo(mainTime, bgmDur));
+        }
+        if (!contentIsClock && state.contentVideo.src && contentDur > 0) {
+            const trimStart = parseFloat((task || {}).contentVideoTrimStart) || 0;
+            const trimEnd = parseFloat((task || {}).contentVideoTrimEnd) || 0;
+            const usableDur = trimEnd > trimStart ? trimEnd - trimStart : Math.max(0.01, contentDur - trimStart);
+            setMediaTime(state.contentVideo, trimStart + positiveModulo(mainTime, usableDur));
+        }
+        syncPhasePlayback(phase, task);
+    }
+
+    function syncPhasePlayback(phase, task) {
+        if (!state.isPlaying) return;
+        if (phase.inCover) {
+            if (state.coverVideo.src) state.coverVideo.play().catch(() => {});
+            state.hookVideo?.pause();
+            pauseMainMedia();
+            return;
+        }
+        if (phase.inHook) {
+            state.coverVideo?.pause();
+            if (state.hookVideo.src) state.hookVideo.play().catch(() => {});
+            pauseMainMedia();
+            return;
+        }
+        state.coverVideo?.pause();
+        state.hookVideo?.pause();
+        playMainMedia(task);
+    }
+
+    function pauseMainMedia() {
+        state.audio?.pause();
+        state.bgmAudio?.pause();
+        state.bgVideo?.pause();
+        state.bgFadeVideo?.pause();
+        state.contentVideo?.pause();
+    }
+
+    function playMainMedia(task) {
+        if (state.audio.src && task && task.audioPath && state.audio.paused) state.audio.play().catch(() => {});
+        if (state.bgVideo.src && state.bgVideo.paused) state.bgVideo.play().catch(() => {});
+        if (state.bgFadeVideo.src && state.bgFadeVideo.paused) state.bgFadeVideo.play().catch(() => {});
+        if (state.contentVideo.src && state.contentVideo.paused) state.contentVideo.play().catch(() => {});
+        if (state.bgmAudio.src && task && getBgmPath(task) && state.bgmAudio.paused) state.bgmAudio.play().catch(() => {});
+    }
+
+    function render() {
+        if (!state.canvas) return;
+        syncLegacySeekTime();
+        const task = getTask();
+        const ctx = state.canvas.getContext('2d');
+        const w = state.canvas.width;
+        const h = state.canvas.height;
+        const empty = state.root?.querySelector('[data-role="empty"]');
+        const t = getCurrentTime();
+        const dur = computeDuration();
+        state.duration = dur;
+        applyAudioVolumes(task);
+        applyPlaybackRates(task);
+
+        if (!task) {
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#05070b';
+            ctx.fillRect(0, 0, w, h);
+            if (empty) empty.style.display = 'flex';
+            updateTimeUI(0, 0);
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        if (state.isPlaying && dur > 0 && t >= dur) {
+            if (isLoopEnabled()) {
+                state.startedAt = performance.now() / 1000;
+                state.pausedAt = 0;
+                syncMediaToTime(0);
+            } else {
+                state.pausedAt = dur;
+                state.isPlaying = false;
+                pauseMedia();
+                updatePlayButton();
+            }
+        }
+
+        syncMediaWhilePlaying(t);
+        const phase = getPhaseInfo(t, task);
+        const drawTime = phase.mainTime;
+
+        ctx.clearRect(0, 0, w, h);
+        drawBackground(ctx, task, w, h, phase);
+        drawGlobalMask(ctx, getResolvedStyle(task), w, h, phase);
+        drawContentVideo(ctx, task, w, h, phase);
+        drawSubtitles(ctx, task, drawTime, w, h, phase);
+        drawOverlays(ctx, task, drawTime, w, h, phase);
+        drawWatermarks(ctx, w, h);
+        updateTimeUI(Math.min(t, dur || t), dur);
+    }
+
+    function syncLegacySeekTime() {
+        if (state.isPlaying || !state.isOpen) return;
+        const legacyTime = readLegacyPreviewTime();
+        if (!Number.isFinite(legacyTime)) return;
+        if (state.lastLegacyTime == null) {
+            state.lastLegacyTime = legacyTime;
+            return;
+        }
+        if (Math.abs(legacyTime - state.lastLegacyTime) > 0.03) {
+            state.lastLegacyTime = legacyTime;
+            state.pausedAt = Math.max(0, legacyTime);
+            syncMediaToTime(state.pausedAt);
+        }
+    }
+
+    function readLegacyPreviewTime() {
+        const rs = window._reelsState;
+        if (!rs) return NaN;
+        const lock = rs.previewSeekLock;
+        if (lock && Number.isFinite(lock.target) && (!lock.until || performance.now() < lock.until)) {
+            return lock.target;
+        }
+        if (Number.isFinite(rs.mockPausedTime)) return rs.mockPausedTime;
+        return NaN;
+    }
+
+    function drawBackground(ctx, task, w, h, phase = getPhaseInfo(getCurrentTime(), task)) {
+        const bgScale = numberOr(task && task.bgScale, 100);
+        const bgX = numberOr(task && task.bgX, 0);
+        const bgY = numberOr(task && task.bgY, 0);
+
+        if (phase.inCover) {
+            drawCoverPhase(ctx, task, w, h);
+            return;
+        }
+        if (phase.inHook && state.hookVideo.src && state.hookVideo.readyState >= 2 && state.hookVideo.videoWidth > 0) {
+            drawMediaCover(ctx, state.hookVideo, w, h, 100, 0, 0, false, false);
+            drawHookTransition(ctx, task, w, h, phase);
+            return;
+        }
+        if (task && task.contentVideoBlurBg && getContentSource()) {
+            drawContentBlurBackground(ctx, task, w, h);
+            return;
+        }
+        if (task && task.contentVideoDirectBg && (state.contentVideo.src || state.contentImage)) {
+            drawCroppedCover(ctx, getContentSource(), parseCrop(task.contentVideoCrop), w, h, bgScale, bgX, bgY, !!task.bgFlipH, !!task.bgFlipV);
+            return;
+        }
+        if (task && task.bgMode === 'multi' && getEffectiveBgClipPool(task).length > 0) {
+            drawMultiBackground(ctx, task, w, h, resolveMultiBackgroundAtTime(task, phase.mainTime));
+        } else if (state.bgImage && state.bgImage.complete && state.bgImage.naturalWidth > 0) {
+            drawMediaCover(ctx, state.bgImage, w, h, bgScale, bgX, bgY, !!task.bgFlipH, !!task.bgFlipV);
+        } else if (state.bgVideo.src && state.bgVideo.readyState >= 2 && state.bgVideo.videoWidth > 0) {
+            drawMediaCover(ctx, state.bgVideo, w, h, bgScale, bgX, bgY, !!task.bgFlipH, !!task.bgFlipV);
+        } else {
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, '#101622');
+            grad.addColorStop(1, '#05070b');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+        }
+    }
+
+    function drawCoverPhase(ctx, task, w, h) {
+        const cover = (task && task.cover) || {};
+        const scale = numberOr(cover.bgScale, numberOr(task && task.bgScale, 100));
+        const x = numberOr(cover.bgX, numberOr(task && task.bgX, 0));
+        const y = numberOr(cover.bgY, numberOr(task && task.bgY, 0));
+        const flipH = !!(cover.bgFlipH || (task && task.bgFlipH));
+        const flipV = !!(cover.bgFlipV || (task && task.bgFlipV));
+        if (state.coverImage && state.coverImage.complete && state.coverImage.naturalWidth > 0) {
+            drawMediaCover(ctx, state.coverImage, w, h, scale, x, y, flipH, flipV);
+        } else if (state.coverVideo.src && state.coverVideo.readyState >= 2 && state.coverVideo.videoWidth > 0) {
+            drawMediaCover(ctx, state.coverVideo, w, h, scale, x, y, flipH, flipV);
+        } else if (state.bgImage && state.bgImage.complete && state.bgImage.naturalWidth > 0) {
+            drawMediaCover(ctx, state.bgImage, w, h, scale, x, y, flipH, flipV);
+        } else if (state.bgVideo.src && state.bgVideo.readyState >= 2 && state.bgVideo.videoWidth > 0) {
+            drawMediaCover(ctx, state.bgVideo, w, h, scale, x, y, flipH, flipV);
+        } else {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, w, h);
+        }
+    }
+
+    function drawHookTransition(ctx, task, w, h, phase) {
+        const transition = (task && task.hookTransition) || 'none';
+        const transitionDur = transition !== 'none' ? numberOr(task && task.hookTransDuration, 0.5) : 0;
+        const timeToEnd = phase.coverDuration + phase.hookDuration - phase.time;
+        if (!(transitionDur > 0 && timeToEnd < transitionDur)) return;
+        const bg = state.bgImage || state.bgVideo;
+        if (!bg) return;
+        const canDraw = bg === state.bgImage
+            ? state.bgImage.complete && state.bgImage.naturalWidth > 0
+            : state.bgVideo.readyState >= 2 && state.bgVideo.videoWidth > 0;
+        if (!canDraw) return;
+        ctx.save();
+        ctx.globalAlpha = clamp(1 - timeToEnd / transitionDur, 0, 1);
+        drawMediaCover(ctx, bg, w, h, numberOr(task && task.bgScale, 100), numberOr(task && task.bgX, 0), numberOr(task && task.bgY, 0), !!task.bgFlipH, !!task.bgFlipV);
+        ctx.restore();
+    }
+
+    function drawMultiBackground(ctx, task, w, h, clips) {
+        const bgScale = numberOr(task && task.bgScale, 100);
+        const bgX = numberOr(task && task.bgX, 0);
+        const bgY = numberOr(task && task.bgY, 0);
+        const flipH = !!(task && task.bgFlipH);
+        const flipV = !!(task && task.bgFlipV);
+        if (!clips || !clips.current) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, w, h);
+            return;
+        }
+
+        syncMultiVideoPlayers(task, clips);
+        const drawClip = (clip) => {
+            const src = getMultiClipSource(clip);
+            if (src) {
+                drawMediaCover(ctx, src, w, h, bgScale, bgX, bgY, flipH, flipV);
+            } else {
+                ctx.fillStyle = '#11151d';
+                ctx.fillRect(0, 0, w, h);
+            }
+        };
+
+        if (!clips.transition) {
+            drawClip(clips.current);
+            return;
+        }
+
+        const outgoing = clips.transition;
+        const incoming = clips.current;
+        const progress = clamp(numberOr(outgoing.progress, 0), 0, 1);
+        const type = outgoing.type || 'crossfade';
+        drawClip(outgoing);
+
+        ctx.save();
+        if (type === 'crossfade' || type === 'fade') {
+            ctx.globalAlpha = progress;
+            drawClip(incoming);
+        } else if (type === 'fade_black' || type === 'fadeblack') {
+            if (progress < 0.5) {
+                ctx.fillStyle = `rgba(0,0,0,${progress * 2})`;
+                ctx.fillRect(0, 0, w, h);
+            } else {
+                ctx.globalAlpha = (progress - 0.5) * 2;
+                drawClip(incoming);
+            }
+        } else if (type === 'fade_white' || type === 'fadewhite') {
+            if (progress < 0.5) {
+                ctx.fillStyle = `rgba(255,255,255,${progress * 2})`;
+                ctx.fillRect(0, 0, w, h);
+            } else {
+                ctx.globalAlpha = (progress - 0.5) * 2;
+                drawClip(incoming);
+            }
+        } else if (type === 'slide_left' || type === 'slideleft') {
+            ctx.beginPath();
+            ctx.rect(w * (1 - progress), 0, w * progress, h);
+            ctx.clip();
+            drawClip(incoming);
+        } else if (type === 'slide_right' || type === 'slideright' || type === 'wipe' || type === 'wipeleft') {
+            ctx.beginPath();
+            ctx.rect(0, 0, w * progress, h);
+            ctx.clip();
+            drawClip(incoming);
+        } else {
+            drawClip(incoming);
+        }
+        ctx.restore();
+    }
+
+    function getMultiClipSource(clip) {
+        if (!clip) return null;
+        if (clip.isImage) {
+            let img = state.multiBgImages.get(clip.path);
+            if (!img) {
+                img = new Image();
+                img.onload = () => render();
+                img.onerror = () => render();
+                img.src = toPlayablePath(clip.path);
+                state.multiBgImages.set(clip.path, img);
+            }
+            return img.complete && img.naturalWidth > 0 ? img : null;
+        }
+        for (const video of [state.bgVideo, state.bgFadeVideo]) {
+            if (video.dataset.multiPath === clip.path && video.readyState >= 2 && video.videoWidth > 0) return video;
+        }
+        return null;
+    }
+
+    function syncMultiVideoPlayers(task, clips) {
+        const bgDurFactor = Math.max(0.01, numberOr(task && task.bgDurScale, 100) / 100);
+        const playbackRate = 1 / bgDurFactor;
+        const shouldPlay = state.isPlaying && !getPhaseInfo(getCurrentTime(), task).inCover && !getPhaseInfo(getCurrentTime(), task).inHook;
+        const needed = [];
+        if (clips.transition && !clips.transition.isImage) needed.push(clips.transition);
+        if (clips.current && !clips.current.isImage) needed.push(clips.current);
+
+        const assign = (video, clip) => {
+            const url = toPlayablePath(clip.path);
+            if (video.dataset.multiPath !== clip.path || video.src !== url) {
+                video.pause();
+                video.dataset.multiPath = clip.path;
+                video.src = url;
+                video.load();
+            }
+            video.playbackRate = playbackRate;
+            const dur = mediaDuration(video);
+            const target = dur > 0 ? Math.min(clip.localTime, Math.max(0, dur - 0.03)) : clip.localTime;
+            setMediaTime(video, target);
+            if (shouldPlay && video.paused) video.play().catch(() => {});
+            if (!shouldPlay && !video.paused) video.pause();
+        };
+
+        if (needed[0]) assign(state.bgVideo, needed[0]);
+        else state.bgVideo.pause();
+        if (needed[1]) assign(state.bgFadeVideo, needed[1]);
+        else state.bgFadeVideo.pause();
+    }
+
+    function drawContentBlurBackground(ctx, task, w, h) {
+        const src = getContentSource();
+        if (!src) return;
+        const crop = parseCrop(task.contentVideoCrop);
+        const srcW = src.videoWidth || src.naturalWidth || src.width || 0;
+        const srcH = src.videoHeight || src.naturalHeight || src.height || 0;
+        if (!(srcW > 0 && srcH > 0)) return;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, h);
+        ctx.save();
+        const blur = numberOr(task.contentVideoBlur, 40);
+        const brightness = numberOr(task.contentVideoBrightness, 60) / 100;
+        ctx.filter = `blur(${blur}px) brightness(${brightness})`;
+        drawCroppedCover(ctx, src, crop, w, h, numberOr(task.bgScale, 100), numberOr(task.bgX, 0), numberOr(task.bgY, 0), !!task.bgFlipH, !!task.bgFlipV);
+        ctx.restore();
+    }
+
+    function drawContentVideo(ctx, task, w, h, phase = getPhaseInfo(getCurrentTime(), task)) {
+        if (!task || !task.contentVideoPath || task.contentVideoDirectBg || phase.inCover || phase.inHook) return;
+        const src = getContentSource();
+        if (!src) return;
+
+        const srcW = src.videoWidth || src.naturalWidth || src.width || 0;
+        const srcH = src.videoHeight || src.naturalHeight || src.height || 0;
+        if (!(srcW > 0 && srcH > 0)) return;
+
+        const crop = parseCrop(task.contentVideoCrop);
+        const sx = srcW * crop.x;
+        const sy = srcH * crop.y;
+        const sw = srcW * crop.w;
+        const sh = srcH * crop.h;
+        const scale = (numberOr(task.contentVideoScale, 100) / 100) * (w / sw);
+        const dw = sw * scale;
+        const dh = sh * scale;
+        let dx = (w - dw) / 2;
+        let dy = (h - dh) / 2;
+
+        const posX = task.contentVideoX;
+        const posY = task.contentVideoY;
+        if (posX && posX !== 'center') {
+            const n = parseFloat(posX);
+            if (Number.isFinite(n)) dx += Math.abs(n) <= 1 ? w * n : (n / DEFAULT_W) * w;
+        }
+        if (posY && posY !== 'center') {
+            const n = parseFloat(posY);
+            if (Number.isFinite(n)) dy += Math.abs(n) <= 1 ? h * n : (n / DEFAULT_H) * h;
+        }
+        drawImageMaybeFlipped(ctx, src, sx, sy, sw, sh, dx, dy, dw, dh, !!task.contentVideoFlipH, !!task.contentVideoFlipV);
+    }
+
+    function drawGlobalMask(ctx, style, w, h, phase) {
+        if (!style || !style.global_mask_enabled || phase.inHook) return;
+        ctx.save();
+        ctx.globalAlpha = clamp(numberOr(style.global_mask_opacity, 0.5), 0, 1);
+        ctx.fillStyle = style.global_mask_color || '#000000';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+    }
+
+    function drawSubtitles(ctx, task, time, w, h, phase = getPhaseInfo(getCurrentTime(), task)) {
+        const show = state.root?.querySelector('[data-role="subs"]')?.checked !== false;
+        if (!show || !state.renderer || !task || phase.inCover || phase.inHook) return;
+
+        const style = getResolvedStyle(task);
+        const segment = findActiveSegment(task, time);
+        if (!style || !segment) return;
+
+        try {
+            drawSubtitleRange(ctx, style, w, h);
+            if (typeof state.renderer.setContextSegments === 'function') {
+                state.renderer.setContextSegments(task.segments || [segment]);
+            }
+            state.renderer.renderSubtitle(style, segment, time, w, h);
+        } catch (err) {
+            console.warn('[PreviewV2] subtitle render failed', err);
+        }
+    }
+
+    function drawOverlays(ctx, task, time, w, h, phase = getPhaseInfo(getCurrentTime(), task)) {
+        const show = state.root?.querySelector('[data-role="overlays"]')?.checked !== false;
+        if (!show || !window.ReelsOverlay || !task) return;
+        const overlays = phase.inCover && task.cover && Array.isArray(task.cover.overlays)
+            ? task.cover.overlays
+            : (phase.inHook ? [] : getLiveOverlays(task));
+        for (const ov of overlays) {
+            if (!ov || ov.disabled) continue;
+            try {
+                ov._allOverlays = overlays;
+                window.ReelsOverlay.drawOverlay(ctx, ov, time, w, h);
+            } catch (err) {
+                console.warn('[PreviewV2] overlay render failed', err);
+            }
+        }
+        if (!phase.inCover && !phase.inHook) drawOverlaySelection(ctx, overlays, time, w, h);
+    }
+
+    function drawOverlaySelection(ctx, overlays, time, w, h) {
+        const selectedId = window._reelsState && window._reelsState.overlaySelectedId;
+        if (!selectedId || !Array.isArray(overlays)) return;
+        const ov = overlays.find(item => item && item.id === selectedId);
+        if (!ov || ov.disabled) return;
+        const bounds = getOverlayBounds(ov, time, w, h);
+        if (!bounds) return;
+        const handle = Math.max(8, Math.min(14, w / 90));
+
+        ctx.save();
+        ctx.strokeStyle = '#4c9eff';
+        ctx.lineWidth = Math.max(2, w / 540);
+        ctx.setLineDash([8, 5]);
+        ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#4c9eff';
+        const points = [
+            [bounds.x, bounds.y],
+            [bounds.x + bounds.w / 2, bounds.y],
+            [bounds.x + bounds.w, bounds.y],
+            [bounds.x, bounds.y + bounds.h / 2],
+            [bounds.x + bounds.w, bounds.y + bounds.h / 2],
+            [bounds.x, bounds.y + bounds.h],
+            [bounds.x + bounds.w / 2, bounds.y + bounds.h],
+            [bounds.x + bounds.w, bounds.y + bounds.h],
+        ];
+        for (const [x, y] of points) {
+            ctx.fillRect(x - handle / 2, y - handle / 2, handle, handle);
+            ctx.strokeRect(x - handle / 2, y - handle / 2, handle, handle);
+        }
+        ctx.restore();
+    }
+
+    function getOverlayBounds(ov, time, canvasW, canvasH) {
+        let width = numberOr(ov.w, 100);
+        let height = numberOr(ov.h, 100);
+        let x = numberOr(ov.x, 0);
+        let y = ov.type === 'textcard' && ov._renderedY != null ? numberOr(ov._renderedY, 0) : numberOr(ov.y, 0);
+        if (ov.type === 'textcard' && ov._renderedH != null) height = numberOr(ov._renderedH, height);
+
+        if (ov.anim_dest_enabled && ov.type !== 'scroll') {
+            const start = numberOr(ov.start, 0);
+            const end = numberOr(ov.end, 0);
+            if (end > start) {
+                const fallbackStartX = (x + width / 2) - canvasW / 2;
+                const fallbackStartY = (y + height / 2) - canvasH / 2;
+                const startX = numberOr(ov.anim_start_x, fallbackStartX);
+                const startY = numberOr(ov.anim_start_y, fallbackStartY);
+                const endX = numberOr(ov.anim_end_x, startX);
+                const endY = numberOr(ov.anim_end_y, startY);
+                const explicitDuration = numberOr(ov.anim_duration, 0);
+                const speed = numberOr(ov.anim_speed, 0);
+                const distance = Math.hypot(endX - startX, endY - startY);
+                const fallbackDuration = end >= 9999 ? 5 : end - start;
+                const animDuration = ov.anim_timing_mode === 'speed' && speed > 0
+                    ? Math.max(0.001, distance / speed)
+                    : (explicitDuration > 0 ? explicitDuration : fallbackDuration);
+                let progress = clamp((time - start) / Math.max(0.001, animDuration), 0, 1);
+                if (ov._previewAtEnd) progress = 1;
+                const easingName = ov.anim_easing || 'ease_in_out_quad';
+                const easing = window.ReelsAnimEngine && window.ReelsAnimEngine.EASING_MAP
+                    ? window.ReelsAnimEngine.EASING_MAP[easingName] || window.ReelsAnimEngine.EASING_MAP.ease_in_out_quad
+                    : null;
+                const eased = easing ? easing(progress) : progress;
+                const pointX = startX + (endX - startX) * eased;
+                const pointY = startY + (endY - startY) * eased;
+                x = canvasW / 2 + pointX - width / 2;
+                y = canvasH / 2 + pointY - height / 2;
+            }
+        }
+        return { x, y, w: width, h: height };
+    }
+
+    function drawSubtitleRange(ctx, style, w, h) {
+        const rangeToggle = document.getElementById('reels-show-subtitle-range');
+        if (rangeToggle && !rangeToggle.checked) return;
+        const x = Number.isFinite(parseFloat(style.range_x)) ? parseFloat(style.range_x) : 0;
+        const y = Number.isFinite(parseFloat(style.range_y)) ? parseFloat(style.range_y) : 0;
+        const rw = Number.isFinite(parseFloat(style.range_w)) ? parseFloat(style.range_w) : 100;
+        const rh = Number.isFinite(parseFloat(style.range_h)) ? parseFloat(style.range_h) : 100;
+        if (rw >= 99.9 && rh >= 99.9 && Math.abs(x) < 0.01 && Math.abs(y) < 0.01) return;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(76, 158, 255, 0.75)';
+        ctx.lineWidth = Math.max(2, w / 540);
+        ctx.setLineDash([10, 8]);
+        ctx.strokeRect((x / 100) * w, (y / 100) * h, (rw / 100) * w, (rh / 100) * h);
+        ctx.restore();
+    }
+
+    function drawWatermarks(ctx, w, h) {
+        const watermarks = (window._reelsState && window._reelsState.watermarks) || [];
+        if (!Array.isArray(watermarks) || watermarks.length === 0) return;
+        for (const wm of watermarks) {
+            if (!wm || !wm.enabled) continue;
+            if (wm.type === 'image') drawImageWatermark(ctx, wm, w, h);
+            else drawTextWatermark(ctx, wm, w, h);
+        }
+    }
+
+    function drawImageWatermark(ctx, wm, w, h) {
+        if (!wm.imagePath) return;
+        const entry = getWatermarkImage(wm.imagePath);
+        if (!entry || entry.status !== 'loaded' || !entry.img) return;
+        const img = entry.img;
+        const imgW = img.naturalWidth || img.width || 0;
+        const imgH = img.naturalHeight || img.height || 0;
+        if (!(imgW > 0 && imgH > 0)) return;
+
+        const scale = numberOr(wm.imageScale, 100) / 100;
+        const dw = imgW * scale;
+        const dh = imgH * scale;
+        const point = watermarkPoint(wm, w, h);
+        let dx = point.x;
+        let dy = point.y;
+        switch (wm.imageAnchor || 'center') {
+            case 'top-left': break;
+            case 'top-right': dx -= dw; break;
+            case 'bottom-left': dy -= dh; break;
+            case 'bottom-right': dx -= dw; dy -= dh; break;
+            case 'center':
+            default:
+                dx -= dw / 2;
+                dy -= dh / 2;
+                break;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = clamp(numberOr(wm.opacity, 1), 0, 1);
+        drawImageMaybeFlipped(ctx, img, 0, 0, imgW, imgH, dx, dy, dw, dh, !!wm.flipH, !!wm.flipV);
+        ctx.restore();
+    }
+
+    function drawTextWatermark(ctx, wm, w, h) {
+        if (!wm.text) return;
+        const fontSize = Math.max(4, numberOr(wm.fontSize, 20));
+        const lines = String(wm.text).split('\n');
+        const fontFamily = wm.fontFamily || wm.font || 'Arial, sans-serif';
+        const padH = Math.round(fontSize * 0.5);
+        const padV = Math.round(fontSize * 0.35);
+        const lineGap = Math.round(fontSize * 0.18);
+
+        ctx.save();
+        ctx.font = `${fontSize}px ${fontFamily}`;
+        ctx.textBaseline = 'middle';
+        let maxTextW = 0;
+        for (const line of lines) maxTextW = Math.max(maxTextW, ctx.measureText(line).width);
+        const boxW = maxTextW + padH * 2;
+        const boxH = lines.length * fontSize + Math.max(0, lines.length - 1) * lineGap + padV * 2;
+        const pos = watermarkBoxPosition(wm, w, h, boxW, boxH);
+
+        const bgOpacity = clamp(numberOr(wm.bgOpacity, 0.5), 0, 1);
+        if (bgOpacity > 0) {
+            ctx.globalAlpha = bgOpacity;
+            ctx.fillStyle = wm.bgColor || '#000000';
+            roundRect(ctx, pos.x, pos.y, boxW, boxH, Math.round(fontSize * 0.2));
+            ctx.fill();
+        }
+
+        ctx.globalAlpha = clamp(numberOr(wm.textOpacity ?? wm.opacity, 1), 0, 1);
+        ctx.fillStyle = wm.color || '#FFFFFF';
+        if (wm.shadow) {
+            ctx.shadowColor = wm.shadowColor || 'rgba(0,0,0,0.65)';
+            ctx.shadowBlur = numberOr(wm.shadowBlur, 4);
+            ctx.shadowOffsetX = numberOr(wm.shadowX, 1);
+            ctx.shadowOffsetY = numberOr(wm.shadowY, 1);
+        }
+        let y = pos.y + padV + fontSize / 2;
+        for (const line of lines) {
+            if (wm.stroke) {
+                ctx.lineWidth = numberOr(wm.strokeWidth, 3);
+                ctx.strokeStyle = wm.strokeColor || '#000000';
+                ctx.strokeText(line, pos.x + padH, y);
+            }
+            ctx.fillText(line, pos.x + padH, y);
+            y += fontSize + lineGap;
+        }
+        ctx.restore();
+    }
+
+    function getWatermarkImage(pathValue) {
+        const src = toPlayablePath(pathValue);
+        if (!src) return null;
+        let entry = watermarkImageCache.get(src);
+        if (!entry) {
+            const img = new Image();
+            entry = { img, status: 'loading' };
+            img.onload = () => {
+                entry.status = 'loaded';
+                render();
+            };
+            img.onerror = () => {
+                entry.status = 'error';
+                render();
+            };
+            img.src = src;
+            watermarkImageCache.set(src, entry);
+        }
+        return entry;
+    }
+
+    function watermarkPoint(wm, w, h) {
+        const margin = 16;
+        let x = w - margin;
+        let y = margin;
+        switch (wm.position || 'top-right') {
+            case 'top-left': x = margin; y = margin; break;
+            case 'top-center': x = w / 2; y = margin; break;
+            case 'top-right': x = w - margin; y = margin; break;
+            case 'center-left': x = margin; y = h / 2; break;
+            case 'center': x = w / 2; y = h / 2; break;
+            case 'center-right': x = w - margin; y = h / 2; break;
+            case 'bottom-left': x = margin; y = h - margin; break;
+            case 'bottom-center': x = w / 2; y = h - margin; break;
+            case 'bottom-right': x = w - margin; y = h - margin; break;
+            case 'custom': x = 0; y = 0; break;
+        }
+        return { x: x + numberOr(wm.x, 0), y: y + numberOr(wm.y, 0) };
+    }
+
+    function watermarkBoxPosition(wm, w, h, boxW, boxH) {
+        const margin = 16;
+        let x = w - boxW - margin;
+        let y = margin;
+        switch (wm.position || 'top-right') {
+            case 'top-left': x = margin; y = margin; break;
+            case 'top-center': x = (w - boxW) / 2; y = margin; break;
+            case 'top-right': x = w - boxW - margin; y = margin; break;
+            case 'center-left': x = margin; y = (h - boxH) / 2; break;
+            case 'center': x = (w - boxW) / 2; y = (h - boxH) / 2; break;
+            case 'center-right': x = w - boxW - margin; y = (h - boxH) / 2; break;
+            case 'bottom-left': x = margin; y = h - boxH - margin; break;
+            case 'bottom-center': x = (w - boxW) / 2; y = h - boxH - margin; break;
+            case 'bottom-right': x = w - boxW - margin; y = h - boxH - margin; break;
+            case 'custom': x = 0; y = 0; break;
+        }
+        return { x: x + numberOr(wm.x, 0), y: y + numberOr(wm.y, 0) };
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+        if (typeof ctx.roundRect === 'function') {
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, r);
+            return;
+        }
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.lineTo(x + w - rr, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+        ctx.lineTo(x + w, y + h - rr);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+        ctx.lineTo(x + rr, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+        ctx.lineTo(x, y + rr);
+        ctx.quadraticCurveTo(x, y, x + rr, y);
+    }
+
+    function getLiveOverlays(task) {
+        const rs = window._reelsState;
+        const selected = rs && rs.tasks ? rs.tasks[rs.selectedIdx] : null;
+        if (selected === task && rs.overlayProxy && rs.overlayProxy.overlayMgr) {
+            return rs.overlayProxy.overlayMgr.overlays || [];
+        }
+        return task.overlays || [];
+    }
+
+    function findActiveSegment(task, time) {
+        const segs = task && Array.isArray(task.segments) ? task.segments : [];
+        if (segs.length === 0) return null;
+        return segs.find(seg => time >= numberOr(seg.start, 0) && time <= numberOr(seg.end, 0)) || null;
+    }
+
+    function getResolvedStyle(task) {
+        if (typeof window._resolveSubtitleStyleForTask === 'function') {
+            return window._resolveSubtitleStyleForTask(task);
+        }
+        if (task && task.subtitleStyle) return clone(task.subtitleStyle);
+        if (window._reelsState && window._reelsState.globalSubtitleStyle) {
+            return clone(window._reelsState.globalSubtitleStyle);
+        }
+        if (typeof window._readStyleFromUI === 'function') return window._readStyleFromUI();
+        return null;
+    }
+
+    function computeDuration() {
+        const task = getTask();
+        if (!task) return 0;
+        const offset = getTimelineOffset(task);
+
+        // ⏱ 文字翻转器 (Dynamic Flipper) 时长优先
+        let maxFlipperDuration = 0;
+        const overlays = getLiveOverlays(task);
+        if (Array.isArray(overlays)) {
+            for (const ov of overlays) {
+                if (ov && !ov.disabled && ov.flipper_enabled) {
+                    const text = (ov.type === 'textcard') ? (ov.body_text || '') : (ov.content || '');
+                    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                    const flipper_lines = parseInt(ov.flipper_lines) || 2;
+                    const flipper_duration = parseFloat(ov.flipper_duration) || 2.0;
+                    const totalChunks = Math.ceil(lines.length / flipper_lines);
+                    const flipperDur = (parseFloat(ov.start) || 0) + (totalChunks * flipper_duration);
+                    if (flipperDur > maxFlipperDuration) {
+                        maxFlipperDuration = flipperDur;
+                    }
+                }
+            }
+        }
+        if (maxFlipperDuration > 0) {
+            return maxFlipperDuration + offset;
+        }
+
+        const custom = parseFloat(task.customDuration || 0);
+        if (custom > 0) return custom + offset;
+        const audioDur = mediaDuration(state.audio);
+        const audioScale = getAudioDurationScale(task);
+        if (audioDur > 0) return Math.max(audioDur * Math.max(0.01, audioScale), subtitleDuration(task)) + offset;
+        const cvDur = mediaDuration(state.contentVideo);
+        if (cvDur > 0) {
+            const trimStart = parseFloat(task.contentVideoTrimStart) || 0;
+            const trimEnd = parseFloat(task.contentVideoTrimEnd) || 0;
+            const usable = trimEnd > trimStart ? trimEnd - trimStart : Math.max(0, cvDur - trimStart);
+            return Math.max(usable, subtitleDuration(task)) + offset;
+        }
+        const bgDur = mediaDuration(state.bgVideo);
+        const multiDur = task.bgMode === 'multi' ? getMultiBackgroundDuration(task) : 0;
+        const bgmDur = mediaDuration(state.bgmAudio);
+        const subDur = subtitleDuration(task);
+        return Math.max(bgDur * getBgDurationScale(task), multiDur, bgmDur, subDur, state.bgImage ? 5 : 0, state.contentImage ? 5 : 0) + offset;
+    }
+
+    function subtitleDuration(task) {
+        return task && task.segments && task.segments.length
+            ? numberOr(task.segments[task.segments.length - 1].end, 0)
+            : 0;
+    }
+
+    function updateTimeUI(current, duration) {
+        const timeEl = state.root?.querySelector('[data-role="time"]');
+        const seekEl = state.root?.querySelector('[data-role="seek"]');
+        if (timeEl) timeEl.textContent = `${formatTime(current)}/${formatTime(duration)}`;
+        if (seekEl && !state.dragSeek) {
+            seekEl.value = duration > 0 ? String(Math.round((current / duration) * 1000)) : '0';
+        }
+    }
+
+    function updatePlayButton() {
+        const btn = state.root?.querySelector('[data-action="play"]');
+        if (btn) btn.textContent = state.isPlaying ? 'Ⅱ' : '▶';
+    }
+
+    function updateTitle(task) {
+        const title = state.root?.querySelector('[data-role="title"]');
+        if (!title) return;
+        const name = task ? (task.fileName || task.name || task.audioName || `任务 ${getSelectedIndex() + 1}`) : '独立预览';
+        title.textContent = `独立预览 - ${name}`;
+    }
+
+    function syncLoopFlags() {
+        const loop = isLoopEnabled();
+        state.bgVideo.loop = loop;
+        state.bgFadeVideo.loop = loop;
+        state.audio.loop = loop;
+        state.bgmAudio.loop = loop;
+        state.contentVideo.loop = loop;
+        state.hookVideo.loop = false;
+        state.coverVideo.loop = loop;
+    }
+
+    function getTask() {
+        const rs = window._reelsState;
+        if (!rs || !Array.isArray(rs.tasks) || rs.selectedIdx < 0) return null;
+        return rs.tasks[rs.selectedIdx] || null;
+    }
+
+    function getSelectedIndex() {
+        const rs = window._reelsState;
+        return rs && Number.isInteger(rs.selectedIdx) ? rs.selectedIdx : -1;
+    }
+
+    function getTargetWidth() {
+        return (window._reelsState && window._reelsState.targetWidth) || DEFAULT_W;
+    }
+
+    function getTargetHeight() {
+        return (window._reelsState && window._reelsState.targetHeight) || DEFAULT_H;
+    }
+
+    function getBackgroundPath(task) {
+        if (!task) return '';
+        if (typeof window._resolvePreviewBackgroundPath === 'function') {
+            const resolved = window._resolvePreviewBackgroundPath(task);
+            return resolved && resolved.path ? resolved.path : '';
+        }
+        if (task.bgMode === 'multi' && Array.isArray(task.bgClipPool) && task.bgClipPool.length > 0) {
+            return task.bgClipPool.find(Boolean) || '';
+        }
+        return task.bgPath || task.videoPath || '';
+    }
+
+    function getEffectiveBgClipPool(task) {
+        if (!task) return [];
+        if (typeof window._getEffectiveBgClipPool === 'function') {
+            return window._getEffectiveBgClipPool(task) || [];
+        }
+        const pool = Array.isArray(task.bgClipPool) ? task.bgClipPool.filter(Boolean) : [];
+        const active = Array.isArray(task.bgClipActivePool)
+            ? task.bgClipActivePool.filter(path => path && pool.includes(path))
+            : [];
+        return active.length > 0 ? active : pool;
+    }
+
+    function getPreviewMultiClipPool(task) {
+        const pool = getEffectiveBgClipPool(task);
+        const isRandom = task && (task.bgClipOrder === 'random' || task.bgClipOrder === 'random_align');
+        if (!isRandom || pool.length <= 1) return pool;
+        const seedText = `${task.id || task.fileName || ''}|${pool.join('|')}`;
+        const rng = mulberry32(presetSeed(seedText));
+        const shuffled = pool.slice();
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+    }
+
+    function getMultiClipBaseDuration(task, path) {
+        let trimStart = 0;
+        let trimEnd = null;
+        const settings = task && task.bgClipSettings && task.bgClipSettings[path];
+        if (settings) {
+            if (settings.trimStart != null) trimStart = numberOr(settings.trimStart, 0);
+            if (settings.trimEnd != null) trimEnd = numberOr(settings.trimEnd, 0);
+        }
+        let dur = 5;
+        if (!isImagePath(path)) {
+            if (trimEnd != null && trimEnd > trimStart) {
+                dur = trimEnd - trimStart;
+            } else if (window._reelsState && window._reelsState._multiBgDurations && window._reelsState._multiBgDurations[path] > 0) {
+                dur = window._reelsState._multiBgDurations[path] - trimStart;
+            }
+        }
+        const factor = Math.max(0.01, numberOr(task && task.bgDurScale, 100) / 100);
+        return Math.max(0.5, dur) * factor;
+    }
+
+    function calculateMultiBackgroundSegments(task) {
+        const pool = getPreviewMultiClipPool(task);
+        if (!pool.length) return [];
+        const factor = Math.max(0.01, numberOr(task && task.bgDurScale, 100) / 100);
+        const clips = pool.map(path => {
+            const settings = task && task.bgClipSettings && task.bgClipSettings[path];
+            const trimStart = settings && settings.trimStart != null ? numberOr(settings.trimStart, 0) : 0;
+            return {
+                path,
+                isImage: isImagePath(path),
+                trimStart,
+                speedFactor: factor,
+                baseDuration: getMultiClipBaseDuration(task, path),
+            };
+        });
+
+        const isAlign = task && (task.bgClipOrder === 'random_align' || task.bgClipOrder === 'sequence_align');
+        const subDur = subtitleDuration(task);
+        const audioDur = mediaDuration(state.audio);
+        const totalDur = Math.max(audioDur || 0, subDur || 0, clips.reduce((sum, c) => sum + c.baseDuration, 0), 5);
+        const result = [];
+
+        if (isAlign && Array.isArray(task.segments) && task.segments.length > 0) {
+            const minDur = Math.max(1, numberOr(task.bgMinClipDur, 5) - 1);
+            const maxDur = Math.max(minDur + 0.1, numberOr(task.bgMaxClipDur, 7) + 1);
+            const cuts = [0];
+            let last = 0;
+            for (const seg of task.segments) {
+                const end = numberOr(seg.end, 0) - 0.2;
+                if (end > last + minDur && end < last + maxDur && end < totalDur) {
+                    cuts.push(Math.max(0.1, end));
+                    last = end;
+                } else if (end >= last + maxDur && last + maxDur < totalDur) {
+                    cuts.push(last + Math.min(maxDur, Math.max(minDur, numberOr(task.bgMinClipDur, 5))));
+                    last = cuts[cuts.length - 1];
+                }
+            }
+            if (cuts[cuts.length - 1] < totalDur) cuts.push(totalDur);
+            for (let i = 0; i < cuts.length - 1; i++) {
+                const clip = clips[i % clips.length];
+                result.push({ ...clip, start: cuts[i], end: cuts[i + 1], duration: cuts[i + 1] - cuts[i] });
+            }
+            return result;
+        }
+
+        let cursor = 0;
+        for (let i = 0; i < clips.length * 20 && cursor < totalDur; i++) {
+            const clip = clips[i % clips.length];
+            const start = cursor;
+            const end = Math.min(totalDur, start + clip.baseDuration);
+            result.push({ ...clip, start, end, duration: end - start });
+            cursor = end;
+        }
+        return result;
+    }
+
+    function getMultiBackgroundDuration(task) {
+        const segs = calculateMultiBackgroundSegments(task);
+        return segs.length ? segs[segs.length - 1].end : 0;
+    }
+
+    function resolveMultiBackgroundAtTime(task, timeSec) {
+        const segments = calculateMultiBackgroundSegments(task);
+        if (!segments.length) return null;
+        const total = segments[segments.length - 1].end;
+        const atEnd = isAtTimelineEnd(getTimelineOffset(task) + (timeSec || 0));
+        const loopTime = isLoopEnabled() && total > 0
+            ? loopMediaTime(timeSec || 0, total, atEnd)
+            : Math.min(timeSec || 0, Math.max(0, total - 0.001));
+        const current = segments.find(seg => loopTime >= seg.start && loopTime < seg.end) || segments[segments.length - 1];
+        const index = segments.indexOf(current);
+        const transitionType = task.bgTransition || 'crossfade';
+        const transitionDur = transitionType !== 'none' ? numberOr(task.bgTransDur, 0.5) : 0;
+        const localTime = (seg) => seg.trimStart + Math.max(0, loopTime - seg.start) / Math.max(0.01, seg.speedFactor);
+        let transition = null;
+        if (transitionDur > 0 && index > 0 && loopTime < current.start + transitionDur) {
+            const prev = segments[index - 1];
+            transition = {
+                ...prev,
+                localTime: localTime(prev),
+                progress: (loopTime - current.start) / transitionDur,
+                type: transitionType,
+            };
+        }
+        return {
+            current: { ...current, localTime: localTime(current) },
+            transition,
+            totalDuration: total,
+        };
+    }
+
+    function getHookPath(task) {
+        if (!task) return '';
+        if (typeof window._resolveTaskHookPath === 'function') {
+            const globalIntroPath = (document.getElementById('reels-intro-path') || {}).value || '';
+            return window._resolveTaskHookPath(task, globalIntroPath) || '';
+        }
+        if (task.hookFile) return task.hookFile;
+        if (task.hook && task.hook.path) return task.hook.path;
+        return (document.getElementById('reels-intro-path') || {}).value || '';
+    }
+
+    function getCoverDuration(task) {
+        return task && task.cover && task.cover.enabled ? Math.max(0, numberOr(task.cover.duration, 0.01)) : 0;
+    }
+
+    function getHookDuration(task) {
+        if (!task || !getHookPath(task)) return 0;
+        const rawDur = mediaDuration(state.hookVideo);
+        if (!(rawDur > 0)) return 0;
+        const trimStart = Math.max(0, numberOr(task.hookTrimStart, 0));
+        const trimEndRaw = numberOr(task.hookTrimEnd, 0);
+        const trimEnd = trimEndRaw > trimStart ? trimEndRaw : rawDur;
+        const speed = Math.max(0.01, numberOr(task.hookSpeed, 1));
+        return Math.max(0, trimEnd - trimStart) / speed;
+    }
+
+    function getTimelineOffset(task) {
+        return getCoverDuration(task) + getHookDuration(task);
+    }
+
+    function getPhaseInfo(time, task) {
+        const coverDuration = getCoverDuration(task);
+        const hookDuration = getHookDuration(task);
+        const inCover = coverDuration > 0 && time < coverDuration;
+        const inHook = !inCover && hookDuration > 0 && time < coverDuration + hookDuration;
+        return {
+            time,
+            coverDuration,
+            hookDuration,
+            inCover,
+            inHook,
+            mainTime: Math.max(0, time - coverDuration - hookDuration),
+        };
+    }
+
+    function getBgmPath(task) {
+        if (!task) return '';
+        if (typeof window._getEffectiveBgmPath === 'function') {
+            return window._getEffectiveBgmPath(task, getSelectedIndex()) || '';
+        }
+        if (task.bgmMode === 'multi' && Array.isArray(task.bgmClipPool) && task.bgmClipPool.length > 0) {
+            const active = Array.isArray(task.bgmClipActivePool) && task.bgmClipActivePool.length > 0
+                ? task.bgmClipActivePool.filter(path => path && task.bgmClipPool.includes(path))
+                : task.bgmClipPool.filter(Boolean);
+            return active[0] || '';
+        }
+        return task.bgmPath || '';
+    }
+
+    function applyAudioVolumes(task) {
+        const routed = setupAudioGraph(task);
+        const voicePct = effectiveVoiceVolume(task);
+        const bgPct = effectiveBgVolume(task);
+        const bgmPct = effectiveBgmVolume(task);
+        const contentPct = numberOr(task && task.contentVideoVolume, 100);
+        applyVolume(state.audio, voicePct, routed);
+        applyVolume(state.bgVideo, bgPct, routed);
+        applyVolume(state.bgFadeVideo, bgPct, routed);
+        applyVolume(state.bgmAudio, bgmPct, routed);
+        applyVolume(state.contentVideo, contentPct, routed);
+    }
+
+    function applyPlaybackRates(task) {
+        const audioScale = getAudioDurationScale(task);
+        const bgScale = getBgDurationScale(task);
+        setPlaybackRate(state.audio, 1 / audioScale);
+        setPlaybackRate(state.bgVideo, 1 / bgScale);
+        setPlaybackRate(state.bgFadeVideo, 1 / bgScale);
+        setPlaybackRate(state.contentVideo, 1);
+        if (state.hookVideo) setPlaybackRate(state.hookVideo, Math.max(0.01, numberOr(task && task.hookSpeed, 1)));
+    }
+
+    function setPlaybackRate(media, rate) {
+        if (!media) return;
+        const next = clamp(Number.isFinite(rate) ? rate : 1, 0.05, 16);
+        if (Math.abs((media.playbackRate || 1) - next) > 0.001) {
+            media.playbackRate = next;
+        }
+        try { media.preservesPitch = true; } catch (_) {}
+    }
+
+    function getAudioDurationScale(task) {
+        return Math.max(0.01, numberOr(task && task.audioDurScale, 100) / 100);
+    }
+
+    function getBgDurationScale(task) {
+        return Math.max(0.01, numberOr(task && task.bgDurScale, 100) / 100);
+    }
+
+    function applyVolume(media, pct, routed) {
+        if (!media) return;
+        const gain = Math.max(0, numberOr(pct, 100) / 100);
+        const gainNode = routed && state.gainNodes.get(media);
+        if (gainNode && state.audioCtx) {
+            gainNode.gain.setValueAtTime(gain, state.audioCtx.currentTime);
+            media.volume = gain > 0 ? 1 : 0;
+        } else {
+            media.volume = clamp(gain, 0, 1);
+        }
+        media.muted = gain <= 0.001;
+    }
+
+    function setupAudioGraph(task) {
+        const cfg = readAudioFxConfig();
+        const needsFx = cfg.enabled || cfg.stereoWidth > 1.05;
+        if (!needsFx && !state.audioCtx) return false;
+
+        const els = [state.audio, state.bgVideo, state.bgFadeVideo, state.contentVideo, state.bgmAudio].filter(Boolean);
+        if (!els.length) return false;
+
+        if (!state.audioCtx) {
+            try {
+                state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (err) {
+                console.warn('[PreviewV2] Web Audio unavailable', err);
+                return false;
+            }
+        }
+
+        for (const el of els) {
+            if (!state.mediaSources.has(el)) {
+                try {
+                    state.mediaSources.set(el, state.audioCtx.createMediaElementSource(el));
+                } catch (err) {
+                    console.warn('[PreviewV2] failed to route media element', err);
+                }
+            }
+            if (!state.gainNodes.has(el)) {
+                const gainNode = state.audioCtx.createGain();
+                gainNode.gain.setValueAtTime(1, state.audioCtx.currentTime);
+                state.gainNodes.set(el, gainNode);
+            }
+        }
+
+        const sig = [
+            cfg.enabled ? '1' : '0',
+            cfg.preset,
+            cfg.mix,
+            cfg.stereoWidth,
+            cfg.target,
+            state.audio.src ? 'voice' : '',
+            state.bgVideo.src ? 'bg' : '',
+            state.bgFadeVideo.src ? 'bg2' : '',
+            state.contentVideo.src ? 'content' : '',
+            state.bgmAudio.src ? 'bgm' : '',
+        ].join('|');
+        if (sig === state.audioFxSig) return true;
+        state.audioFxSig = sig;
+
+        disconnectAudioNodesOnly();
+        for (const [el, source] of state.mediaSources.entries()) {
+            const gainNode = state.gainNodes.get(el);
+            if (!gainNode) continue;
+            try { source.connect(gainNode); } catch (_) {}
+        }
+
+        const targetEl = needsFx ? pickAudioFxTarget(cfg.target, task) : null;
+        const targetGain = targetEl ? state.gainNodes.get(targetEl) : null;
+        for (const [el, gainNode] of state.gainNodes.entries()) {
+            if (!gainNode || el === targetEl) continue;
+            try { gainNode.connect(state.audioCtx.destination); } catch (_) {}
+        }
+
+        if (!needsFx || !targetGain) {
+            if (targetGain) {
+                try { targetGain.connect(state.audioCtx.destination); } catch (_) {}
+            }
+            return true;
+        }
+
+        const master = state.audioCtx.createGain();
+        master.gain.value = 1;
+        const dry = state.audioCtx.createGain();
+        dry.gain.value = cfg.enabled ? (1 - cfg.mix * 0.5) : 1;
+        targetGain.connect(dry);
+        dry.connect(master);
+        state.audioFxNodes.push(master, dry);
+
+        if (cfg.enabled) {
+            const convolver = state.audioCtx.createConvolver();
+            convolver.buffer = generateImpulseResponse(state.audioCtx, cfg.preset);
+            const wet = state.audioCtx.createGain();
+            wet.gain.value = cfg.mix;
+            targetGain.connect(convolver);
+            convolver.connect(wet);
+            wet.connect(master);
+            state.audioFxNodes.push(convolver, wet);
+        }
+
+        if (cfg.stereoWidth > 1.05) {
+            const splitter = state.audioCtx.createChannelSplitter(2);
+            const merger = state.audioCtx.createChannelMerger(2);
+            const delayL = state.audioCtx.createDelay(0.05);
+            const delayR = state.audioCtx.createDelay(0.05);
+            const widthFactor = Math.max(0, cfg.stereoWidth - 1) * 0.015;
+            delayL.delayTime.value = widthFactor * 0.3;
+            delayR.delayTime.value = widthFactor * 0.7;
+            master.connect(splitter);
+            splitter.connect(delayL, 0);
+            splitter.connect(delayR, 1);
+            delayL.connect(merger, 0, 0);
+            delayR.connect(merger, 0, 1);
+            merger.connect(state.audioCtx.destination);
+            state.audioFxNodes.push(splitter, merger, delayL, delayR);
+        } else {
+            master.connect(state.audioCtx.destination);
+        }
+        return true;
+    }
+
+    function disconnectAudioGraph() {
+        disconnectAudioNodesOnly();
+        state.audioFxSig = '';
+    }
+
+    function disconnectAudioNodesOnly() {
+        for (const source of state.mediaSources.values()) {
+            try { source.disconnect(); } catch (_) {}
+        }
+        for (const gainNode of state.gainNodes.values()) {
+            try { gainNode.disconnect(); } catch (_) {}
+        }
+        for (const node of state.audioFxNodes) {
+            try { node.disconnect(); } catch (_) {}
+        }
+        state.audioFxNodes = [];
+    }
+
+    function pickAudioFxTarget(target, task) {
+        if ((target === 'voice' || target === 'all') && state.audio.src && task && task.audioPath) return state.audio;
+        if ((target === 'bg' || target === 'all') && state.bgVideo.src) return state.bgVideo;
+        if ((target === 'content' || target === 'all') && state.contentVideo.src) return state.contentVideo;
+        if ((target === 'bgm' || target === 'all') && state.bgmAudio.src && task && getBgmPath(task)) return state.bgmAudio;
+        if (state.audio.src && task && task.audioPath) return state.audio;
+        if (state.bgVideo.src) return state.bgVideo;
+        if (state.bgmAudio.src && task && getBgmPath(task)) return state.bgmAudio;
+        if (state.contentVideo.src) return state.contentVideo;
+        return null;
+    }
+
+    function readAudioFxConfig() {
+        return {
+            enabled: document.getElementById('reels-reverb-enabled')?.checked || false,
+            preset: document.getElementById('reels-reverb-preset')?.value || 'hall',
+            mix: clamp(readNumberInput('reels-reverb-mix', 30) / 100, 0, 1),
+            stereoWidth: Math.max(0, readNumberInput('reels-stereo-width', 100) / 100),
+            target: document.getElementById('reels-audio-fx-target')?.value || 'all',
+        };
+    }
+
+    function generateImpulseResponse(ctx, preset) {
+        const config = REVERB_PRESETS[preset] || REVERB_PRESETS.hall;
+        const sampleRate = ctx.sampleRate;
+        const length = Math.ceil(sampleRate * config.duration);
+        const buffer = ctx.createBuffer(2, length, sampleRate);
+        for (let ch = 0; ch < 2; ch++) {
+            const rng = mulberry32(presetSeed(preset || 'hall') + ch * 0xDEAD);
+            const data = buffer.getChannelData(ch);
+            for (let i = 0; i < length; i++) {
+                const t = i / sampleRate;
+                const envelope = Math.exp(-t / (config.decay * 0.3));
+                data[i] = (rng() * 2 - 1) * envelope;
+            }
+        }
+        return buffer;
+    }
+
+    function presetSeed(preset) {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < preset.length; i++) {
+            h ^= preset.charCodeAt(i);
+            h = Math.imul(h, 0x01000193);
+        }
+        return h >>> 0;
+    }
+
+    function mulberry32(seed) {
+        return function () {
+            seed |= 0;
+            seed = seed + 0x6D2B79F5 | 0;
+            let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+    }
+
+    function effectiveVoiceVolume(task) {
+        if (typeof window._getEffectiveVoiceVolumePercent === 'function') {
+            return window._getEffectiveVoiceVolumePercent(task);
+        }
+        const global = readNumberInput('reels-voice-volume', 100);
+        const raw = task && task.voiceVolume != null ? parseFloat(task.voiceVolume) : NaN;
+        return Number.isFinite(raw) ? Math.max(0, global) * Math.max(0, raw) / 100 : Math.max(0, global);
+    }
+
+    function effectiveBgVolume(task) {
+        if (typeof window._getEffectiveBgVolumePercent === 'function') {
+            return window._getEffectiveBgVolumePercent(task);
+        }
+        const global = readNumberInput('reels-bg-volume', 100);
+        const raw = task && task.bgVideoVolume != null ? parseFloat(task.bgVideoVolume) : NaN;
+        if (Number.isFinite(raw)) return Math.max(0, global) * Math.max(0, raw) / 100;
+        const ui = readCustomTaskVolume('reels-bg-volume-range', 'reels-bg-volume-num');
+        return ui == null ? Math.max(0, global) : Math.max(0, global) * Math.max(0, ui) / 100;
+    }
+
+    function effectiveBgmVolume(task) {
+        if (typeof window._getEffectiveBgmVolumePercent === 'function') {
+            return window._getEffectiveBgmVolumePercent(task);
+        }
+        const global = readNumberInput('reels-bgm-volume', 30);
+        const raw = task && task.bgmVolume != null ? parseFloat(task.bgmVolume) : NaN;
+        if (Number.isFinite(raw)) return Math.max(0, global) * Math.max(0, raw) / 100;
+        const ui = readCustomTaskVolume('reels-bgm-task-volume-range', 'reels-bgm-task-volume-num');
+        return ui == null ? Math.max(0, global) : Math.max(0, global) * Math.max(0, ui) / 100;
+    }
+
+    function readCustomTaskVolume(rangeId, numId) {
+        const range = document.getElementById(rangeId);
+        const num = document.getElementById(numId);
+        const isCustom = range?.dataset?.isCustom === 'true' || num?.dataset?.isCustom === 'true';
+        if (!isCustom) return null;
+        const value = parseFloat((num && num.value !== '') ? num.value : (range || {}).value);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    function readNumberInput(id, fallback) {
+        const el = document.getElementById(id);
+        const value = parseFloat(el ? el.value : '');
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    function toPlayablePath(path) {
+        if (!path) return '';
+        if (typeof window._toPlayablePath === 'function') return window._toPlayablePath(path, null);
+        if (window.electronAPI && typeof window.electronAPI.toFileUrl === 'function') {
+            const url = window.electronAPI.toFileUrl(path);
+            if (url) return url;
+        }
+        if (/^(file:|blob:|data:|https?:)/i.test(path)) return path;
+        return path.startsWith('/') ? `file://${path}` : path;
+    }
+
+    function isImagePath(path) {
+        if (!path) return false;
+        if (typeof window._isImagePath === 'function') return window._isImagePath(path);
+        return /\.(png|jpe?g|webp|bmp|gif)$/i.test(path);
+    }
+
+    function mediaDuration(media) {
+        return media && Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
+    }
+
+    function isAtTimelineEnd(time) {
+        const dur = state.duration || computeDuration();
+        return dur > 0 && Math.abs((time || 0) - dur) < 0.04;
+    }
+
+    function loopMediaTime(time, duration, forceLastFrame = false) {
+        if (!(duration > 0)) return 0;
+        if (forceLastFrame) return Math.max(0, duration - 0.03);
+        return positiveModulo(time, duration);
+    }
+
+    function isLoopEnabled() {
+        return state.root?.querySelector('[data-role="loop"]')?.checked !== false;
+    }
+
+    function getContentSource() {
+        if (state.contentImage && state.contentImage.complete && state.contentImage.naturalWidth > 0) return state.contentImage;
+        if (state.contentVideo.src && state.contentVideo.readyState >= 2 && state.contentVideo.videoWidth > 0) return state.contentVideo;
+        return null;
+    }
+
+    function drawMediaCover(ctx, media, targetW, targetH, scalePct, offsetX, offsetY, flipH, flipV) {
+        if (!media) return;
+        const srcW = media.videoWidth || media.naturalWidth || media.width || targetW;
+        const srcH = media.videoHeight || media.naturalHeight || media.height || targetH;
+        if (!(srcW > 0 && srcH > 0)) return;
+
+        const scale = Math.max(targetW / srcW, targetH / srcH) * (numberOr(scalePct, 100) / 100);
+        const drawW = srcW * scale;
+        const drawH = srcH * scale;
+        const maxShiftX = Math.abs(targetW - drawW) / 2;
+        const maxShiftY = Math.abs(targetH - drawH) / 2;
+        const x = (targetW - drawW) / 2 + maxShiftX * (numberOr(offsetX, 0) / 100);
+        const y = (targetH - drawH) / 2 + maxShiftY * (numberOr(offsetY, 0) / 100);
+        drawImageMaybeFlipped(ctx, media, 0, 0, srcW, srcH, x, y, drawW, drawH, flipH, flipV);
+    }
+
+    function drawCroppedCover(ctx, media, crop, targetW, targetH, scalePct, offsetX, offsetY, flipH, flipV) {
+        if (!media) return;
+        const srcW = media.videoWidth || media.naturalWidth || media.width || targetW;
+        const srcH = media.videoHeight || media.naturalHeight || media.height || targetH;
+        if (!(srcW > 0 && srcH > 0)) return;
+        const sx = srcW * crop.x;
+        const sy = srcH * crop.y;
+        const sw = srcW * crop.w;
+        const sh = srcH * crop.h;
+        const scale = Math.max(targetW / sw, targetH / sh) * (numberOr(scalePct, 100) / 100);
+        const drawW = sw * scale;
+        const drawH = sh * scale;
+        const maxShiftX = Math.abs(targetW - drawW) / 2;
+        const maxShiftY = Math.abs(targetH - drawH) / 2;
+        const x = (targetW - drawW) / 2 + maxShiftX * (numberOr(offsetX, 0) / 100);
+        const y = (targetH - drawH) / 2 + maxShiftY * (numberOr(offsetY, 0) / 100);
+        drawImageMaybeFlipped(ctx, media, sx, sy, sw, sh, x, y, drawW, drawH, flipH, flipV);
+    }
+
+    function drawImageMaybeFlipped(ctx, img, sx, sy, sw, sh, dx, dy, dw, dh, flipH, flipV) {
+        if (!flipH && !flipV) {
+            ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+            return;
+        }
+        ctx.save();
+        ctx.translate(dx + dw / 2, dy + dh / 2);
+        ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+        ctx.drawImage(img, sx, sy, sw, sh, -dw / 2, -dh / 2, dw, dh);
+        ctx.restore();
+    }
+
+    function parseCrop(value) {
+        const fallback = { x: 0, y: 0, w: 1, h: 1 };
+        if (!value || typeof value !== 'string') return fallback;
+        const parts = value.split(',').map(v => parseFloat(v.trim()));
+        if (parts.length !== 4 || parts.some(v => !Number.isFinite(v))) return fallback;
+        return {
+            x: clamp(parts[0], 0, 100) / 100,
+            y: clamp(parts[1], 0, 100) / 100,
+            w: clamp(parts[2], 1, 100) / 100,
+            h: clamp(parts[3], 1, 100) / 100,
+        };
+    }
+
+    function makeTaskSignature(task) {
+        if (!task) return 'none';
+        const segs = Array.isArray(task.segments) ? task.segments.length : 0;
+        const lastEnd = segs ? task.segments[segs - 1].end : '';
+        return [
+            getSelectedIndex(),
+            task.id || '',
+            task.fileName || '',
+            getBackgroundPath(task),
+            task.audioPath || '',
+            getBgmPath(task),
+            task.contentVideoPath || '',
+            getHookPath(task),
+            task.cover && task.cover.enabled ? task.cover.bgPath || '' : '',
+            task.cover && task.cover.enabled ? task.cover.duration || '' : '',
+            task.customDuration || '',
+            segs,
+            lastEnd,
+            getTargetWidth(),
+            getTargetHeight(),
+        ].join('|');
+    }
+
+    function formatTime(sec) {
+        const s = Math.max(0, Number.isFinite(sec) ? sec : 0);
+        const m = Math.floor(s / 60);
+        const r = Math.floor(s % 60);
+        return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+    }
+
+    function numberOr(value, fallback) {
+        const n = parseFloat(value);
+        return Number.isFinite(n) ? n : fallback;
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    function positiveModulo(value, mod) {
+        if (!(mod > 0)) return 0;
+        return ((value % mod) + mod) % mod;
+    }
+
+    function clone(value) {
+        try { return JSON.parse(JSON.stringify(value)); } catch (_) { return value ? { ...value } : value; }
+    }
+
+    function isEditable(el) {
+        if (!el) return false;
+        const tag = String(el.tagName || '').toLowerCase();
+        return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+    }
+
+    window.ReelsPreviewV2 = { open, close, render, reload: () => loadCurrentTask(true) };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
