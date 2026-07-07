@@ -16469,9 +16469,25 @@ async function loadHistoryVersions() {
         
         listEl.innerHTML = '';
         if (Array.isArray(releases) && releases.length > 0) {
-            container.style.display = 'block';
-            // 展示最近的 5 个版本
-            releases.slice(0, 5).forEach(rel => {
+            // 过滤掉低于 4.4.6 的历史版本（因为旧版存在漏洞，不建议用户降级）
+            const allowedReleases = releases.filter(rel => {
+                const tagName = rel.tag_name;
+                const match = tagName.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+                if (!match) return false;
+                const major = parseInt(match[1], 10);
+                const minor = parseInt(match[2], 10);
+                const patch = parseInt(match[3], 10);
+                if (major > 4) return true;
+                if (major < 4) return false;
+                if (minor > 4) return true;
+                if (minor < 4) return false;
+                return patch >= 6;
+            });
+
+            if (allowedReleases.length > 0) {
+                container.style.display = 'block';
+                // 展示最近的 5 个版本
+                allowedReleases.slice(0, 5).forEach(rel => {
                 const verName = rel.tag_name;
                 const relDate = new Date(rel.published_at).toLocaleDateString();
                 const isPrerelease = rel.prerelease ? ' 🧪' : '';
@@ -16558,6 +16574,7 @@ async function loadHistoryVersions() {
                 itemDiv.appendChild(btnGroup);
                 listEl.appendChild(itemDiv);
             });
+            }
         }
     } catch (e) {
         console.error('加载历史版本失败:', e);
