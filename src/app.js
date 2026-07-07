@@ -16454,8 +16454,106 @@ async function initUpdateChannelUI() {
     } catch (e) { /* 忽略 */ }
 }
 
-// 页面加载时初始化通道 UI
-document.addEventListener('DOMContentLoaded', initUpdateChannelUI);
+/**
+ * 动态加载并展示 GitHub Releases 历史版本下载列表
+ */
+async function loadHistoryVersions() {
+    const container = document.getElementById('history-versions-section');
+    const listEl = document.getElementById('history-versions-list');
+    if (!container || !listEl) return;
+
+    try {
+        const response = await fetch('https://api.github.com/repos/vitalitate14-pixel/VideoKit/releases');
+        if (!response.ok) throw new Error('API 请求失败');
+        const releases = await response.json();
+        
+        listEl.innerHTML = '';
+        if (Array.isArray(releases) && releases.length > 0) {
+            container.style.display = 'block';
+            // 展示最近的 5 个版本
+            releases.slice(0, 5).forEach(rel => {
+                const verName = rel.tag_name;
+                const relDate = new Date(rel.published_at).toLocaleDateString();
+                const isPrerelease = rel.prerelease ? ' 🧪' : '';
+                
+                // 查找对应的 Win 和 Mac 安装包
+                let winAsset = rel.assets.find(a => a.name.endsWith('.exe'));
+                let macAsset = rel.assets.find(a => a.name.endsWith('.dmg') || (a.name.endsWith('.zip') && a.name.toLowerCase().includes('mac')));
+                
+                const itemDiv = document.createElement('div');
+                itemDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; font-size: 11px; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05);';
+                
+                const label = document.createElement('span');
+                label.innerHTML = `${verName}${isPrerelease} <span style="opacity:0.6;font-size:10px;">(${relDate})</span>`;
+                label.style.fontWeight = '500';
+                itemDiv.appendChild(label);
+                
+                const btnGroup = document.createElement('div');
+                btnGroup.style.cssText = 'display: flex; gap: 8px;';
+                
+                if (winAsset) {
+                    const btn = document.createElement('a');
+                    btn.href = '#';
+                    btn.textContent = '🪟 Win版';
+                    btn.style.cssText = 'color: #3897f5; text-decoration: none; cursor: pointer; font-weight: bold;';
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
+                            window.electronAPI.openExternal(winAsset.browser_download_url);
+                        } else {
+                            window.open(winAsset.browser_download_url, '_blank');
+                        }
+                    };
+                    btnGroup.appendChild(btn);
+                }
+                if (macAsset) {
+                    const btn = document.createElement('a');
+                    btn.href = '#';
+                    btn.textContent = '🍎 Mac版';
+                    btn.style.cssText = 'color: #2ed573; text-decoration: none; cursor: pointer; font-weight: bold;';
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
+                            window.electronAPI.openExternal(macAsset.browser_download_url);
+                        } else {
+                            window.open(macAsset.browser_download_url, '_blank');
+                        }
+                    };
+                    btnGroup.appendChild(btn);
+                }
+                
+                // 退回 Releases 详情页
+                if (!winAsset && !macAsset) {
+                    const btn = document.createElement('a');
+                    btn.href = '#';
+                    btn.textContent = '🔗 详情页';
+                    btn.style.cssText = 'color: #ffa502; text-decoration: none; cursor: pointer;';
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
+                            window.electronAPI.openExternal(rel.html_url);
+                        } else {
+                            window.open(rel.html_url, '_blank');
+                        }
+                    };
+                    btnGroup.appendChild(btn);
+                }
+                
+                itemDiv.appendChild(btnGroup);
+                listEl.appendChild(itemDiv);
+            });
+        }
+    } catch (e) {
+        console.error('加载历史版本失败:', e);
+        listEl.innerHTML = '<div style="color: var(--text-muted); font-size: 11px; padding: 4px;">加载失败，请检查网络连接</div>';
+    }
+}
+
+// 页面加载时初始化通道 UI & 加载历史版本列表
+document.addEventListener('DOMContentLoaded', () => {
+    initUpdateChannelUI();
+    loadHistoryVersions();
+});
 
 // ==================== 全局屏幕取色器 ====================
 // 解决 Windows 上 <input type="color"> 吸管无法吸取窗口外颜色的问题
