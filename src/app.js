@@ -16463,7 +16463,7 @@ async function loadHistoryVersions() {
     if (!container || !listEl) return;
 
     try {
-        const response = await fetch('https://api.github.com/repos/vitalitate14-pixel/VideoKit/releases');
+        const response = await fetch('https://api.github.com/repos/secure-artifacts/VideoKit/releases');
         if (!response.ok) throw new Error('API 请求失败');
         const releases = await response.json();
         
