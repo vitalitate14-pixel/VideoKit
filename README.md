@@ -1,16 +1,6 @@
 # VideoKit
 
 专业媒体转换、配音、智能字幕编辑的桌面应用（Electron 版）。
-
-## 当前发布版本
-
-- 最新版本：v4.4.5
-- Release 页面：https://github.com/secure-artifacts/VideoKit/releases/tag/v4.4.5
-- Windows 安装包：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-Setup-4.4.5-Windows%20(win).exe
-- macOS M-series (arm64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-4.4.5-macOS%20M-series%20(arm64).dmg
-- macOS Intel (x64)：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-4.4.5-macOS%20Intel%20(x64).dmg
-- Linux AppImage：https://github.com/secure-artifacts/VideoKit/releases/download/v4.4.5/VideoKit-4.4.5-Linux%20(linux).AppImage
-
 ## 如何发布新版本
 
 本项目使用 GitHub Actions 自动构建和发布。每次发布新版本只需要创建一个 Git Tag 并推送即可。
