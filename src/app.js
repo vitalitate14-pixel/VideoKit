@@ -16476,9 +16476,10 @@ async function loadHistoryVersions() {
                 const relDate = new Date(rel.published_at).toLocaleDateString();
                 const isPrerelease = rel.prerelease ? ' 🧪' : '';
                 
-                // 查找对应的 Win 和 Mac 安装包
+                // 查找对应的 Win、Mac 和 Linux 安装包
                 let winAsset = rel.assets.find(a => a.name.endsWith('.exe'));
                 let macAsset = rel.assets.find(a => a.name.endsWith('.dmg') || (a.name.endsWith('.zip') && a.name.toLowerCase().includes('mac')));
+                let linuxAsset = rel.assets.find(a => a.name.endsWith('.AppImage') || a.name.endsWith('.deb') || (a.name.endsWith('.zip') && a.name.toLowerCase().includes('linux')));
                 
                 const itemDiv = document.createElement('div');
                 itemDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; font-size: 11px; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05);';
@@ -16521,13 +16522,28 @@ async function loadHistoryVersions() {
                     };
                     btnGroup.appendChild(btn);
                 }
+                if (linuxAsset) {
+                    const btn = document.createElement('a');
+                    btn.href = '#';
+                    btn.textContent = '🐧 Linux版';
+                    btn.style.cssText = 'color: #ffa502; text-decoration: none; cursor: pointer; font-weight: bold;';
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
+                            window.electronAPI.openExternal(linuxAsset.browser_download_url);
+                        } else {
+                            window.open(linuxAsset.browser_download_url, '_blank');
+                        }
+                    };
+                    btnGroup.appendChild(btn);
+                }
                 
                 // 退回 Releases 详情页
-                if (!winAsset && !macAsset) {
+                if (!winAsset && !macAsset && !linuxAsset) {
                     const btn = document.createElement('a');
                     btn.href = '#';
                     btn.textContent = '🔗 详情页';
-                    btn.style.cssText = 'color: #ffa502; text-decoration: none; cursor: pointer;';
+                    btn.style.cssText = 'color: #ff9f43; text-decoration: none; cursor: pointer;';
                     btn.onclick = (e) => {
                         e.preventDefault();
                         if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
