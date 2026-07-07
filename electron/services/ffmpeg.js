@@ -1788,6 +1788,96 @@ async function applyWatermark(filePath, outDir, wmOpts = {}) {
     return [outputPath];
 }
 
+/** 获取内置预设 Logo 的完整本地路径 */
+function getPresetLogoPath(preset) {
+    const presetFiles = {
+        hailuo: 'Hailuo.png',
+        vidu: 'vidu.png',
+        veo: 'Veo.png',
+        heygen: 'HeyGen.png',
+        dream: 'Dream.png',
+        ai_generated: 'AI_Generated.png'
+    };
+    const fileName = presetFiles[preset];
+    if (!fileName) return null;
+
+    const candidates = [];
+    if (process.resourcesPath) {
+        candidates.push(path.join(process.resourcesPath, 'assets', fileName));
+    }
+    candidates.push(path.join(__dirname, '..', '..', 'assets', fileName));
+    candidates.push(path.join(__dirname, '..', '..', 'dist', 'assets', fileName));
+    candidates.push(path.join(__dirname, '..', 'assets', fileName));
+    candidates.push(path.join(__dirname, 'assets', fileName));
+
+    for (const p of candidates) {
+        if (fs.existsSync(p)) {
+            return p;
+        }
+    }
+    return null;
+}
+
+/** 给视频叠加图片 Logo (自定义或预设) */
+async function applyLogo(filePath, outDir, options = {}) {
+    const baseName = path.parse(filePath).name;
+    const ext = path.extname(filePath).toLowerCase();
+    const outputPath = path.join(outDir, `${baseName}_logo${ext === '.mov' ? '.mov' : '.mp4'}`);
+
+    const mode = options.mode || 'custom_logo';
+    let logoPath = '';
+    let x = 590;
+    let y = 1810;
+    let w = 400;
+    let h = 90;
+
+    if (mode === 'custom_logo') {
+        const custom = options.custom_logo || {};
+        logoPath = custom.path;
+        x = parseInt(custom.x) ?? 590;
+        y = parseInt(custom.y) ?? 1810;
+        w = parseInt(custom.width) ?? 400;
+        h = parseInt(custom.height) ?? 90;
+    } else {
+        // 预设 Logo
+        logoPath = getPresetLogoPath(mode);
+        const override = options.logo_override || {};
+        x = parseInt(override.x) ?? 590;
+        y = parseInt(override.y) ?? 1810;
+        w = parseInt(override.width) ?? 400;
+        h = parseInt(override.height) ?? 90;
+    }
+
+    if (!logoPath || !fs.existsSync(logoPath)) {
+        throw new Error(`找不到 Logo 图片文件: ${logoPath || mode}`);
+    }
+
+    // 构建 filter_complex 表达式：缩放 Logo 并强制设置 sar=1 防止拉伸，然后 overlay 叠加
+    const filterComplex = `[1:v]scale=${w}:${h},setsar=1[logo];[0:v][logo]overlay=${x}:${y}`;
+
+    const args = [
+        '-y',
+        '-i', filePath,
+        '-i', logoPath,
+        '-filter_complex', filterComplex,
+        '-c:v', 'libx264', '-crf', '18', '-preset', 'medium',
+        '-c:a', 'copy',
+        '-movflags', '+faststart',
+        outputPath
+    ];
+
+    console.log('[Logo] filter_complex:', filterComplex, 'logoPath:', logoPath);
+
+    await runCommand('ffmpeg', args, { timeout: Math.max(DEFAULT_TIMEOUT, 3600000) });
+
+    if (!fs.existsSync(outputPath)) {
+        throw new Error(`Logo 视频输出文件未生成: ${outputPath}`);
+    }
+
+    console.log('[Logo] 叠加完成:', outputPath);
+    return [outputPath];
+}
+
 function _escapeConcatListPath(filePath) {
     return String(filePath).replace(/'/g, "'\\''");
 }
@@ -2228,6 +2318,7 @@ module.exports = {
     smartSplitAnalyze,
     applyAudioFx,
     applyWatermark,
+    applyLogo,
     formatSceneTime,
     parseTimecode,
     parseCutPoints,
