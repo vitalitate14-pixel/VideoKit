@@ -96,3 +96,15 @@ parse_sarif.py
 scratch_detail.py
 security_best_practices_report.md
 QuickCut-*/
+
+# ==================== 测试用例（仅本地运行，不推送到 Git）====================
+tests/
+
+# ==================== 备份与调试测试文件 ====================
+*.bak
+electron/*.mp4
+electron/*.raw
+electron/*.png
+electron/*.jpg
+electron/test_*.js
+electron/check_blend.js
