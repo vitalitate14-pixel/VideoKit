@@ -381,6 +381,7 @@
               <div class="sub-group-title">文件命名</div>
               <button class="sidebar-item" data-action="subtab" data-subtab="media-unirename">统一命名</button>
               <button class="sidebar-item" data-action="subtab" data-subtab="media-batchrename">批量重命名</button>
+              <button class="sidebar-item" data-action="subtab" data-subtab="media-organizer">素材整理</button>
             </div>
           </aside>
 
@@ -2226,7 +2227,7 @@
             <div id="visual-review-drop-zone" class="form-section" ondragenter="visualReviewSetDropActive(event,true)" ondragover="visualReviewSetDropActive(event,true)" ondragleave="visualReviewSetDropActive(event,false)" ondrop="visualReviewHandleFolderDrop(event)" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px dashed var(--border-color);transition:.15s;">
               <button class="btn btn-primary" onclick="visualReviewChooseFolder()">📁 选择总文件夹并开始审核</button>
               <label><input id="visual-review-numeric-suffix" type="checkbox" onchange="visualReviewToggleNumericSuffix(this.checked)"> 数字尾缀也视为版本（如 -1、_2）</label>
-              <span class="hint">可直接从 Finder 拖入总文件夹；递归读取子文件夹中的视频与图片。默认仅把 v2、(2)、副本2 等明确版本尾缀归为同组。</span>
+              <span class="hint">可直接从 Finder 一次拖入多个总文件夹；每个文件夹建立一个审核标签，并递归读取子文件夹中的视频与图片。默认仅把 v2、(2)、副本2 等明确版本尾缀归为同组。</span>
             </div>
             <div id="media-visual-review"></div>
           </div>
@@ -2287,18 +2288,24 @@
                 <button id="autoedit-batch-export-btn" class="btn btn-primary" onclick="startAutoEditBatchExport()">批量正式导出</button>
                 <button id="autoedit-batch-export-only-btn" class="btn btn-secondary" onclick="startAutoEditBatchExportOnly()">仅导出视频 + 字幕</button>
                 <button id="autoedit-batch-project-btn" class="btn btn-secondary" onclick="startAutoEditBatchExportProject()">导出并保存 Reels 任务工程</button>
+                <button id="autoedit-batch-refresh-selected-btn" class="btn btn-secondary" onclick="refreshAutoEditBatchSelectedTaskFolders()" title="重新扫描当前勾选任务的原始文件夹，并按保留的审核记录重新分析">↻ 刷新选中任务并分析</button>
                 <button id="autoedit-batch-archive-selected-btn" class="btn btn-secondary" onclick="archiveAutoEditBatchSelectedTasks()" title="选择一个总文件夹，把当前勾选的任务文件夹完整复制放入其中（原素材和原任务不会被移动）">📦 整理选中文件夹</button>
                 <button id="autoedit-batch-stop-btn" class="btn btn-danger" onclick="cancelAutoEditRunningTasks()" disabled>⏹ 停止当前任务</button>
                 <button class="btn btn-secondary" onclick="selectAllAutoEditBatchTasks()" title="勾选全部任务参与本次批量导出">选择所有</button>
                 <button class="btn btn-secondary" onclick="deselectAllAutoEditBatchTasks()" title="取消全部任务，不参与本次批量导出">取消所有选择</button>
                 <button class="btn btn-secondary" onclick="selectAutoEditBatchPassedTasks()" title="仅勾选没有错误、警告或待处理文案的通过任务">选择通过</button>
+                <button class="btn btn-secondary" onclick="selectAutoEditBatchHandledPassedTasks()" title="仅勾选曾在审核中人工修改或确认、现已通过的任务">选择修改后合格</button>
                 <button class="btn btn-secondary" onclick="selectAutoEditBatchFailedTasks()" title="仅勾选有错误、警告或待处理文案的未通过任务">选择未通过</button>
+                <button class="btn btn-secondary" onclick="selectAutoEditBatchUnexportedTasks()" title="仅勾选尚未导出，或审核内容变更后需要重新导出的任务">选择未导出</button>
                 <button id="autoedit-batch-filter-passed-btn" class="btn btn-secondary" onclick="setAutoEditBatchTaskFilter('passed')" title="仅查看通过的任务">查看通过</button>
+                <button id="autoedit-batch-filter-handled-btn" class="btn btn-secondary" onclick="setAutoEditBatchTaskFilter('handled')" title="仅查看人工处理后已通过的任务">查看修改后合格</button>
                 <button id="autoedit-batch-filter-issues-btn" class="btn btn-secondary" onclick="setAutoEditBatchTaskFilter('issues')" title="仅查看未通过的任务">查看未通过</button>
                 <button id="autoedit-batch-filter-selected-btn" class="btn btn-secondary" onclick="setAutoEditBatchTaskFilter('selected')" title="仅查看勾选了“参与本次导出”的任务">查看已选择</button>
+                <button id="autoedit-batch-filter-unexported-btn" class="btn btn-secondary" onclick="setAutoEditBatchTaskFilter('unexported')" title="仅查看尚未导出，或审核内容变更后需要重新导出的任务">查看未导出</button>
                 <button id="autoedit-batch-filter-all-btn" class="btn btn-secondary" onclick="setAutoEditBatchTaskFilter('all')">显示全部</button>
                 <button class="btn btn-secondary" onclick="copyAutoEditBatchTaskResults()" title="按当前顺序复制全部任务及其处理结果，每行一个">📋 复制全部任务处理结果</button>
                 <button class="btn btn-secondary" onclick="showAutoEditBatchSimpleReport()" title="按任务汇总通过片段、缺失文案和需要修改的问题">📊 批量结果报告</button>
+                <button class="btn btn-secondary" onclick="copyAutoEditBatchIssuesTable('all', this)" style="color:#fde047;border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.12);font-weight:600;transition:all .2s ease;" title="复制两列(第一列视频名字，第二列英文双引号包裹的问题文案)，可直接粘贴至 Google 表格单元格">📋 复制问题文案(表格)</button>
                 <span id="autoedit-batch-match-hint" class="hint">粘贴后自动识别；第 N 个单元格对应第 N 个文件夹。</span>
               </div>
               <div id="autoedit-batch-task-list" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:10px;"></div>
@@ -2674,6 +2681,91 @@
                 🏷️ 开始统一命名
               </button>
               <span id="unirename-status" class="status-text" style="font-size:13px;">就绪</span>
+            </div>
+          </div>
+
+          <!-- ========== 素材整理工具 ========== -->
+          <div id="media-organizer-subtab" class="subtab-content">
+            <div class="workbench-title-container">
+              <span class="workbench-title">素材整理</span>
+              <span class="workbench-title-desc">智能拆解文件名字段，支持多规则按内容对号入座，纯本地不使用 AI</span>
+            </div>
+
+            <!-- 1. 待整理文件夹与设置 -->
+            <div class="form-section">
+              <div class="param-row" style="display:flex; gap:8px; align-items:center;">
+                <label style="white-space:nowrap; font-weight:500;">待整理文件夹:</label>
+                <input id="organizer-source" class="input file-path" placeholder="选择总文件夹（将递归扫描包含的全部媒体文件）" readonly style="flex:1">
+                <button class="btn btn-secondary" onclick="organizerChooseFolder()">📁 选择文件夹</button>
+                <button class="btn btn-primary" onclick="organizerPreview()">🔍 扫描并分析</button>
+              </div>
+
+              <div style="display:flex; gap:16px; align-items:center; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--text-secondary);">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <label>拆分分隔符:</label>
+                  <select id="organizer-delim-mode" class="input" style="padding:2px 8px; font-size:12px; height:28px;" onchange="organizerChangeDelim(this.value)">
+                    <option value="auto">智能自动探测 (推荐)</option>
+                    <option value="_">仅按下划线 (_)</option>
+                    <option value="-">仅按连字符 (-)</option>
+                    <option value="space">仅按空格</option>
+                  </select>
+                </div>
+
+                <label style="cursor:pointer; display:flex; align-items:center; gap:4px;" title="是否深入子文件夹搜索媒体文件（已自动排除剪辑缓存）">
+                  <input type="checkbox" id="organizer-recursive" checked onchange="organizerToggleRecursive(this.checked)">
+                  <span>包含子目录</span>
+                </label>
+
+                <div style="display:flex; align-items:center; gap:12px; margin-left:auto;">
+                  <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+                    <input type="radio" name="organizer-mode" value="move" checked onchange="organizerChangeMode('move')">
+                    <span>移动原文件</span>
+                  </label>
+                  <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+                    <input type="radio" name="organizer-mode" value="copy" onchange="organizerChangeMode('copy')">
+                    <span>安全复制 (保留原文件)</span>
+                  </label>
+                  <label id="organizer-clean-empty-wrap" style="cursor:pointer; display:flex; align-items:center; gap:4px; margin-left:8px;">
+                    <input type="checkbox" id="organizer-clean-empty" onchange="organizerToggleCleanEmpty(this.checked)">
+                    <span>移动后清理空目录</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. 多规则管理面板 -->
+            <div id="organizer-rules-section" class="form-section hidden" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; padding:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="font-weight:600; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+                  <span>📋 对号入座规则列表</span>
+                  <span style="font-size:11px; color:var(--text-secondary); font-weight:normal;">(文件自上而下逐条匹配，满足条件的文件自动归入目标文件夹)</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn btn-secondary btn-small" onclick="organizerOpenAddRule()">➕ 添加新规则</button>
+                  <button class="btn btn-secondary btn-small" onclick="organizerResetDefaultRules()" title="重置为默认按第1字段分组规则">↺ 重置默认</button>
+                </div>
+              </div>
+
+              <!-- 规则卡片容器 -->
+              <div id="organizer-rules-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+
+            <!-- 3. 动态规则编辑器 -->
+            <div id="organizer-rule-editor" class="form-section hidden" style="background:rgba(124,92,255,0.06); border:1px solid rgba(124,92,255,0.35); border-radius:8px; padding:16px; margin-bottom:14px;">
+              <!-- 由 JS 动态渲染 -->
+            </div>
+
+            <!-- 4. 统计摘要与整理结果预览 -->
+            <div id="organizer-summary" class="form-section hidden" style="font-size:13px; padding:12px 14px; border-radius:8px; background:rgba(255,255,255,0.03); border:1px solid var(--border-color); display:flex; flex-direction:column; gap:8px;"></div>
+
+            <!-- 结果列表容器 (分组文件夹 + 未匹配文件) -->
+            <div id="organizer-groups" class="form-section hidden" style="max-height:520px; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:8px; padding-right:4px;"></div>
+
+            <!-- 5. 底部操作工具栏 -->
+            <div id="organizer-actions" class="form-section hidden" style="display:flex; gap:12px; align-items:center; padding-top:8px;">
+              <button class="btn btn-primary" onclick="organizerApply()" id="organizer-apply-btn" style="padding:8px 22px; font-weight:600;">🚀 确认整理并移动文件</button>
+              <button class="btn btn-secondary" onclick="organizerUndo()" id="organizer-undo-btn">↩ 撤销上一次整理</button>
+              <span id="organizer-status" class="status-text" style="color:var(--text-secondary); font-size:12px;">仅预览，尚未变更磁盘文件</span>
             </div>
           </div>
 
@@ -3527,6 +3619,9 @@
                   style="font-size:11px;padding:4px 8px;background:var(--accent);color:#000;font-weight:600;"
                   onclick="reelsToggleBatchTable()" title="打开批量文案表格管理">📊 批量表格</button>
                 <button class="btn btn-secondary"
+                  style="font-size:11px;padding:4px 8px;background:linear-gradient(135deg,#7c5cff,#a855f7);color:#fff;font-weight:600;border:none;"
+                  onclick="typeof window._showBulkCreateModal === 'function' ? window._showBulkCreateModal() : alert('大量制作模块加载中...')" title="类似Canva大量制作：表格数据 × 覆层模板 = 批量任务组">🧩 大量制作</button>
+                <button class="btn btn-secondary"
                   style="font-size:11px;padding:4px 8px;background:#255f85;color:#fff;font-weight:600;border:none;"
                   onclick="openAutoEditFromReels()" title="按文案自动裁切片段，拼接后送入批量 Reels">✂️ 文案拼接</button>
                 <button class="btn btn-secondary"
@@ -3677,6 +3772,7 @@
                     <span style="font-size:10px;">全选导出</span>
                   </label>
                   <span style="flex:1;"></span>
+                  <button id="reels-batch-duplicate-btn" class="btn" style="font-size:10px;padding:2px 7px;background:rgba(124,92,255,0.15);color:#c4b5fd;border:1px solid rgba(124,92,255,0.35);border-radius:4px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" onclick="reelsDuplicateSelectedTasks()" title="将当前勾选的所有任务批量复制为副本新版本">📋 复制副本</button>
                   <span id="reels-export-selected-count" style="font-size:10px;color:var(--accent,#7b8bef);font-weight:600;" title="已选中导出的任务数"></span>
                 </div>
                 <div style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:4px 10px;border-bottom:1px solid var(--border-color);font-size:10px;background:rgba(0,0,0,.08);">

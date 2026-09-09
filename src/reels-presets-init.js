@@ -1842,6 +1842,18 @@ function initBuiltinOverlayGroupPresets() {
         existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     } catch (e) { existing = {}; }
 
+    // 清理此前曾作为内置预设自动写入的【爆款-XX】预设缓存，保证软件默认不自带，交由用户通过预设文件自由导入
+    let cleaned = 0;
+    if (!localStorage.getItem('reels_viral_presets_cleaned_v1')) {
+        for (const key of Object.keys(existing)) {
+            if (key.startsWith('【爆款-')) {
+                delete existing[key];
+                cleaned++;
+            }
+        }
+        try { localStorage.setItem('reels_viral_presets_cleaned_v1', '1'); } catch (_) { }
+    }
+
     let updated = 0;
     for (const [name, layers] of Object.entries(REELS_BUILTIN_OVERLAY_GROUP_PRESETS)) {
         // 始终覆盖同名内置预设，确保用户获取最新更新
@@ -1849,9 +1861,9 @@ function initBuiltinOverlayGroupPresets() {
         updated++;
     }
 
-    if (updated > 0) {
+    if (updated > 0 || cleaned > 0) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
-        console.log(`[PresetsInit] 已更新 ${updated} 个内置覆层组预设`);
+        console.log(`[PresetsInit] 已更新 ${updated} 个内置覆层组预设${cleaned > 0 ? ` (已清理 ${cleaned} 个历史残留爆款预设)` : ''}`);
     }
 }
 

@@ -1512,22 +1512,62 @@ async function autoEditByScript(opts = {}) {
             const lineText = lines[l];
             let lineWords;
             if (/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(lineText)) {
-                lineWords = lineText.split('').map(char => char.trim()).filter(Boolean);
+                // Array.from keeps a complete Unicode character intact.  Preserve its
+                // source offsets too: the offsets let the export path put the user's
+                // punctuation back after word-level matching has finished.
+                let offset = 0;
+                lineWords = [];
+                for (const char of Array.from(lineText)) {
+                    const start = offset;
+                    offset += char.length;
+                    if (char.trim()) lineWords.push({ raw: char, start, end: offset });
+                }
             } else {
                 // 文案常见 `blessed.Share`、`Amen,"because` 这类漏空格写法。
                 // 不能只按空格切，否则会把两个已读词拼成一个不存在的长词，
                 // 再好的 ASR 也无法匹配。保留词内连字符/撇号，其他标点均作边界。
-                lineWords = lineText.match(/[\p{L}\p{N}]+(?:[’'\-][\p{L}\p{N}]+)*/gu) || [];
+                lineWords = Array.from(lineText.matchAll(/[\p{L}\p{N}]+(?:[’'\-][\p{L}\p{N}]+)*/gu))
+                    .map(match => ({ raw: match[0], start: match.index, end: match.index + match[0].length }));
             }
-            for (const w of lineWords) {
+            for (let lineWordIndex = 0; lineWordIndex < lineWords.length; lineWordIndex++) {
+                const w = lineWords[lineWordIndex];
                 scriptWords.push({
-                    raw: w,
-                    norm: normalizeText(w),
+                    raw: w.raw,
+                    norm: normalizeText(w.raw),
                     lineIndex: l,
+                    charStart: w.start,
+                    charEnd: w.end,
+                    isFirstInLine: lineWordIndex === 0,
+                    isLastInLine: lineWordIndex === lineWords.length - 1,
                     wordIndex: wordIdx++
                 });
             }
         }
+
+        // Matching operates on words and deliberately ignores punctuation.  Rendering
+        // must do the opposite: reuse exact slices of the original script so commas,
+        // decimal points, quotation marks and all other author-provided punctuation
+        // survive both review and export.
+        const scriptTextFromWords = (words) => {
+            const output = [];
+            let group = [];
+            const flush = () => {
+                if (!group.length) return;
+                const first = group[0];
+                const last = group[group.length - 1];
+                const source = lines[first.lineIndex] || '';
+                const start = first.isFirstInLine ? 0 : first.charStart;
+                const end = last.isLastInLine ? source.length : last.charEnd;
+                output.push(source.slice(start, end).trim());
+                group = [];
+            };
+            for (const word of words || []) {
+                if (group.length && word.lineIndex !== group[group.length - 1].lineIndex) flush();
+                group.push(word);
+            }
+            flush();
+            return output.filter(Boolean).join('\n');
+        };
         let globalTranscriptionText = '';
         const isOneToOne = (workflowMode === 'concat_first' || useLinePerClip);
 
@@ -2114,21 +2154,7 @@ async function autoEditByScript(opts = {}) {
                 
                 if (plan.scriptWordStart !== -1 && plan.scriptWordEnd !== -1) {
                     const sliced = scriptWords.slice(plan.scriptWordStart, plan.scriptWordEnd + 1);
-                    let groupedLines = [];
-                    let currentLineIdx = -1;
-                    let currentLineWords = [];
-                    for (const w of sliced) {
-                        if (currentLineIdx !== -1 && w.lineIndex !== currentLineIdx) {
-                            groupedLines.push(joinWordsSmart(currentLineWords));
-                            currentLineWords = [];
-                        }
-                        currentLineIdx = w.lineIndex;
-                        currentLineWords.push(w.raw);
-                    }
-                    if (currentLineWords.length > 0) {
-                        groupedLines.push(joinWordsSmart(currentLineWords));
-                    }
-                    plan.scriptText = groupedLines.join('\n');
+                    plan.scriptText = scriptTextFromWords(sliced);
                 } else {
                     plan.scriptText = '';
                 }
@@ -2364,21 +2390,9 @@ async function autoEditByScript(opts = {}) {
         const refreshPlanScriptAndMatch = (plan) => {
             if (!plan || plan.scriptWordStart < 0 || plan.scriptWordEnd < plan.scriptWordStart) return;
             const sliced = scriptWords.slice(plan.scriptWordStart, plan.scriptWordEnd + 1);
-            const groupedLines = [];
-            let currentLine = null;
-            let currentWords = [];
-            for (const word of sliced) {
-                if (currentLine !== null && word.lineIndex !== currentLine) {
-                    groupedLines.push(joinWordsSmart(currentWords));
-                    currentWords = [];
-                }
-                currentLine = word.lineIndex;
-                currentWords.push(word.raw);
-            }
-            if (currentWords.length) groupedLines.push(joinWordsSmart(currentWords));
             plan.scriptStartLine = getWordLineIndex(scriptWords, plan.scriptWordStart);
             plan.scriptEndLine = getWordLineIndex(scriptWords, plan.scriptWordEnd);
-            plan.scriptText = groupedLines.join('\n');
+            plan.scriptText = scriptTextFromWords(sliced);
 
             const info = allClipsMatchInfo.find(item => item.sourceIndex === plan.sourceIndex);
             if (!info) return;
@@ -3071,7 +3085,15 @@ async function autoEditByScript(opts = {}) {
                         return all;
                     }, []);
                 plan.cutSelection = ['classic', 'v2', 'manual'].includes(review.cut_selection) ? review.cut_selection : 'manual';
-                if (typeof review.script === 'string' && review.script.trim()) plan.scriptText = review.script.trim();
+                // A saved review normally echoes the automatically generated script.
+                // Keep the freshly rebuilt version in that case, because it retains
+                // punctuation from the original manuscript.  Only replace it with a
+                // review value when the reviewer intentionally edited the copy (or
+                // when this is a manually-added source with no generated script).
+                if (typeof review.script === 'string' && review.script.trim()
+                    && (review.manually_modified === true || !plan.scriptText)) {
+                    plan.scriptText = review.script.trim();
+                }
                 plan.manualSubtitles = Array.isArray(review.manual_subtitles)
                     ? review.manual_subtitles.filter(cue => cue && String(cue.text || '').trim())
                     : [];

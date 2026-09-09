@@ -869,7 +869,7 @@ function switchMediaSubtab(subtabId) {
     // 控制通用输入框可见性
     const mediaFileSection = document.getElementById('media-file-section');
     if (mediaFileSection) {
-        const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-visualreview', 'media-lipsync', 'media-batchcut', 'media-autoedit', 'media-batchtxt', 'media-unirename', 'media-batchrename', 'media-audiomatch'];
+        const tabsWithOwnInput = ['media-scene', 'media-smartkf', 'media-thumbnail', 'media-classify', 'media-visualreview', 'media-lipsync', 'media-batchcut', 'media-autoedit', 'media-batchtxt', 'media-unirename', 'media-batchrename', 'media-audiomatch', 'media-organizer'];
         mediaFileSection.style.display = tabsWithOwnInput.includes(subtabId) ? 'none' : '';
     }
 
@@ -4763,11 +4763,11 @@ function mtbRenderFileList() {
 }
 
 // 素材快速审核：只渲染当前片段组，避免一次加载数百条视频占满内存。
-const visualReviewState = { root: '', suites: [], suiteIndex: 0, current: 0, statuses: {}, batchName: '', activePath: '', filter: 'all', view: 'review', numericSuffix: false, hoverRate: 2, hoverAudio: true, cardWidth: 210, suiteQuery: '', newlyAddedPaths: [] };
+const visualReviewState = { root: '', suites: [], suiteIndex: 0, current: 0, statuses: {}, batchName: '', activePath: '', filter: 'all', view: 'review', numericSuffix: false, hoverRate: 2, hoverAudio: true, cardWidth: 210, suiteQuery: '', newlyAddedPaths: [], groupingMode: 'name' };
 const visualReviewTabs = [];
 let visualReviewActiveTabId = '';
 function visualReviewStateSnapshot() {
-    return { root: visualReviewState.root, suites: visualReviewState.suites, suiteIndex: visualReviewState.suiteIndex, current: visualReviewState.current, statuses: visualReviewState.statuses, batchName: visualReviewState.batchName, activePath: visualReviewState.activePath, filter: visualReviewState.filter, view: visualReviewState.view, numericSuffix: visualReviewState.numericSuffix, hoverRate: visualReviewState.hoverRate, hoverAudio: visualReviewState.hoverAudio, groupHoverPreview: visualReviewState.groupHoverPreview !== false, cardWidth: visualReviewState.cardWidth, suiteQuery: visualReviewState.suiteQuery, newlyAddedPaths: visualReviewState.newlyAddedPaths };
+    return { root: visualReviewState.root, suites: visualReviewState.suites, suiteIndex: visualReviewState.suiteIndex, current: visualReviewState.current, statuses: visualReviewState.statuses, batchName: visualReviewState.batchName, activePath: visualReviewState.activePath, filter: visualReviewState.filter, view: visualReviewState.view, numericSuffix: visualReviewState.numericSuffix, hoverRate: visualReviewState.hoverRate, hoverAudio: visualReviewState.hoverAudio, groupHoverPreview: visualReviewState.groupHoverPreview !== false, cardWidth: visualReviewState.cardWidth, suiteQuery: visualReviewState.suiteQuery, newlyAddedPaths: visualReviewState.newlyAddedPaths, groupingMode: visualReviewState.groupingMode || 'name' };
 }
 function visualReviewSyncActiveTab() {
     const tab = visualReviewTabs.find(item => item.id === visualReviewActiveTabId);
@@ -4776,7 +4776,7 @@ function visualReviewSyncActiveTab() {
 function visualReviewStartTab(rootPath) {
     visualReviewSyncActiveTab();
     const id = `review-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const state = { ...visualReviewStateSnapshot(), root: rootPath, suites: [], suiteIndex: 0, current: 0, statuses: {}, batchName: '', activePath: '', view: 'review', suiteQuery: '', newlyAddedPaths: [] };
+    const state = { ...visualReviewStateSnapshot(), root: rootPath, suites: [], suiteIndex: 0, current: 0, statuses: {}, batchName: '', activePath: '', view: 'review', suiteQuery: '', newlyAddedPaths: [], groupingMode: 'name' };
     visualReviewTabs.push({ id, label: String(rootPath || '').split(/[/\\]/).filter(Boolean).pop() || '新审核', state });
     visualReviewActiveTabId = id;
     Object.assign(visualReviewState, state);
@@ -4803,7 +4803,7 @@ function visualReviewCloseTab(id) {
         Object.assign(visualReviewState, next.state);
     } else {
         visualReviewActiveTabId = '';
-        Object.assign(visualReviewState, { root: '', suites: [], suiteIndex: 0, current: 0, statuses: {}, batchName: '', activePath: '', view: 'review', suiteQuery: '', newlyAddedPaths: [] });
+        Object.assign(visualReviewState, { root: '', suites: [], suiteIndex: 0, current: 0, statuses: {}, batchName: '', activePath: '', view: 'review', suiteQuery: '', newlyAddedPaths: [], groupingMode: 'name' });
     }
     const numericSuffix = document.getElementById('visual-review-numeric-suffix');
     if (numericSuffix) numericSuffix.checked = !!visualReviewState.numericSuffix;
@@ -4839,13 +4839,21 @@ function visualReviewSuiteKey(item) {
     // 总文件夹下的第一级文件夹就是一套；建议把每套素材放在各自的一级文件夹中。
     return parts.length > 1 ? parts[0] : '未分套';
 }
-function visualReviewBuildSuites(mediaList) {
+function visualReviewFolderGroupKey(item, suiteKey) {
+    const parts = String(item?.relativePath || item?.name || '').split(/[/\\]/).filter(Boolean);
+    const relativeToSuite = suiteKey === '未分套' ? parts : parts.slice(1);
+    const folders = relativeToSuite.slice(0, -1);
+    return folders.length ? `文件夹：${folders.join('/')}` : '文件夹：套根目录';
+}
+function visualReviewBuildSuites(mediaList, groupingMode = visualReviewState.groupingMode || 'name') {
     const suiteMap = new Map();
     mediaList.forEach(item => {
         const suiteKey = visualReviewSuiteKey(item);
         if (!suiteMap.has(suiteKey)) suiteMap.set(suiteKey, new Map());
         const groupMap = suiteMap.get(suiteKey);
-        const key = visualReviewGroupKey(item.name);
+        const key = groupingMode === 'folder'
+            ? visualReviewFolderGroupKey(item, suiteKey)
+            : visualReviewGroupKey(item.name);
         if (!groupMap.has(key)) groupMap.set(key, []);
         const isImg = visualReviewIsImage(item);
         groupMap.get(key).push({
@@ -4862,6 +4870,17 @@ function visualReviewBuildSuites(mediaList) {
             files: files.sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { numeric: true }))
         })).sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }))
     })).sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+function visualReviewSetGroupingMode(mode) {
+    const nextMode = mode === 'folder' ? 'folder' : 'name';
+    if (nextMode === visualReviewState.groupingMode) return;
+    const files = visualReviewState.suites.flatMap(suite => suite.groups.flatMap(group => group.files));
+    visualReviewState.groupingMode = nextMode;
+    visualReviewState.suites = visualReviewBuildSuites(files, nextMode);
+    visualReviewState.suiteIndex = Math.min(visualReviewState.suiteIndex, Math.max(0, visualReviewState.suites.length - 1));
+    visualReviewState.current = 0;
+    visualReviewPersist();
+    visualReviewRender();
 }
 function visualReviewCurrentGroups() { return visualReviewState.suites[visualReviewState.suiteIndex]?.groups || []; }
 function visualReviewIsSourceVideo(item) {
@@ -6866,6 +6885,68 @@ async function visualReviewExecuteBatchRename(opts = {}) {
     visualReviewCloseBatchRenameModal();
 }
 
+async function visualReviewReadSavedSession(rootDir) {
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(`visual-review:${rootDir}`) || 'null'); } catch (_) {}
+    // 有实际标记的本地会话优先；空会话常见于首次打开或缓存被覆盖，继续读取
+    // 磁盘 review.json，确保换电脑、更新应用后仍能恢复结果。
+    if (local?.statuses && Object.keys(local.statuses).length) return { session: local, source: 'local' };
+    try {
+        const restored = await window.electronAPI?.apiCall?.('media/visual-review-load', { rootDir });
+        if (restored?.session) {
+            try { localStorage.setItem(`visual-review:${rootDir}`, JSON.stringify(restored.session)); } catch (_) {}
+            return { session: restored.session, source: 'disk', reviewPath: restored.reviewPath };
+        }
+    } catch (error) {
+        console.warn('[素材快速审核] 读取磁盘审核记录失败', error);
+    }
+    return { session: local, source: local ? 'local' : '' };
+}
+
+function visualReviewRestoreSavedStatuses(session, mediaList) {
+    if (!session?.statuses || typeof session.statuses !== 'object') return {};
+    const savedStatuses = session.statuses;
+    const scannedPaths = new Set(mediaList.map(item => item.path));
+    const restored = Object.fromEntries(Object.entries(savedStatuses).filter(([filePath]) => scannedPaths.has(filePath)));
+    const savedFiles = Array.isArray(session.suites)
+        ? session.suites.flatMap(suite => suite?.groups?.flatMap(group => group?.files || []) || []) : [];
+    const unique = values => values.length === 1 ? values[0] : '';
+    const savedByRelative = new Map();
+    const savedByName = new Map();
+    savedFiles.forEach(file => {
+        const status = savedStatuses[file?.path];
+        if (!status || !file) return;
+        const relative = String(file.relativePath || '').replace(/\\/g, '/').toLowerCase();
+        const name = String(file.name || '').toLowerCase();
+        if (relative) savedByRelative.set(relative, [...(savedByRelative.get(relative) || []), status]);
+        if (name) savedByName.set(name, [...(savedByName.get(name) || []), status]);
+    });
+    mediaList.forEach(file => {
+        if (restored[file.path]) return;
+        const relative = String(file.relativePath || '').replace(/\\/g, '/').toLowerCase();
+        const name = String(file.name || '').toLowerCase();
+        // 先按相对路径回连；移动到“已选素材”后相对路径会变化，因此只在
+        // 文件名全局唯一时才使用文件名回连，绝不把同名素材猜错。
+        const status = unique(savedByRelative.get(relative) || []) || unique(savedByName.get(name) || []);
+        if (status) restored[file.path] = status;
+    });
+    return restored;
+}
+
+async function visualReviewApplySavedSession(rootDir, mediaList) {
+    const savedResult = await visualReviewReadSavedSession(rootDir);
+    const saved = savedResult.session;
+    if (!saved?.statuses || typeof saved.statuses !== 'object') return savedResult;
+    visualReviewState.statuses = visualReviewRestoreSavedStatuses(saved, mediaList);
+    visualReviewState.batchName = saved.batchName || visualReviewState.batchName;
+    visualReviewState.groupHoverPreview = saved.groupHoverPreview !== false;
+    if (saved.groupingMode === 'folder') {
+        visualReviewState.groupingMode = 'folder';
+        visualReviewState.suites = visualReviewBuildSuites(mediaList, 'folder');
+    }
+    return { ...savedResult, restoredCount: Object.keys(visualReviewState.statuses).length };
+}
+
 async function visualReviewChooseFolder() {
     try {
         if (!window.electronAPI?.selectDirectory || !window.electronAPI?.scanDirectoryRecursive) {
@@ -6884,16 +6965,10 @@ async function visualReviewChooseFolder() {
         visualReviewState.current = 0;
         visualReviewState.statuses = {};
         visualReviewState.batchName = `审核批次_${new Date().toISOString().slice(0,16).replace(/[:T]/g, '-')}`;
-        const saved = JSON.parse(localStorage.getItem(`visual-review:${selectedRoot}`) || 'null');
-        if (saved?.statuses && typeof saved.statuses === 'object') {
-            const scanned = new Set(mediaList.map(item => item.path));
-            visualReviewState.statuses = Object.fromEntries(Object.entries(saved.statuses).filter(([filePath]) => scanned.has(filePath)));
-            visualReviewState.batchName = saved.batchName || visualReviewState.batchName;
-            visualReviewState.groupHoverPreview = saved.groupHoverPreview !== false;
-        }
+        const restore = await visualReviewApplySavedSession(selectedRoot, mediaList);
         visualReviewRender();
         mtbSetStatus(`已读取 ${mediaList.length} 个素材，识别为 ${visualReviewState.suites.length} 套素材`, 'success');
-        showToast(`已读取 ${mediaList.length} 个素材（含视频与图片）`, 'success');
+        showToast(`已读取 ${mediaList.length} 个素材（含视频与图片）${restore?.restoredCount ? ` · 已恢复 ${restore.restoredCount} 个审核标记${restore.source === 'disk' ? '（来自磁盘记录）' : ''}` : ''}`, 'success');
     } catch (error) {
         console.error('[素材快速审核] 读取文件夹失败', error);
         const reviewRoot = document.getElementById('media-visual-review');
@@ -6901,7 +6976,7 @@ async function visualReviewChooseFolder() {
         showToast(`读取文件夹失败：${error?.message || error}`, 'error');
     }
 }
-async function visualReviewLoadDroppedFolder(folderPath) {
+async function visualReviewLoadDroppedFolder(folderPath, { silent = false } = {}) {
     if (!folderPath || !window.electronAPI?.scanDirectoryRecursive) return;
     try {
         visualReviewStartTab(folderPath);
@@ -6916,35 +6991,37 @@ async function visualReviewLoadDroppedFolder(folderPath) {
         visualReviewState.current = 0;
         visualReviewState.statuses = {};
         visualReviewState.batchName = `审核批次_${new Date().toISOString().slice(0,16).replace(/[:T]/g, '-')}`;
-        const saved = JSON.parse(localStorage.getItem(`visual-review:${folderPath}`) || 'null');
-        if (saved?.statuses && typeof saved.statuses === 'object') {
-            const scanned = new Set(mediaList.map(item => item.path));
-            visualReviewState.statuses = Object.fromEntries(Object.entries(saved.statuses).filter(([filePath]) => scanned.has(filePath)));
-            visualReviewState.batchName = saved.batchName || visualReviewState.batchName;
-            visualReviewState.groupHoverPreview = saved.groupHoverPreview !== false;
-        }
+        const restore = await visualReviewApplySavedSession(folderPath, mediaList);
         visualReviewRender();
         mtbSetStatus(`已读取 ${mediaList.length} 个素材，识别为 ${visualReviewState.suites.length} 套素材`, 'success');
-        showToast(`已拖入并读取 ${mediaList.length} 个素材`, 'success');
+        if (!silent) showToast(`已拖入并读取 ${mediaList.length} 个素材${restore?.restoredCount ? ` · 已恢复 ${restore.restoredCount} 个审核标记${restore.source === 'disk' ? '（来自磁盘记录）' : ''}` : ''}`, 'success');
+        return true;
     } catch (error) {
         console.error('[素材快速审核] 拖入文件夹读取失败', error);
-        showToast(`拖入文件夹读取失败：${error?.message || error}`, 'error');
+        if (!silent) showToast(`拖入文件夹读取失败：${error?.message || error}`, 'error');
+        return false;
     }
 }
-function visualReviewHandleFolderDrop(event) {
+async function visualReviewHandleFolderDrop(event) {
     event.preventDefault();
     event.stopPropagation();
     const zone = document.getElementById('visual-review-drop-zone');
     if (zone) { zone.style.borderColor = ''; zone.style.background = ''; }
-    const item = event.dataTransfer?.files?.[0];
+    const files = [...(event.dataTransfer?.files || [])];
     const capturedPaths = window.electronAPI?.consumeDroppedFilePaths?.() || [];
-    const folderPath = capturedPaths[0]
-        || window.electronAPI?.getFilePath?.(item)
-        || item?.path
-        || event.dataTransfer?.items?.[0]?.getAsFile?.()?.path;
-    if (!folderPath) return showToast('没有取得拖入文件夹的路径；请重启热启动窗口后再试', 'warning');
-    if (window.electronAPI?.isDirectory && !window.electronAPI.isDirectory(folderPath)) return showToast('请拖入文件夹，不是单个文件', 'warning');
-    visualReviewLoadDroppedFolder(folderPath);
+    const itemPaths = files.map(file => window.electronAPI?.getFilePath?.(file) || file?.path).filter(Boolean);
+    const dataItemPaths = [...(event.dataTransfer?.items || [])].map(item => item.getAsFile?.()?.path).filter(Boolean);
+    const droppedPaths = [...new Set([...capturedPaths, ...itemPaths, ...dataItemPaths])];
+    if (!droppedPaths.length) return showToast('没有取得拖入文件夹的路径；请重启热启动窗口后再试', 'warning');
+
+    const folderPaths = droppedPaths.filter(folderPath => !window.electronAPI?.isDirectory || window.electronAPI.isDirectory(folderPath));
+    if (!folderPaths.length) return showToast('请拖入文件夹，不是单个文件', 'warning');
+    const loaded = [];
+    for (const folderPath of folderPaths) {
+        if (await visualReviewLoadDroppedFolder(folderPath, { silent: true })) loaded.push(folderPath);
+    }
+    if (loaded.length) showToast(`已添加 ${loaded.length} 个审核文件夹（每个文件夹一个审核标签）`, 'success');
+    if (loaded.length < folderPaths.length) showToast(`${folderPaths.length - loaded.length} 个文件夹读取失败`, 'warning');
 }
 function visualReviewSetDropActive(event, active) {
     event.preventDefault();
@@ -7196,11 +7273,17 @@ function visualReviewRender() {
       <div style="display:flex;gap:6px;flex-wrap:wrap;max-height:170px;overflow:auto;margin-top:7px;padding:2px 0 6px;" aria-label="快速定位套">${visualReviewState.suites.map((suite, index) => ({ suite, index })).filter(({ suite }) => !visualReviewState.suiteQuery || suite.key.toLowerCase().includes(visualReviewState.suiteQuery.toLowerCase())).map(({ suite, index }) => `<button class="btn btn-secondary" onclick="visualReviewLocateSuite(${index})">${mtbEsc(suite.key)} · ${suite.groups.length} 组</button>`).join('')}</div>
       <div style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         <strong style="font-size:15px;">${visualReviewState.view === 'pass' ? '全部套 · 已选二次检查' : '全部套 · 逐组审核'}</strong>
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);">下方片段组
+          <select class="select" onchange="visualReviewSetGroupingMode(this.value)" style="padding:3px 7px;font-size:12px;">
+            <option value="name" ${visualReviewState.groupingMode !== 'folder' ? 'selected' : ''}>按名字分组</option>
+            <option value="folder" ${visualReviewState.groupingMode === 'folder' ? 'selected' : ''}>按文件夹分组</option>
+          </select>
+        </label>
         ${visualReviewState.newlyAddedPaths.length ? `<span style="color:#facc15;font-weight:800;">● 本次新增 ${visualReviewState.newlyAddedPaths.length} 个（黄色高亮）</span>` : ''}
         <label>悬停倍速 <select class="select" onchange="visualReviewSetHoverRate(this.value)">${[0.5, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map(rate => `<option value="${rate}" ${rate === visualReviewState.hoverRate ? 'selected' : ''}>${rate}×</option>`).join('')}</select></label>
         <label><input type="checkbox" ${visualReviewState.hoverAudio ? 'checked' : ''} onchange="visualReviewSetHoverAudio(this.checked)"> 悬停声音</label>
         <label>卡片宽度 <input type="range" min="120" max="360" step="10" value="${visualReviewState.cardWidth}" oninput="visualReviewSetCardWidth(this.value)"> ${visualReviewState.cardWidth}px</label>
-        <span class="hint">操作：悬停预览视频 · 双击查看大图/原声 · 右键功能菜单 · 底部标记</span>
+        <span class="hint">默认按名字分组；切换后按素材所在文件夹分组。操作：悬停预览视频 · 双击查看大图/原声 · 右键功能菜单 · 底部标记</span>
       </div>
       <div style="margin-top:8px;">${suiteSections || '<div class="hint" style="padding:18px 0;">没有匹配的套。</div>'}</div>
       <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -7251,7 +7334,7 @@ function visualReviewCurrentReportText() {
         const result = selected.length
             ? selected.map(file => `${file.name}（${visualReviewState.statuses[file.path] === 'pass' ? '合格' : '勉强'}）`).join('、')
             : `没有合格或勉强素材（${group.files.length} 个候选）`;
-        return { suite: suite.key, suiteIndex, groupIndex, groupName: group.key, files: selected, candidateCount: group.files.length, selected: selected.length > 0, detail: `${prefix} ${group.key}：${result}`, text: `${prefix} ${suite.key}｜${group.key}：${result}` };
+        return { suite: suite.key, suiteIndex, groupIndex, groupName: group.key, files: selected, candidates: group.files, candidateCount: group.files.length, selected: selected.length > 0, detail: `${prefix} ${group.key}：${result}`, text: `${prefix} ${suite.key}｜${group.key}：${result}` };
     }));
     const missing = rows.filter(row => !row.selected).length;
     const suites = [...new Set(rows.map(row => row.suite))].map(name => {
@@ -7276,17 +7359,25 @@ function showVisualReviewReport() {
     document.getElementById('visual-review-report-dialog')?.remove();
     const overlay = document.createElement('div'); overlay.id = 'visual-review-report-dialog';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:100050;background:rgba(0,0,0,.68);display:flex;align-items:center;justify-content:center;padding:22px;';
-    const rowHtml = report.suites.map(suite => `<details open style="margin:12px 0;padding:12px;border:1px solid ${suite.missing ? '#b7791f' : '#37664b'};border-radius:8px;"><summary style="cursor:pointer;font-weight:bold;overflow-wrap:anywhere;">${mtbEsc(suite.name)} · ${suite.rows.length - suite.missing}/${suite.rows.length} 组已有合格/勉强 · ${suite.missing} 组待处理</summary>${suite.rows.map(row => `<div data-report-row="${report.rows.indexOf(row)}" style="padding:7px 0;border-bottom:1px solid #ffffff14;color:${row.selected ? '#bbf7d0' : '#fca5a5'};white-space:pre-wrap;overflow-wrap:anywhere;">${mtbEsc(row.detail)}</div>`).join('')}</details>`).join('');
-    overlay.innerHTML = `<section style="width:min(860px,96vw);max-height:88vh;overflow:auto;background:#171923;border:1px solid rgba(96,165,250,.5);border-radius:12px;padding:18px;color:#e5e7eb;"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><h2 style="margin:0;font-size:20px;">当前审核报告</h2><button class="btn btn-secondary" onclick="document.getElementById('visual-review-report-dialog')?.remove()">关闭</button></div><p class="hint">${report.rows.length} 组 · <span style="color:#86efac;">${report.rows.length - report.missing} 组已有合格/勉强</span> · <span style="color:#fca5a5;">${report.missing} 组没有合格素材</span></p><div>${rowHtml}</div><div style="margin-top:14px;display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="copyVisualReviewReport()">📋 复制当前报告</button></div></section>`;
+    const rowHtml = report.suites.map(suite => `<details open style="margin:12px 0;padding:12px;border:1px solid ${suite.missing ? '#b7791f' : '#37664b'};border-radius:8px;"><summary style="cursor:pointer;font-weight:bold;overflow-wrap:anywhere;">${mtbEsc(suite.name)} · ${suite.rows.length - suite.missing}/${suite.rows.length} 组已有合格/勉强 · ${suite.missing} 组待处理</summary>${suite.rows.map(row => `<div data-report-row="${report.rows.indexOf(row)}" data-report-status="${row.selected ? 'passed' : 'failed'}" style="padding:9px 0;border-bottom:1px solid #ffffff14;color:${row.selected ? '#bbf7d0' : '#fca5a5'};white-space:pre-wrap;overflow-wrap:anywhere;">${mtbEsc(row.detail)}</div>`).join('')}</details>`).join('');
+    overlay.innerHTML = `<section style="width:min(1080px,96vw);max-height:88vh;overflow:auto;background:#171923;border:1px solid rgba(96,165,250,.5);border-radius:12px;padding:18px;color:#e5e7eb;"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><h2 style="margin:0;font-size:20px;">当前审核报告</h2><button class="btn btn-secondary" onclick="document.getElementById('visual-review-report-dialog')?.remove()">关闭</button></div><p class="hint">${report.rows.length} 组 · <span style="color:#86efac;">${report.rows.length - report.missing} 组已有合格/勉强</span> · <span style="color:#fca5a5;">${report.missing} 组没有合格素材</span></p><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:8px;background:#0f1320;border-radius:7px;"><span class="hint">筛选：</span><button class="btn btn-primary" onclick="filterVisualReviewReport(this,'all')">全部 (${report.rows.length})</button><button class="btn btn-secondary" onclick="filterVisualReviewReport(this,'failed')">仅不合格 (${report.missing})</button><button class="btn btn-secondary" onclick="filterVisualReviewReport(this,'passed')">已有合格/勉强 (${report.rows.length - report.missing})</button><span class="hint">点击缩略图即可回到对应素材审核卡片</span></div><div>${rowHtml}</div><div style="margin-top:14px;display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="copyVisualReviewReport()">📋 复制当前报告</button></div></section>`;
     overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
     overlay.querySelectorAll('[data-report-row]').forEach(element => {
         const row = report.rows[Number(element.dataset.reportRow)];
-        const addLink = (text, path) => {
-            const button = document.createElement('button'); button.textContent = text;
+        // 左侧保留审核结论，右侧仅放紧凑的原比例缩略图，避免候选图把报告
+        // 纵向撑得过高；窄窗口时 CSS grid 会自然换行。
+        element.style.display = 'grid';
+        element.style.gridTemplateColumns = 'minmax(0, 1fr) auto';
+        element.style.gap = '10px';
+        element.style.alignItems = 'center';
+        const textColumn = document.createElement('div');
+        textColumn.style.cssText = 'min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;';
+        const addLink = (label, path) => {
+            const button = document.createElement('button'); button.textContent = label;
             button.style.cssText = 'font:inherit;color:inherit;background:none;border:0;padding:3px 0;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere';
             button.onclick = () => visualReviewLocateReportTarget(row.suiteIndex, row.groupIndex, path);
-            element.append(button);
+            textColumn.append(button);
         };
         element.replaceChildren();
         addLink(`${row.selected ? '✓' : '✗'} ${row.groupName}：`);
@@ -7295,8 +7386,64 @@ function showVisualReviewReport() {
             if (index) element.append('、');
             addLink(`${file.name}（${visualReviewState.statuses[file.path] === 'pass' ? '合格' : '勉强'}）`, file.path);
         });
+        // 报告中的“没有合格素材”行也直接给出全部候选缩略图，避免用户再
+        // 回到长列表里逐个找。已有选择的组仅显示已选素材，保持报告紧凑。
+        const media = document.createElement('div');
+        media.style.cssText = 'display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:6px;max-width:min(42vw,430px);';
+        (row.files.length ? row.files : row.candidates).forEach(file => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.title = `${file.name} · 点击定位到素材审核卡片`;
+            button.style.cssText = 'width:auto;min-width:54px;max-width:112px;padding:0;overflow:hidden;border:1px solid rgba(148,163,184,.36);border-radius:5px;background:#080b12;color:#cbd5e1;cursor:pointer;text-align:left;';
+            const isImage = file.type === 'image' || visualReviewIsImage(file);
+            if (isImage) {
+                const image = document.createElement('img');
+                image.src = window.electronAPI?.toFileUrl?.(file.path) || file.path;
+                image.style.cssText = 'display:block;width:auto;height:50px;max-width:110px;object-fit:contain;background:#000;';
+                button.append(image);
+            } else {
+                const thumb = document.createElement('span');
+                thumb.dataset.reportThumbSource = encodeURIComponent(file.path);
+                thumb.textContent = '加载缩略图';
+                thumb.style.cssText = 'display:grid;place-items:center;width:76px;height:50px;background:#05070a;color:#94a3b8;font-size:9px;';
+                button.append(thumb);
+            }
+            const name = document.createElement('span');
+            name.textContent = file.name;
+            name.style.cssText = 'display:block;max-width:110px;padding:3px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+            button.append(name);
+            button.onclick = () => visualReviewLocateReportTarget(row.suiteIndex, row.groupIndex, file.path);
+            media.append(button);
+        });
+        element.append(textColumn, media);
+    });
+    hydrateVisualReviewReportThumbnails(overlay);
+}
+
+function filterVisualReviewReport(button, filter) {
+    const overlay = button?.closest('#visual-review-report-dialog');
+    if (!overlay) return;
+    overlay.querySelectorAll('[data-report-row]').forEach(row => { row.hidden = filter !== 'all' && row.dataset.reportStatus !== filter; });
+    overlay.querySelectorAll('[onclick^="filterVisualReviewReport"]').forEach(item => {
+        item.classList.toggle('btn-primary', item === button);
+        item.classList.toggle('btn-secondary', item !== button);
     });
 }
+
+async function hydrateVisualReviewReportThumbnails(root) {
+    const targets = Array.from(root.querySelectorAll('[data-report-thumb-source]'));
+    // 顺序生成，避免打开包含数百个候选的报告时同时解码大量视频。
+    for (const target of targets) {
+        if (!target.isConnected) return;
+        let source = '';
+        try { source = decodeURIComponent(target.dataset.reportThumbSource || ''); } catch (_) {}
+        const thumbnail = source ? await batchCutGenThumb(source) : '';
+        if (!target.isConnected) return;
+        if (thumbnail) target.innerHTML = `<img src="${thumbnail}" alt="素材缩略图" style="display:block;width:auto;height:50px;max-width:110px;object-fit:contain;">`;
+        else target.textContent = '无预览';
+    }
+}
+window.filterVisualReviewReport = filterVisualReviewReport;
 function visualReviewLocateReportTarget(suiteIndex, groupIndex, filePath) {
     const group = visualReviewState.suites[suiteIndex]?.groups[groupIndex];
     if (!group || (filePath && !group.files.some(file => file.path === filePath))) return showToast('素材位置已变化，请重新打开报告', 'info');
@@ -7363,7 +7510,7 @@ function visualReviewRejectSuite(suiteIndex = visualReviewState.suiteIndex) {
 function visualReviewOpenGroup(index) { const groups = visualReviewCurrentGroups(); visualReviewState.current = Math.max(0, Math.min(groups.length - 1, Number(index) || 0)); visualReviewRender(); }
 function visualReviewActivate(encodedPath) { visualReviewState.activePath = decodeURIComponent(encodedPath); visualReviewRender(); }
 function visualReviewSessionData() {
-    return { version: 1, root: visualReviewState.root, savedAt: new Date().toISOString(), suites: visualReviewState.suites, statuses: visualReviewState.statuses, batchName: visualReviewState.batchName, groupHoverPreview: visualReviewState.groupHoverPreview !== false };
+    return { version: 1, root: visualReviewState.root, savedAt: new Date().toISOString(), suites: visualReviewState.suites, statuses: visualReviewState.statuses, batchName: visualReviewState.batchName, groupHoverPreview: visualReviewState.groupHoverPreview !== false, groupingMode: visualReviewState.groupingMode || 'name' };
 }
 function visualReviewPersist() {
     if (!visualReviewState.root) return;
@@ -7535,7 +7682,7 @@ function mtbRenderOptions(tool) {
     if (!root) return;
 
     if (tool.options === 'visual_review') {
-        root.innerHTML = `<div id="visual-review-drop-zone" ondragenter="visualReviewSetDropActive(event,true)" ondragover="visualReviewSetDropActive(event,true)" ondragleave="visualReviewSetDropActive(event,false)" ondrop="visualReviewHandleFolderDrop(event)" style="border:1px dashed var(--border-color);border-radius:8px;padding:12px;transition:.15s;"><div class="mtb-inline-fields"><button class="btn btn-primary" onclick="visualReviewChooseFolder()">📁 选择总文件夹并开始审核</button><button class="btn btn-secondary" onclick="visualReviewOpenBatchRenameModal()">🏷️ 批量重命名</button><label><input type="checkbox" onchange="visualReviewToggleNumericSuffix(this.checked)" ${visualReviewState.numericSuffix ? 'checked' : ''}> 数字尾缀也视为版本（如 -1、_2）</label><span class="hint">也可直接从 Finder 拖入总文件夹；递归读取子文件夹。</span></div></div><div id="mtb-visual-review"></div>`;
+        root.innerHTML = `<div id="visual-review-drop-zone" ondragenter="visualReviewSetDropActive(event,true)" ondragover="visualReviewSetDropActive(event,true)" ondragleave="visualReviewSetDropActive(event,false)" ondrop="visualReviewHandleFolderDrop(event)" style="border:1px dashed var(--border-color);border-radius:8px;padding:12px;transition:.15s;"><div class="mtb-inline-fields"><button class="btn btn-primary" onclick="visualReviewChooseFolder()">📁 选择总文件夹并开始审核</button><button class="btn btn-secondary" onclick="visualReviewOpenBatchRenameModal()">🏷️ 批量重命名</button><label><input type="checkbox" onchange="visualReviewToggleNumericSuffix(this.checked)" ${visualReviewState.numericSuffix ? 'checked' : ''}> 数字尾缀也视为版本（如 -1、_2）</label><span class="hint">也可从 Finder 一次拖入多个总文件夹；每个文件夹建立一个审核标签，并递归读取子文件夹。</span></div></div><div id="mtb-visual-review"></div>`;
         visualReviewRender();
         return;
     }
@@ -14912,6 +15059,11 @@ const autoEditActiveRequestIds = new Set();
 let autoEditBatchInputTimer = null;
 let autoEditBatchDragIndex = -1;
 let autoEditBatchTaskFilter = 'all';
+// 审核清单中的片段缩略图只保存在当前会话内；不把较大的 base64 图写进工程 JSON。
+const autoEditReviewThumbnailCache = new Map();
+const autoEditReviewThumbnailLoading = new Set();
+const autoEditReviewThumbnailQueue = [];
+let autoEditReviewThumbnailWorkers = 0;
 let autoEditAutoMoveExcluded = localStorage.getItem('autoEditAutoMoveExcluded') === 'true';
 function setAutoEditAutoMoveExcluded(enabled) {
     autoEditAutoMoveExcluded = Boolean(enabled);
@@ -14920,7 +15072,7 @@ function setAutoEditAutoMoveExcluded(enabled) {
 }
 window.setAutoEditAutoMoveExcluded = setAutoEditAutoMoveExcluded;
 function setAutoEditBatchTaskFilter(filter) {
-    if (filter === 'selected' || filter === 'issues' || filter === 'passed') {
+    if (filter === 'selected' || filter === 'issues' || filter === 'passed' || filter === 'handled' || filter === 'unexported') {
         autoEditBatchTaskFilter = filter;
     } else {
         autoEditBatchTaskFilter = 'all';
@@ -15002,7 +15154,7 @@ function autoEditBatchDrop(event, index) {
 
 function setAutoEditBatchRunning(running) {
     autoEditBatchRunning = Boolean(running);
-    for (const id of ['autoedit-batch-smart-pair-btn', 'autoedit-batch-analyze-btn', 'autoedit-batch-export-btn', 'autoedit-batch-export-only-btn']) {
+    for (const id of ['autoedit-batch-smart-pair-btn', 'autoedit-batch-analyze-btn', 'autoedit-batch-export-btn', 'autoedit-batch-export-only-btn', 'autoedit-batch-refresh-selected-btn']) {
         const button = document.getElementById(id);
         if (button) button.disabled = autoEditBatchRunning;
     }
@@ -15298,10 +15450,28 @@ function updateAutoEditBatchSendToReels(index, checked) {
     autoEditBatchTasks[index].sendToReels = Boolean(checked);
     renderAutoEditBatchTasks();
 }
+function getAutoEditBatchLiveResult(task) {
+    if (!task?.result) return null;
+    // 列表审核写入 task.reviewSegments；批量汇总此前仍直接读首次分析的
+    // result.segments，造成“列表与批量判断相反”。所有任务级判断都改读此快照。
+    const review = Array.isArray(task.reviewSegments) && task.reviewSegments.length
+        ? task.reviewSegments
+        : (Array.isArray(task.result.review_segments) && task.result.review_segments.length
+            ? task.result.review_segments : task.result.segments);
+    return { ...task.result, segments: Array.isArray(review) ? review : [] };
+}
+function getAutoEditBatchTaskSummary(task) {
+    return getAutoEditBatchMatchSummary(getAutoEditBatchLiveResult(task));
+}
 function autoEditBatchTaskHasIssues(task) {
     if (!task?.clips?.length) return true;
-    const summary = getAutoEditBatchMatchSummary(task.result);
+    const summary = getAutoEditBatchTaskSummary(task);
     return summary.error > 0 || summary.warning > 0 || summary.missingBlocks > 0 || task.status === 'error';
+}
+function autoEditBatchTaskIsHandledPassed(task) {
+    if (!task?.clips?.length || autoEditBatchTaskHasIssues(task)) return false;
+    const segments = task.reviewSegments || task.result?.review_segments || task.result?.segments || [];
+    return Array.isArray(segments) && segments.some(hasAutoEditHumanReview);
 }
 function selectAllAutoEditBatchTasks() {
     setAllAutoEditBatchSendToReels(true);
@@ -15320,6 +15490,17 @@ function selectAutoEditBatchPassedTasks() {
     renderAutoEditBatchTasks();
     showToast(`已选择 ${selected} 个通过任务`, 'success');
 }
+function selectAutoEditBatchHandledPassedTasks() {
+    let selected = 0;
+    autoEditBatchTasks.forEach(task => {
+        const allow = autoEditBatchTaskIsHandledPassed(task);
+        task.sendToReels = allow;
+        if (allow) selected++;
+    });
+    persistAutoEditBatchReview();
+    renderAutoEditBatchTasks();
+    showToast(`已选择 ${selected} 个修改后合格任务`, 'success');
+}
 function selectAutoEditBatchFailedTasks() {
     let selected = 0;
     autoEditBatchTasks.forEach(task => {
@@ -15330,6 +15511,20 @@ function selectAutoEditBatchFailedTasks() {
     persistAutoEditBatchReview();
     renderAutoEditBatchTasks();
     showToast(`已选择 ${selected} 个未通过任务`, 'info');
+}
+function autoEditBatchTaskIsUnexported(task) {
+    return !autoEditBatchExportIsCurrent(task);
+}
+function selectAutoEditBatchUnexportedTasks() {
+    let selected = 0;
+    autoEditBatchTasks.forEach(task => {
+        const allow = Boolean(task?.clips?.length) && autoEditBatchTaskIsUnexported(task);
+        task.sendToReels = allow;
+        if (allow) selected++;
+    });
+    saveAutoEditWorkspaceState();
+    renderAutoEditBatchTasks();
+    showToast(`已选择 ${selected} 个未导出任务`, 'success');
 }
 function selectAutoEditBatchIssueFreeTasks() {
     return selectAutoEditBatchPassedTasks();
@@ -15345,14 +15540,16 @@ function deselectAutoEditBatchProblemTasks() {
 function autoEditBatchTaskResultLabel(task) {
     if (!task?.clips?.length || task.status === 'skipped') return '空文件夹，已跳过';
     if (autoEditBatchExportIsCurrent(task)) return '已导出';
-    if (task.status === 'reviewed') return '已处理，待导出';
     if (task.status === 'analyzing') return '分析中';
     if (task.status === 'error') return `处理失败${task.message ? `：${task.message}` : ''}`;
-    const summary = getAutoEditBatchMatchSummary(task.result);
+    const summary = getAutoEditBatchTaskSummary(task);
     if (summary.error || summary.warning || summary.missingBlocks) {
         const issues = [summary.error ? `${summary.error} 个失败` : '', summary.warning ? `${summary.warning} 个警告` : '', summary.missingBlocks ? `${summary.missingBlocks} 处待处理文案` : ''].filter(Boolean);
         return `待处理问题：${issues.join('、')}`;
     }
+    // 打开列表审核也会保存一份快照，不能仅凭 reviewed 状态就宣称“已处理”。
+    if (task.status === 'reviewed' && autoEditBatchTaskIsHandledPassed(task)) return '已人工处理，待导出';
+    if (task.status === 'reviewed') return '审核已保存，匹配通过';
     if (task.result?.analysis_only) return '分析通过，待导出';
     return task.message || '待分析';
 }
@@ -15379,6 +15576,7 @@ function setAllAutoEditBatchSendToReels(checked) {
 window.setAllAutoEditBatchSendToReels = setAllAutoEditBatchSendToReels;
 window.updateAutoEditBatchSendToReels = updateAutoEditBatchSendToReels;
 window.selectAutoEditBatchIssueFreeTasks = selectAutoEditBatchIssueFreeTasks;
+window.selectAutoEditBatchHandledPassedTasks = selectAutoEditBatchHandledPassedTasks;
 window.deselectAutoEditBatchProblemTasks = deselectAutoEditBatchProblemTasks;
 window.copyAutoEditBatchTaskResults = copyAutoEditBatchTaskResults;
 
@@ -15401,9 +15599,12 @@ function setAutoEditBatchTaskScript(task, value) {
 function getAutoEditBatchMatchSummary(data) {
     const segments = Array.isArray(data?.segments) ? data.segments : [];
     const supplied = data?.match_summary || {};
-    const count = status => segments.filter(segment => segment?.status === status && segment?.review_acknowledged !== true).length;
-    const handled = segments.filter(segment => segment?.enabled !== false && segment?.review_acknowledged === true
-        && (segment?.status === 'warning' || segment?.status === 'error' || Number(segment?.similarity) < 75)).length;
+    // 已关闭的重复片段和开场钩子不再参与“待处理”统计；它们是人工已处理的
+    // 审核动作。此前仅忽略 review_acknowledged，导致重复已排除后仍显示未处理。
+    const isPending = segment => segment?.enabled !== false && segment?.is_hook !== true && segment?.review_acknowledged !== true;
+    const isRisk = segment => segment?.status === 'warning' || segment?.status === 'error' || Number(segment?.similarity) < 75;
+    const count = status => segments.filter(segment => segment?.status === status && isPending(segment)).length;
+    const handled = segments.filter(segment => !isPending(segment) && isRisk(segment)).length;
     return {
         total: Number.isFinite(Number(supplied.total)) ? Number(supplied.total) : segments.length,
         ready: segments.length ? count('ready') : (Number(supplied.ready) || 0),
@@ -15427,6 +15628,151 @@ async function copyAutoEditMissingText(text) {
     } catch (error) { showToast(`复制失败：${error.message}`, 'error'); }
 }
 
+function buildAutoEditBatchIssuesTable(tasks = []) {
+    const list = Array.isArray(tasks) ? tasks : [];
+    const rows = [];
+
+    list.forEach(task => {
+        const videoName = String(task?.outputName || task?.name || '').trim();
+        if (!videoName) return;
+
+        const issueTexts = [];
+        // 1. 待确认/缺失文案（优先）
+        const missingBlocks = Array.isArray(task?.result?.missing_blocks) ? task.result.missing_blocks : [];
+        missingBlocks.forEach(b => {
+            if (!b.review_assignment && (b.text || '').trim()) {
+                issueTexts.push(b.text.trim());
+            }
+        });
+
+        // 2. 异常片段文案（如果无 missing_blocks 但有警告/错误片段）
+        if (issueTexts.length === 0) {
+            const segments = Array.isArray(task?.reviewSegments || task?.result?.review_segments || task?.result?.segments)
+                ? (task.reviewSegments || task.result.review_segments || task.result.segments)
+                : [];
+            segments.forEach(s => {
+                if (s?.review_acknowledged !== true && (s?.status === 'warning' || s?.status === 'error')) {
+                    const t = (s.text || s.script_text || s.expected_text || '').trim();
+                    if (t) issueTexts.push(t);
+                }
+            });
+        }
+
+        // 3. 错误信息兜底
+        if (issueTexts.length === 0 && (task?.reelsTransferError || task?.message)) {
+            const msg = String(task.reelsTransferError || task.message).trim();
+            if (msg && msg !== '待分析' && msg !== '分析完成' && msg !== '匹配通过') {
+                issueTexts.push(msg);
+            }
+        }
+
+        if (issueTexts.length === 0) return;
+
+        // 第一列视频名字固定加：换行 + 需修改（单元格内两行）
+        const videoCellContent = `${videoName}\n需修改`;
+        const escapedVideoCell = `"${videoCellContent.replace(/"/g, '""')}"`;
+
+        // 格式化问题文案：每个文案用英文双引号引起来；若有多段用换行连接
+        const quotedParts = issueTexts.map(t => {
+            const clean = t.replace(/^"+|"+$/g, '').trim();
+            return `"${clean}"`;
+        });
+        const cellContent = quotedParts.join('\n');
+
+        // 按照 Google Sheets TSV 规范进行单元格转义：外层包引号，内部引号转为 ""
+        const escapedCell = `"${cellContent.replace(/"/g, '""')}"`;
+        rows.push({
+            videoName,
+            videoCellContent,
+            cellContent,
+            tsvLine: `${escapedVideoCell}\t${escapedCell}`
+        });
+    });
+
+    const escapeHtmlSimple = str => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const escapeHtmlWithBreaks = str => escapeHtmlSimple(str).replace(/\r?\n/g, '<br>');
+    const htmlRows = rows.map(r => `<tr><td style="white-space:pre-wrap;mso-data-placement:same-cell;">${escapeHtmlWithBreaks(r.videoCellContent)}</td><td style="white-space:pre-wrap;mso-data-placement:same-cell;">${escapeHtmlWithBreaks(r.cellContent)}</td></tr>`).join('');
+
+    return {
+        rows,
+        tsvText: rows.map(r => r.tsvLine).join('\n'),
+        htmlText: rows.length ? `<meta charset="utf-8"><table>${htmlRows}</table>` : ''
+    };
+}
+
+async function copyAutoEditBatchIssuesTable(filterMode = 'all', triggerBtn = null) {
+    if (!autoEditBatchTasks.length) return showToast('当前没有批量任务', 'info');
+
+    const btn = triggerBtn || (typeof event !== 'undefined' ? event?.currentTarget : null);
+
+    let targetTasks = autoEditBatchTasks.filter(task => {
+        if (filterMode === 'issues') return autoEditBatchTaskHasIssues(task);
+        if (filterMode === 'selected') return task.sendToReels !== false && autoEditBatchTaskHasIssues(task);
+        if (filterMode === 'passed') return false;
+        return autoEditBatchTaskHasIssues(task);
+    });
+
+    if (!targetTasks.length) {
+        targetTasks = autoEditBatchTasks.filter(task => autoEditBatchTaskHasIssues(task));
+    }
+
+    if (!targetTasks.length) {
+        return showToast('太棒了！当前没有发现未通过或有问题的任务', 'info');
+    }
+
+    const { rows, tsvText, htmlText } = buildAutoEditBatchIssuesTable(targetTasks);
+
+    if (!rows.length) {
+        return showToast('未提取到有效的问题文案', 'warning');
+    }
+
+    try {
+        let copied = false;
+        if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined' && htmlText) {
+            try {
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'text/plain': new Blob([tsvText], { type: 'text/plain' }),
+                        'text/html': new Blob([htmlText], { type: 'text/html' })
+                    })
+                ]);
+                copied = true;
+            } catch (_) {}
+        }
+        if (!copied) {
+            if (window.electronAPI?.writeClipboardText) {
+                await window.electronAPI.writeClipboardText(tsvText);
+            } else if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(tsvText);
+            }
+        }
+
+        // 按钮点击后的即时视觉反馈
+        if (btn && btn.textContent) {
+            const origText = btn.textContent;
+            const origBg = btn.style.background;
+            const origColor = btn.style.color;
+            const origBorder = btn.style.borderColor;
+
+            btn.textContent = `✅ 已复制 (${rows.length}个视频)`;
+            btn.style.background = 'rgba(34, 197, 94, 0.25)';
+            btn.style.color = '#86efac';
+            btn.style.borderColor = 'rgba(34, 197, 94, 0.6)';
+
+            setTimeout(() => {
+                btn.textContent = origText;
+                btn.style.background = origBg;
+                btn.style.color = origColor;
+                btn.style.borderColor = origBorder;
+            }, 2200);
+        }
+
+        showToast(`✅ 已复制 ${rows.length} 个问题视频及文案，可直接粘贴到 Google 表格`, 'success');
+    } catch (error) {
+        showToast(`复制失败：${error.message}`, 'error');
+    }
+}
+
 function showAutoEditBatchSimpleReport(initialFilter) {
     if (!autoEditBatchTasks.length) return showToast('当前没有批量任务', 'info');
     document.getElementById('autoedit-simple-report')?.remove();
@@ -15443,7 +15789,13 @@ function showAutoEditBatchSimpleReport(initialFilter) {
     leftActions.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
     const close = document.createElement('button'); close.className = 'btn btn-secondary'; close.textContent = '关闭'; close.onclick = () => overlay.remove();
     const copy = document.createElement('button'); copy.className = 'btn btn-primary'; copy.textContent = '复制报告';
-    leftActions.append(close, copy);
+    const copyIssuesTableBtn = document.createElement('button');
+    copyIssuesTableBtn.className = 'btn btn-secondary';
+    copyIssuesTableBtn.style.cssText = 'background:rgba(245,158,11,0.18);color:#fde047;border:1px solid rgba(245,158,11,0.45);font-weight:600;transition:all .2s ease;';
+    copyIssuesTableBtn.textContent = '📋 复制问题文案(表格)';
+    copyIssuesTableBtn.title = '复制两列：第一列问题视频名，第二列双引号问题文案（整段在一个单元格内），可直接贴到 Google 表格';
+    copyIssuesTableBtn.onclick = (e) => copyAutoEditBatchIssuesTable(currentFilter, copyIssuesTableBtn);
+    leftActions.append(close, copy, copyIssuesTableBtn);
 
     // Filter controls
     let currentFilter = initialFilter || (autoEditBatchTaskFilter === 'selected' || autoEditBatchTaskFilter === 'issues' || autoEditBatchTaskFilter === 'passed' ? autoEditBatchTaskFilter : 'all');
@@ -15650,7 +16002,7 @@ async function archiveAutoEditBatchSelectedTasks() {
                 mode: selectedMode,
                 tasks: tasks.map(task => ({
                     ...task,
-                    match_summary: getAutoEditBatchMatchSummary(task.result),
+                    match_summary: getAutoEditBatchTaskSummary(task),
                     missing_blocks: task.result?.missing_blocks || []
                 }))
             });
@@ -15735,7 +16087,49 @@ async function refreshAutoEditBatchTaskFolder(index) {
     } catch (error) { showToast(`刷新失败：${error.message}`, 'error'); }
     finally { setAutoEditBatchRunning(false); }
 }
+
+async function refreshAutoEditBatchSelectedTaskFolders() {
+    if (autoEditBatchRunning || autoEditActiveRequestIds.size) return showToast('请等待当前任务完成后再刷新', 'info');
+    const selected = autoEditBatchTasks.filter(task => task?.folder && task.sendToReels !== false);
+    if (!selected.length) return showToast('请先勾选需要刷新的任务', 'info');
+    const videoExt = /\.(mp4|mov|mkv|avi|wmv|flv|webm|m4v)$/i;
+    let refreshed = 0;
+    let failed = 0;
+    setAutoEditBatchRunning(true);
+    try {
+        // 逐套刷新能复用既有的人工审核快照，且不会把多份重转录同时压到服务上。
+        for (const task of selected) {
+            task.message = '正在刷新文件夹…';
+            renderAutoEditBatchTasks();
+            try {
+                const entries = await scanAutoEditBatchFolderRecursive(task.folder);
+                const clips = filterAutoEditSourceVideos(entries, videoExt).map(entry => entry.path);
+                if (!clips.length) throw new Error('没有找到原始视频（工程输出已自动排除）');
+                task.clips = clips;
+                task.exportSignature = '';
+                if (!task.script?.trim()) {
+                    task.status = 'skipped';
+                    task.message = '素材已刷新，但缺少文案，未分析';
+                    continue;
+                }
+                await analyzeAutoEditBatchTask(task);
+                refreshed++;
+            } catch (error) {
+                failed++;
+                task.status = 'error';
+                task.message = `刷新失败：${error.message || error}`;
+            }
+        }
+        saveAutoEditWorkspaceState();
+        showToast(`已刷新并分析 ${refreshed}/${selected.length} 个选中任务${failed ? `，${failed} 个失败` : ''}`, failed ? 'warning' : 'success', 7000);
+    } finally {
+        setAutoEditBatchRunning(false);
+        renderAutoEditBatchTasks();
+    }
+}
 window.showAutoEditBatchSimpleReport = showAutoEditBatchSimpleReport;
+window.copyAutoEditBatchIssuesTable = copyAutoEditBatchIssuesTable;
+window.buildAutoEditBatchIssuesTable = buildAutoEditBatchIssuesTable;
 window.archiveAutoEditBatchSelectedTasks = archiveAutoEditBatchSelectedTasks;
 window.archiveAutoEditBatchFailedTasks = archiveAutoEditBatchSelectedTasks;
 window.refreshAutoEditBatchTaskFolder = refreshAutoEditBatchTaskFolder;
@@ -15743,6 +16137,8 @@ window.selectAllAutoEditBatchTasks = selectAllAutoEditBatchTasks;
 window.deselectAllAutoEditBatchTasks = deselectAllAutoEditBatchTasks;
 window.selectAutoEditBatchPassedTasks = selectAutoEditBatchPassedTasks;
 window.selectAutoEditBatchFailedTasks = selectAutoEditBatchFailedTasks;
+window.selectAutoEditBatchUnexportedTasks = selectAutoEditBatchUnexportedTasks;
+window.refreshAutoEditBatchSelectedTaskFolders = refreshAutoEditBatchSelectedTaskFolders;
 
 function restoreAutoEditMissingBlockAssignments(data, previous, aliases = []) {
     const normalize = value => String(value || '').replace(/\\/g, '/');
@@ -15790,7 +16186,7 @@ function renderAutoEditBatchMatchResult(task) {
         const { block, index, startLine, endLine, previous, next } = item;
 
         const label = previous && next ? `位于片段 #${previous} 与 #${next} 之间` : (previous ? `位于片段 #${previous} 后` : (next ? `位于片段 #${next} 前` : '位置待确认'));
-        return `<div style="grid-column:1/-1;margin:3px 0;padding:6px 8px;border-left:3px solid ${block.review_assignment ? '#51cf66' : (isMultilingualV2 ? '#fbbf24' : '#ff6b6b')};border-radius:4px;background:${block.review_assignment ? 'rgba(81,207,102,.08)' : (isMultilingualV2 ? 'rgba(251,191,36,.08)' : 'rgba(255,107,107,.08)')};font-size:11px;color:${block.review_assignment ? '#86efac' : (isMultilingualV2 ? '#fcd34d' : '#fca5a5')};"><strong>${block.review_assignment ? '✓ 已归属（审核页可撤销）' : (isMultilingualV2 ? '⚠️ 待确认文案' : '❌ 缺失文案')} #${index + 1}</strong> · ${escapeHtml(label)} · 第 ${startLine}${endLine > startLine ? `–${endLine}` : ''} 行<br><span style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(block.text || '')}</span></div>`;
+        return `<div class="ae-batch-match-row" data-batch-match-state="${block.review_assignment ? 'handled' : 'failed'}" style="grid-column:1/-1;margin:3px 0;padding:6px 8px;border-left:3px solid ${block.review_assignment ? '#51cf66' : (isMultilingualV2 ? '#fbbf24' : '#ff6b6b')};border-radius:4px;background:${block.review_assignment ? 'rgba(81,207,102,.08)' : (isMultilingualV2 ? 'rgba(251,191,36,.08)' : 'rgba(255,107,107,.08)')};font-size:11px;color:${block.review_assignment ? '#86efac' : (isMultilingualV2 ? '#fcd34d' : '#fca5a5')};"><strong>${block.review_assignment ? '✓ 已归属（审核页可撤销）' : (isMultilingualV2 ? '⚠️ 待确认文案' : '❌ 缺失文案')} #${index + 1}</strong> · ${escapeHtml(label)} · 第 ${startLine}${endLine > startLine ? `–${endLine}` : ''} 行<br><span style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(block.text || '')}</span></div>`;
     };
     const renderMissingWithCopy = item => `<div>${renderMissingRow(item)}<button class="btn btn-secondary" data-copy="${escapeHtml(encodeURIComponent('"' + (item.block.text || '') + '"'))}" onclick="copyAutoEditMissingText(decodeURIComponent(this.dataset.copy))">复制当前文案</button></div>`;
     const renderedMissing = new Set();
@@ -15801,6 +16197,7 @@ function renderAutoEditBatchMatchResult(task) {
         [...before, ...after].forEach(item => renderedMissing.add(item.index));
         const status = segment?.status || 'warning';
         const handled = segment.review_acknowledged === true;
+        const matchState = handled ? 'handled' : (status === 'ready' ? 'passed' : 'failed');
         const icon = handled ? '✓' : (status === 'ready' ? '✅' : (status === 'error' ? '❌' : '⚠️'));
         const color = handled ? '#86efac' : (status === 'ready' ? '#51cf66' : (status === 'error' ? '#ff6b6b' : '#ff9f43'));
         const fileName = String(segment?.source || '').split(/[/\\]/).pop() || `片段 #${index + 1}`;
@@ -15811,18 +16208,95 @@ function renderAutoEditBatchMatchResult(task) {
         const compactStatus = handled ? '已处理（审核页可撤销）' : status === 'ready'
             ? `✓ ${escapeHtml(similarity)}`
             : `${icon} ${escapeHtml(similarity)} · ${escapeHtml(reason)}`;
-        return [...before.map(renderMissingWithCopy), `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;font-size:11px;">
+        const encodedSource = encodeURIComponent(segment?.source || '');
+        const thumbnailHtml = segment?.source
+            ? `<button class="ae-batch-review-thumb" data-autoedit-thumb-source="${escapeHtml(encodedSource)}" onclick="playAutoEditBatchReviewThumbnail(this)" title="点击预览原始素材"><span>加载中</span></button>`
+            : '<span class="ae-batch-review-thumb ae-batch-review-thumb-empty">无素材</span>';
+        return [...before.map(renderMissingWithCopy), `<div class="ae-batch-match-row" data-batch-match-state="${matchState}" style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07);display:grid;grid-template-columns:66px minmax(0,1fr) auto;gap:10px;align-items:center;font-size:11px;">
+            ${thumbnailHtml}
             <span title="${escapeHtml(segment?.source || fileName)}" style="overflow-wrap:anywhere;word-break:break-word;color:${color};">${icon} #${segment?.source_index || index + 1} ${escapeHtml(fileName)}</span>
             <span title="${escapeHtml(reason)}" style="color:${status === 'ready' ? '#51cf66' : color};white-space:nowrap;">${compactStatus}</span>
         </div>`, ...after.map(renderMissingWithCopy)];
     }).join('') + missingPlacement.filter(item => !renderedMissing.has(item.index)).map(renderMissingWithCopy).join('');
+    const failedCount = orderedSegments.filter(segment => segment?.review_acknowledged !== true && segment?.status !== 'ready').length
+        + missingBlocks.filter(block => !block.review_assignment).length;
+    const handledCount = orderedSegments.filter(segment => segment?.review_acknowledged === true).length
+        + missingBlocks.filter(block => block.review_assignment).length;
     return `<details ${hasIssues ? 'open' : ''} style="margin-top:8px;border:1px solid ${hasIssues ? 'rgba(255,159,67,.45)' : 'rgba(81,207,102,.35)'};border-radius:7px;padding:7px;background:rgba(0,0,0,.14);">
         <summary style="cursor:pointer;font-size:12px;color:${hasIssues ? '#ffd8a8' : '#b2f2bb'};">
             ${engineLabel}匹配结果：${summary.ready}/${summary.total} 通过 · ${summary.warning} 警告 · ${summary.error} 失败${summary.missingBlocks ? ` · ${summary.missingBlocks} 段${isMultilingualV2 ? '待确认文案' : '缺失文案'}` : ''}${summary.handled ? ` · 已处理 ${summary.handled}（可撤销）` : ''}
         </summary>
-        <div style="margin-top:6px;max-height:240px;overflow:auto;">${rows || '<div class="hint">未返回片段匹配明细</div>'}</div>
+        <div class="ae-batch-match-filter" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:7px;">
+            <span class="hint">素材筛选：</span>
+            <button class="btn btn-secondary" onclick="filterAutoEditBatchMatchRows(this,'all')" style="padding:2px 7px;font-size:10px;">全部</button>
+            <button class="btn btn-secondary" onclick="filterAutoEditBatchMatchRows(this,'failed')" style="padding:2px 7px;font-size:10px;">仅不合格 (${failedCount})</button>
+            <button class="btn btn-secondary" onclick="filterAutoEditBatchMatchRows(this,'handled')" style="padding:2px 7px;font-size:10px;">修改后合格 (${handledCount})</button>
+        </div>
+        <div class="ae-batch-match-list" style="margin-top:6px;max-height:240px;overflow:auto;">${rows || '<div class="hint">未返回片段匹配明细</div>'}</div>
     </details>`;
 }
+
+function filterAutoEditBatchMatchRows(button, filter) {
+    const details = button?.closest('details');
+    if (!details) return;
+    details.querySelectorAll('.ae-batch-match-row').forEach(row => {
+        row.hidden = filter !== 'all' && row.dataset.batchMatchState !== filter;
+    });
+    details.querySelectorAll('.ae-batch-match-filter .btn').forEach(item => {
+        item.classList.toggle('btn-primary', item === button);
+        item.classList.toggle('btn-secondary', item !== button);
+    });
+}
+window.filterAutoEditBatchMatchRows = filterAutoEditBatchMatchRows;
+
+function playAutoEditBatchReviewThumbnail(button) {
+    let source = '';
+    try { source = decodeURIComponent(button?.dataset?.autoeditThumbSource || ''); } catch (_) {}
+    if (source) window.playVideoClip?.(source, 0, 0);
+}
+
+function pumpAutoEditReviewThumbnailQueue() {
+    while (autoEditReviewThumbnailWorkers < 2 && autoEditReviewThumbnailQueue.length) {
+        const source = autoEditReviewThumbnailQueue.shift();
+        autoEditReviewThumbnailWorkers++;
+        batchCutGenThumb(source).then(thumbnail => {
+            autoEditReviewThumbnailCache.set(source, thumbnail || '');
+            document.querySelectorAll('.ae-batch-review-thumb[data-autoedit-thumb-source]').forEach(el => {
+                let elementSource = '';
+                try { elementSource = decodeURIComponent(el.dataset.autoeditThumbSource || ''); } catch (_) {}
+                if (elementSource !== source) return;
+                el.innerHTML = thumbnail ? `<img src="${thumbnail}" alt="素材缩略图">` : '<span>无预览</span>';
+                el.classList.toggle('ae-batch-review-thumb-failed', !thumbnail);
+            });
+        }).catch(() => {
+            autoEditReviewThumbnailCache.set(source, '');
+        }).finally(() => {
+            autoEditReviewThumbnailWorkers--;
+            autoEditReviewThumbnailLoading.delete(source);
+            pumpAutoEditReviewThumbnailQueue();
+        });
+    }
+}
+
+function hydrateAutoEditBatchReviewThumbnails(root = document) {
+    root.querySelectorAll?.('.ae-batch-review-thumb[data-autoedit-thumb-source]').forEach(el => {
+        let source = '';
+        try { source = decodeURIComponent(el.dataset.autoeditThumbSource || ''); } catch (_) {}
+        if (!source) return;
+        if (autoEditReviewThumbnailCache.has(source)) {
+            const thumbnail = autoEditReviewThumbnailCache.get(source);
+            el.innerHTML = thumbnail ? `<img src="${thumbnail}" alt="素材缩略图">` : '<span>无预览</span>';
+            el.classList.toggle('ae-batch-review-thumb-failed', !thumbnail);
+            return;
+        }
+        if (!autoEditReviewThumbnailLoading.has(source)) {
+            autoEditReviewThumbnailLoading.add(source);
+            autoEditReviewThumbnailQueue.push(source);
+        }
+    });
+    pumpAutoEditReviewThumbnailQueue();
+}
+window.playAutoEditBatchReviewThumbnail = playAutoEditBatchReviewThumbnail;
 
 function renderAutoEditBatchTasks() {
     const root = document.getElementById('autoedit-batch-task-list'); if (!root) return;
@@ -15831,7 +16305,7 @@ function renderAutoEditBatchTasks() {
     if (summary) {
         const analyzed = autoEditBatchTasks.filter(task => task.result?.analysis_only);
         const totals = analyzed.reduce((acc, task) => {
-            const item = getAutoEditBatchMatchSummary(task.result);
+            const item = getAutoEditBatchTaskSummary(task);
             acc.ready += item.ready; acc.warning += item.warning; acc.error += item.error; acc.missing += item.missingBlocks;
             return acc;
         }, { ready: 0, warning: 0, error: 0, missing: 0 });
@@ -15848,16 +16322,18 @@ function renderAutoEditBatchTasks() {
     }
     const matchHint = document.getElementById('autoedit-batch-match-hint');
     if (matchHint) {
-        const extraCount = Math.max(0, scriptCount - autoEditBatchTasks.length);
-        const missingCount = Math.max(0, autoEditBatchTasks.length - scriptCount);
+        const validScriptCount = autoEditBatchScriptCells.filter(s => String(s || '').trim()).length;
+        const extraCount = Math.max(0, validScriptCount - autoEditBatchTasks.length);
+        const missingCount = Math.max(0, autoEditBatchTasks.length - validScriptCount);
+        const pairedCount = autoEditBatchTasks.filter(t => t.script?.trim()).length;
         matchHint.textContent = !autoEditBatchTasks.length
-            ? (scriptCount ? `已识别 ${scriptCount} 个文案；请选择 ${scriptCount} 个文件夹自动配对。` : '粘贴后自动识别；第 N 个单元格对应第 N 个文件夹。')
+            ? (scriptCount ? `已识别 ${scriptCount} 个文案单元格（${validScriptCount} 个有效）；请选择文件夹配对。` : '粘贴后自动识别；第 N 个单元格对应第 N 个文件夹。')
             : (autoEditBatchSmartPairingComplete
-                ? `✅ ${autoEditBatchTasks.length} 个任务已智能配对${extraCount ? ` · ${extraCount} 个文案未匹配（不参与处理）` : ''}`
+                ? `✅ ${pairedCount} 个任务已智能配对${missingCount ? ` · ${missingCount} 个空文案任务已自动跳过` : (extraCount ? ` · ${extraCount} 个文案未匹配` : '')}`
                 : (extraCount
                     ? `⚠️ 文案比任务多 ${extraCount} 个；点击「智能配对」自动选出最匹配的 ${autoEditBatchTasks.length} 个`
-                    : (missingCount ? `⚠️ 缺少 ${missingCount} 个文案，无法完成配对` : `✅ ${scriptCount} 个文案与文件夹已一一配对`)));
-        matchHint.style.color = autoEditBatchTasks.length && (missingCount || (extraCount && !autoEditBatchSmartPairingComplete)) ? '#ff9f43' : '';
+                    : (missingCount ? `💡 检测到 ${validScriptCount} 个有效文案（缺少 ${missingCount} 个）；点击「智能配对」自动匹配最吻合的组合，其余自动跳过` : `✅ ${scriptCount} 个文案与文件夹已一一配对`)));
+        matchHint.style.color = autoEditBatchTasks.length && extraCount && !autoEditBatchSmartPairingComplete ? '#ff9f43' : '';
     }
     if (!autoEditBatchTasks.length) {
         if (!autoEditBatchScriptCells.length) { root.innerHTML = '<div class="hint">先粘贴 Google Sheets 单元格，或先选择多个文件夹。</div>'; return; }
@@ -15891,12 +16367,17 @@ function renderAutoEditBatchTasks() {
             return `<div style="border:1px solid rgba(251,191,36,.25);border-radius:7px;padding:8px;background:rgba(0,0,0,.16);"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px;"><strong style="color:#fde68a;">原文案 #${Number(item.originalIndex) + 1}</strong><span class="hint">${lines} 行</span></div><div style="white-space:pre-wrap;line-height:1.45;max-height:100px;overflow:auto;">${escapeHtml(script)}</div></div>`;
         }).join('')}</div></section>` : '';
     root.innerHTML = taskCards + unmatchedCards;
+    hydrateAutoEditBatchReviewThumbnails(root);
     root.querySelectorAll('.autoedit-batch-task').forEach((card, index) => {
         const task = autoEditBatchTasks[index];
         if (autoEditBatchTaskFilter === 'issues') {
             card.hidden = !autoEditBatchTaskHasIssues(task);
         } else if (autoEditBatchTaskFilter === 'passed') {
             card.hidden = autoEditBatchTaskHasIssues(task);
+        } else if (autoEditBatchTaskFilter === 'handled') {
+            card.hidden = !autoEditBatchTaskIsHandledPassed(task);
+        } else if (autoEditBatchTaskFilter === 'unexported') {
+            card.hidden = !autoEditBatchTaskIsUnexported(task);
         } else if (autoEditBatchTaskFilter === 'selected') {
             card.hidden = task?.sendToReels === false;
         } else {
@@ -15913,18 +16394,27 @@ function renderAutoEditBatchTasks() {
     });
 
     const filterPassedBtn = document.getElementById('autoedit-batch-filter-passed-btn');
+    const filterHandledBtn = document.getElementById('autoedit-batch-filter-handled-btn');
     const filterIssuesBtn = document.getElementById('autoedit-batch-filter-issues-btn');
     const filterSelectedBtn = document.getElementById('autoedit-batch-filter-selected-btn');
+    const filterUnexportedBtn = document.getElementById('autoedit-batch-filter-unexported-btn');
     const filterAllBtn = document.getElementById('autoedit-batch-filter-all-btn');
     const issuesCount = autoEditBatchTasks.filter(t => autoEditBatchTaskHasIssues(t)).length;
     const passedCount = autoEditBatchTasks.filter(t => Boolean(t?.clips?.length) && !autoEditBatchTaskHasIssues(t)).length;
+    const handledCount = autoEditBatchTasks.filter(autoEditBatchTaskIsHandledPassed).length;
     const selectedCount = autoEditBatchTasks.filter(t => t.sendToReels !== false).length;
+    const unexportedCount = autoEditBatchTasks.filter(autoEditBatchTaskIsUnexported).length;
     const allCount = autoEditBatchTasks.length;
 
     if (filterPassedBtn) {
         filterPassedBtn.textContent = `查看通过 (${passedCount})`;
         filterPassedBtn.classList.toggle('btn-primary', autoEditBatchTaskFilter === 'passed');
         filterPassedBtn.classList.toggle('btn-secondary', autoEditBatchTaskFilter !== 'passed');
+    }
+    if (filterHandledBtn) {
+        filterHandledBtn.textContent = `查看修改后合格 (${handledCount})`;
+        filterHandledBtn.classList.toggle('btn-primary', autoEditBatchTaskFilter === 'handled');
+        filterHandledBtn.classList.toggle('btn-secondary', autoEditBatchTaskFilter !== 'handled');
     }
     if (filterIssuesBtn) {
         filterIssuesBtn.textContent = `查看未通过 (${issuesCount})`;
@@ -15935,6 +16425,11 @@ function renderAutoEditBatchTasks() {
         filterSelectedBtn.textContent = `查看已选择 (${selectedCount})`;
         filterSelectedBtn.classList.toggle('btn-primary', autoEditBatchTaskFilter === 'selected');
         filterSelectedBtn.classList.toggle('btn-secondary', autoEditBatchTaskFilter !== 'selected');
+    }
+    if (filterUnexportedBtn) {
+        filterUnexportedBtn.textContent = `查看未导出 (${unexportedCount})`;
+        filterUnexportedBtn.classList.toggle('btn-primary', autoEditBatchTaskFilter === 'unexported');
+        filterUnexportedBtn.classList.toggle('btn-secondary', autoEditBatchTaskFilter !== 'unexported');
     }
     if (filterAllBtn) {
         filterAllBtn.textContent = `显示全部 (${allCount})`;
@@ -16018,13 +16513,30 @@ function scoreAutoEditBatchSmartPair(transcript, script) {
 }
 
 // Hungarian assignment: returns the script index chosen for every task while
+// Hungarian assignment: returns the script index chosen for every task while
 // maximizing the complete matrix score, rather than greedily stealing the best
 // script from a later task.
 function solveAutoEditBatchSmartAssignment(scores) {
     const rowCount = scores.length;
     const columnCount = scores.reduce((max, row) => Math.max(max, row.length), 0);
-    if (!rowCount) return [];
-    if (columnCount < rowCount) throw new Error('可用文案少于任务数量');
+    if (!rowCount || !columnCount) return new Array(rowCount).fill(-1);
+
+    // 当文案数量少于任务数量时（例如存在空单元格导致有效文案少于任务数）：
+    // 通过转置矩阵为每个文案选出全局匹配度最高的任务，未分配到文案的任务置为 -1
+    if (columnCount < rowCount) {
+        const transposed = Array.from({ length: columnCount }, (_, j) =>
+            Array.from({ length: rowCount }, (_, i) => scores[i]?.[j] ?? 0)
+        );
+        const scriptToTask = solveAutoEditBatchSmartAssignment(transposed);
+        const assignment = new Array(rowCount).fill(-1);
+        scriptToTask.forEach((taskIdx, scriptIdx) => {
+            if (taskIdx >= 0 && taskIdx < rowCount) {
+                assignment[taskIdx] = scriptIdx;
+            }
+        });
+        return assignment;
+    }
+
     const u = new Float64Array(rowCount + 1), v = new Float64Array(columnCount + 1);
     const p = new Int32Array(columnCount + 1), way = new Int32Array(columnCount + 1);
     for (let i = 1; i <= rowCount; i++) {
@@ -16037,7 +16549,7 @@ function solveAutoEditBatchSmartAssignment(scores) {
             const i0 = p[j0];
             let delta = Infinity, j1 = 0;
             for (let j = 1; j <= columnCount; j++) if (!used[j]) {
-                const cur = (1 - scores[i0 - 1][j - 1]) - u[i0] - v[j];
+                const cur = (1 - (scores[i0 - 1]?.[j - 1] ?? 0)) - u[i0] - v[j];
                 if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
                 if (minv[j] < delta) { delta = minv[j]; j1 = j; }
             }
@@ -16056,12 +16568,14 @@ function solveAutoEditBatchSmartAssignment(scores) {
 
 async function startAutoEditBatchSmartPairing() {
     if (autoEditBatchRunning) return showToast('批量任务正在运行，请稍候', 'info');
-    // 空文案单元格不参与智能匹配；它们常常正好对应被跳过的空文件夹。
+    // 空文案单元格不参与智能匹配；它们常常对应未就绪文案或被跳过的任务
     const scriptItems = autoEditBatchScriptCells
         .map((script, originalIndex) => ({ script: String(script || ''), originalIndex }))
         .filter(item => item.script.trim());
     const scripts = scriptItems.map(item => item.script);
+    if (!scripts.length) return showToast('没有检测到有效文案，请先粘贴文案', 'error');
     if (!autoEditBatchTasks.length) return showToast('请先添加任务文件夹', 'error');
+
     const activeTasks = autoEditBatchTasks.filter(task => task.clips?.length);
     const skippedTasks = autoEditBatchTasks.filter(task => !task.clips?.length);
     skippedTasks.forEach(task => {
@@ -16070,11 +16584,14 @@ async function startAutoEditBatchSmartPairing() {
         task.message = '空文件夹，已跳过';
     });
     if (!activeTasks.length) { renderAutoEditBatchTasks(); return showToast('所有任务文件夹都没有视频，已在对应卡片标记为跳过', 'warning'); }
-    if (scripts.length < activeTasks.length) return showToast(`文案少于可处理任务：${activeTasks.length} 个有视频任务、${scripts.length} 个文案，还缺 ${activeTasks.length - scripts.length} 个`, 'error', 6500);
+
+    const isFewerScripts = scripts.length < activeTasks.length;
     const concurrency = Math.max(1, Math.min(4, parseInt(document.getElementById('autoedit-batch-concurrency')?.value || '2', 10)));
     const settings = { ...getAutoEditRequestSettings() };
     setAutoEditBatchRunning(true);
-    showToast('智能配对：正在取得每个文件夹的识别全文…', 'info', 5000);
+    showToast(isFewerScripts
+        ? `智能配对：检测到 ${scripts.length} 个有效文案（缺少 ${activeTasks.length - scripts.length} 个），正在智能寻找最佳匹配任务组合…`
+        : '智能配对：正在取得每个文件夹的识别全文…', 'info', 5000);
     try {
         const transcriptForTask = task => (task.result?.segments || [])
             .slice()
@@ -16085,8 +16602,6 @@ async function startAutoEditBatchSmartPairing() {
         const transcribeWorker = async () => {
             while (cursor < activeTasks.length) {
                 const task = activeTasks[cursor++];
-                // Recognition text is independent from the pasted script. Reuse
-                // it when available instead of running every task from scratch.
                 if (transcriptForTask(task)) {
                     task.message = '智能配对 · 已复用现有识别结果';
                     renderAutoEditBatchTasks();
@@ -16102,23 +16617,39 @@ async function startAutoEditBatchSmartPairing() {
         if (missingTranscript >= 0) throw new Error(`${activeTasks[missingTranscript].name} 没有取得有效识别文字`);
         const scores = transcripts.map(transcript => scripts.map(script => scoreAutoEditBatchSmartPair(transcript, script)));
         const assignment = solveAutoEditBatchSmartAssignment(scores);
-        const assignedScriptIndexes = new Set(assignment);
+        const assignedScriptIndexes = new Set();
+        assignment.forEach(idx => { if (idx >= 0) assignedScriptIndexes.add(idx); });
+
         const tasksNeedingVerification = [];
+        let unassignedCount = 0;
         activeTasks.forEach((task, index) => {
             const scriptIndex = assignment[index];
-            const assignedScript = scripts[scriptIndex];
-            const canReuseAnalysis = task.result?.analysis_only === true && analyzedScripts[index] === assignedScript;
-            task.script = assignedScript;
-            task.smartPairScriptIndex = scriptItems[scriptIndex].originalIndex;
-            task.smartPairScore = scores[index][scriptIndex];
-            if (canReuseAnalysis) {
-                task.message = `智能配对到文案 #${scriptIndex + 1} · ${Math.round(task.smartPairScore * 100)}% · 已复用分析`;
+            if (scriptIndex >= 0 && scripts[scriptIndex]) {
+                const assignedScript = scripts[scriptIndex];
+                const canReuseAnalysis = task.result?.analysis_only === true && analyzedScripts[index] === assignedScript;
+                task.script = assignedScript;
+                task.smartPairScriptIndex = scriptItems[scriptIndex].originalIndex;
+                task.smartPairScore = scores[index][scriptIndex];
+                task.sendToReels = true;
+                if (canReuseAnalysis) {
+                    task.message = `智能配对到文案 #${scriptIndex + 1} · ${Math.round(task.smartPairScore * 100)}% · 已复用分析`;
+                } else {
+                    task.reviewSegments = null;
+                    task.result = null;
+                    task.status = 'waiting';
+                    task.message = `智能配对到文案 #${scriptIndex + 1} · ${Math.round(task.smartPairScore * 100)}% · 等待复核`;
+                    tasksNeedingVerification.push(task);
+                }
             } else {
+                task.script = '';
+                task.smartPairScriptIndex = null;
+                task.smartPairScore = null;
                 task.reviewSegments = null;
                 task.result = null;
-                task.status = 'waiting';
-                task.message = `智能配对到文案 #${scriptIndex + 1} · ${Math.round(task.smartPairScore * 100)}% · 等待复核`;
-                tasksNeedingVerification.push(task);
+                task.status = 'skipped';
+                task.sendToReels = false;
+                task.message = '空单元格无对应文案（已跳过导出）';
+                unassignedCount++;
             }
         });
         autoEditBatchUnmatchedScripts = scriptItems
@@ -16128,18 +16659,18 @@ async function startAutoEditBatchSmartPairing() {
         syncAutoEditBatchParallelLists();
         renderAutoEditBatchTasks();
         showToast(tasksNeedingVerification.length
-            ? `文案已重新分配；${activeTasks.length - tasksNeedingVerification.length} 个任务直接复用，正在复核 ${tasksNeedingVerification.length} 个变化任务…${skippedTasks.length ? `；已跳过 ${skippedTasks.length} 个空文件夹` : ''}`
-            : `智能配对完成；全部任务均复用现有分析，无需重新运行${skippedTasks.length ? `；已跳过 ${skippedTasks.length} 个空文件夹` : ''}`, 'info', 6000);
+            ? `文案已重新分配；${activeTasks.length - unassignedCount - tasksNeedingVerification.length} 个任务直接复用，正在复核 ${tasksNeedingVerification.length} 个变化任务…${unassignedCount ? `；已跳过 ${unassignedCount} 个空文案任务` : ''}`
+            : `智能配对完成；有效任务均复用现有分析${unassignedCount ? `；已自动跳过 ${unassignedCount} 个空文案任务` : ''}`, 'info', 6000);
         cursor = 0;
         const verifyWorker = async () => {
             while (cursor < tasksNeedingVerification.length) await analyzeAutoEditBatchTask(tasksNeedingVerification[cursor++], settings);
         };
         await Promise.all(Array.from({ length: Math.min(concurrency, tasksNeedingVerification.length) }, verifyWorker));
-        const lowConfidence = activeTasks.filter(task => task.smartPairScore < .35).length;
+        const lowConfidence = activeTasks.filter(task => task.script && task.smartPairScore < .35).length;
         const unmatchedCount = autoEditBatchUnmatchedScripts.length;
         showToast(lowConfidence
             ? `智能配对完成；${lowConfidence} 组置信度较低，请人工确认${unmatchedCount ? `；${unmatchedCount} 个文案未匹配` : ''}`
-            : `智能配对并复核完成${unmatchedCount ? `；${unmatchedCount} 个多余文案已列为未匹配` : ''}${skippedTasks.length ? `；${skippedTasks.length} 个空文件夹已跳过` : ''}`, lowConfidence ? 'warning' : 'success', 7000);
+            : `智能配对并复核完成${unmatchedCount ? `；${unmatchedCount} 个多余文案已列为未匹配` : ''}${unassignedCount ? `；已跳过 ${unassignedCount} 个空文案任务` : ''}${skippedTasks.length ? `；已跳过 ${skippedTasks.length} 个空文件夹` : ''}`, lowConfidence ? 'warning' : 'success', 7000);
     } catch (error) {
         showToast(`智能配对失败：${error?.message || error}`, 'error', 7000);
     } finally {
@@ -16153,20 +16684,36 @@ async function startAutoEditBatchAnalysis() {
     const skippedTasks = autoEditBatchTasks.filter(task => !task.clips?.length);
     skippedTasks.forEach(task => { task.status = 'skipped'; task.sendToReels = false; task.message = '空文件夹，已跳过'; });
     if (!activeTasks.length) { renderAutoEditBatchTasks(); return showToast('没有可分析的视频任务', 'warning'); }
-    if (autoEditBatchScriptCells.length < activeTasks.length) return showToast(`文案少于可处理任务，还缺 ${activeTasks.length - autoEditBatchScriptCells.length} 个文案`,'error');
-    if (autoEditBatchScriptCells.length > activeTasks.length && !autoEditBatchSmartPairingComplete) return showToast(`文案多于有视频任务，请先点击「智能配对」自动选择匹配文案`,'error',6500);
-    if (activeTasks.some(t=>!t.script.trim())) return showToast('有视频任务缺少文案，请补充后再分析','error');
+
+    // 缺少文案的任务自动跳过，不阻碍其他正常任务
+    const missingScriptTasks = activeTasks.filter(t => !t.script?.trim());
+    missingScriptTasks.forEach(t => {
+        t.status = 'skipped';
+        t.sendToReels = false;
+        t.message = '无文案（空单元格已跳过）';
+    });
+
+    const tasksToAnalyze = activeTasks.filter(t => t.script?.trim() && t.sendToReels !== false);
+    if (!tasksToAnalyze.length) {
+        renderAutoEditBatchTasks();
+        return showToast('没有可分析的有效任务（所有任务均缺少文案或已跳过）', 'warning');
+    }
+
+    if (autoEditBatchScriptCells.length > activeTasks.length && !autoEditBatchSmartPairingComplete) {
+        return showToast(`文案多于有视频任务，请先点击「智能配对」自动选择匹配文案`,'error',6500);
+    }
+
     const n=Math.max(1,Math.min(4,parseInt(document.getElementById('autoedit-batch-concurrency')?.value||'2',10))); let cursor=0;
     const settings={...getAutoEditRequestSettings()};
     setAutoEditBatchRunning(true);
     try {
-        const worker=async()=>{ while(cursor<activeTasks.length) await analyzeAutoEditBatchTask(activeTasks[cursor++],settings); };
-        await Promise.all(Array.from({length:Math.min(n,activeTasks.length)},worker));
+        const worker=async()=>{ while(cursor<tasksToAnalyze.length) await analyzeAutoEditBatchTask(tasksToAnalyze[cursor++],settings); };
+        await Promise.all(Array.from({length:Math.min(n,tasksToAnalyze.length)},worker));
         const taskErrors=autoEditBatchTasks.filter(task=>task.status==='error').length;
         const taskWarnings=autoEditBatchTasks.filter(task=>task.status==='warning').length;
         const totals=autoEditBatchTasks.reduce((acc,task)=>{
             if (!task.result?.analysis_only) return acc;
-            const item=getAutoEditBatchMatchSummary(task.result);
+            const item=getAutoEditBatchTaskSummary(task);
             acc.ready+=item.ready; acc.warning+=item.warning; acc.error+=item.error; acc.missing+=item.missingBlocks;
             return acc;
         },{ready:0,warning:0,error:0,missing:0});
@@ -19159,7 +19706,12 @@ function persistAutoEditBatchReview() {
             task.message = '已导出（审核未修改，复用已有裁切）';
         } else {
             task.status = 'reviewed';
-            task.message = '已处理并保存，等待导出';
+            const summary = getAutoEditBatchTaskSummary(task);
+            const hasHumanHandling = reviewSegments.some(hasAutoEditHumanReview)
+                || (task.result?.missing_blocks || []).some(block => block.review_assignment);
+            task.message = summary.error || summary.warning || summary.missingBlocks
+                ? '审核已保存，仍有待处理问题'
+                : (hasHumanHandling ? '已人工处理并保存，等待导出' : '审核已保存，匹配通过');
             task.exportSignature = '';
             task.exportedAt = '';
             // 已导出的任务被再次编辑后，转回“可导出审核稿”。
@@ -28265,3 +28817,1247 @@ window.adjustAudioMatchManualOffset = adjustAudioMatchManualOffset;
 window.resetAudioMatchManualOffset = resetAudioMatchManualOffset;
 window.playAudioMatchAudio = playAudioMatchAudio;
 window.stopAudioMatchAudio = stopAudioMatchAudio;
+
+// ==================== 素材整理（多规则自适应版） ====================
+let organizerState = {
+    sourceDir: '',
+    delimiterMode: 'auto',
+    mode: 'move', // 'move' | 'copy'
+    cleanEmptyDirs: false,
+    rules: [
+        {
+            id: 'rule_default_1',
+            name: '默认规则 (按第 1 字段分组)',
+            enabled: true,
+            matchType: 'always',
+            matchValue: '',
+            folderMode: 'slots',
+            slots: [0],
+            slotJoiner: '_'
+        }
+    ],
+    plan: null,
+    history: [],
+    lastLogPath: '',
+    editingRule: null,
+    editingSample: null,
+    selectedSlots: [0],
+    openGroups: null,
+    recursive: true
+};
+
+// 尝试从 localStorage 读取历史已存规则
+try {
+    const savedRules = localStorage.getItem('videokit_organizer_rules_v2');
+    if (savedRules) {
+        const parsed = JSON.parse(savedRules);
+        if (Array.isArray(parsed) && parsed.length > 0) organizerState.rules = parsed;
+    }
+} catch (_) { }
+
+function organizerEsc(v) {
+    const d = document.createElement('div');
+    d.textContent = String(v || '');
+    return d.innerHTML;
+}
+
+async function organizerChooseFolder() {
+    const folder = await window.electronAPI?.selectDirectory?.();
+    if (folder) {
+        document.getElementById('organizer-source').value = folder;
+        organizerState.sourceDir = folder;
+        organizerPreview();
+    }
+}
+
+function organizerChangeDelim(val) {
+    organizerState.delimiterMode = val || 'auto';
+    if (document.getElementById('organizer-source')?.value) {
+        organizerPreview();
+    }
+}
+
+function organizerToggleRecursive(checked) {
+    organizerState.recursive = Boolean(checked);
+    if (document.getElementById('organizer-source')?.value) {
+        organizerPreview();
+    }
+}
+
+function organizerChangeMode(mode) {
+    organizerState.mode = mode;
+    const cleanWrap = document.getElementById('organizer-clean-empty-wrap');
+    if (cleanWrap) cleanWrap.style.display = mode === 'move' ? 'flex' : 'none';
+    const applyBtn = document.getElementById('organizer-apply-btn');
+    if (applyBtn) {
+        applyBtn.textContent = mode === 'copy' ? '🚀 确认整理并复制文件' : '🚀 确认整理并移动文件';
+    }
+}
+
+function organizerToggleCleanEmpty(checked) {
+    organizerState.cleanEmptyDirs = Boolean(checked);
+}
+
+async function organizerPreview() {
+    const source = document.getElementById('organizer-source')?.value?.trim();
+    if (!source) return showToast('请先选择待整理文件夹', 'error');
+    organizerState.sourceDir = source;
+    organizerState.openGroups = null;
+
+    try {
+        const res = await apiFetch(`${API_BASE}/media/organize/preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                source_dir: source,
+                rules: organizerState.rules,
+                options: {
+                    delimiterMode: organizerState.delimiterMode,
+                    recursive: organizerState.recursive !== false
+                }
+            })
+        });
+        const plan = await res.json();
+        if (!res.ok) throw new Error(plan.error || '分析失败');
+
+        organizerState.plan = plan;
+        _renderOrganizerAll();
+    } catch (e) {
+        showToast(`扫描分析失败: ${e.message}`, 'error');
+    }
+}
+
+function _renderOrganizerAll() {
+    _renderOrganizerRulesList();
+    _renderOrganizerSummary();
+    _renderOrganizerGroups();
+
+    document.getElementById('organizer-rules-section')?.classList.remove('hidden');
+    document.getElementById('organizer-summary')?.classList.remove('hidden');
+    document.getElementById('organizer-groups')?.classList.remove('hidden');
+    document.getElementById('organizer-actions')?.classList.remove('hidden');
+    document.getElementById('organizer-status').textContent = '预览已就绪，已按您设定的规则对号入座，可确认执行。';
+}
+
+function _renderOrganizerRulesList() {
+    const container = document.getElementById('organizer-rules-list');
+    if (!container) return;
+
+    const rules = organizerState.rules || [];
+    const counts = organizerState.plan?.ruleMatchCounts || {};
+
+    if (rules.length === 0) {
+        container.innerHTML = `<div style="color:var(--text-secondary);font-size:12px;padding:8px 0;">暂无生效规则，点击右上角「添加新规则」或从下方点击样本文件快速创建。</div>`;
+        return;
+    }
+
+    container.innerHTML = rules.map((r, idx) => {
+        const matchCount = counts[r.id] !== undefined ? counts[r.id] : 0;
+        let condDesc = '';
+        if (r.matchType === 'always') condDesc = '无条件 (所有文件)';
+        else if (r.matchType === 'contains' || r.matchType === 'containsAny') condDesc = `包含任一: "${organizerEsc(r.matchValue)}"`;
+        else if (r.matchType === 'containsAll') condDesc = `同时包含全部: "${organizerEsc(r.matchValue)}"`;
+        else if (r.matchType === 'startsWith') condDesc = `以此开头: "${organizerEsc(r.matchValue)}"`;
+        else if (r.matchType === 'endsWith') condDesc = `以此结尾: "${organizerEsc(r.matchValue)}"`;
+        else if (r.matchType === 'regex') condDesc = `正则匹配: /${organizerEsc(r.matchValue)}/`;
+
+        let targetDesc = '';
+        if (r.folderMode === 'matchedKeyword') {
+            targetDesc = `按实际匹配词建文件夹 (如 "${organizerEsc(r.matchValue.split(/[,，|/、;\n]+/)[0] || r.matchValue)}")`;
+        } else if (r.folderMode === 'custom') {
+            targetDesc = `固定名称 "${organizerEsc(r.customName)}"`;
+        } else {
+            const slotLabels = (r.slots || [0]).map(s => `第${s + 1}段`).join(' + ');
+            targetDesc = `提取字段 [${slotLabels}] (连接符: "${organizerEsc(r.slotJoiner || '_')}")`;
+        }
+
+        return `
+            <div class="organizer-rule-card ${r.enabled ? '' : 'disabled'}" data-rule-id="${r.id}">
+                <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+                    <label style="cursor:pointer;margin:0;display:flex;align-items:center;">
+                        <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="organizerToggleRule('${r.id}')" title="启用/停用此规则">
+                    </label>
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-weight:600;font-size:13px;color:var(--text-primary);">#${idx + 1} ${organizerEsc(r.name || '未命名规则')}</span>
+                            <span style="font-size:11px;padding:1px 6px;border-radius:10px;background:rgba(124,92,255,0.15);color:#c4b5fd;border:1px solid rgba(124,92,255,0.25);">已对号入座 ${matchCount} 个文件</span>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:3px;display:flex;gap:12px;flex-wrap:wrap;">
+                            <span>🎯 条件: <b style="color:var(--text-primary);">${condDesc}</b></span>
+                            <span>📁 目标: <b style="color:#86efac;">${targetDesc}</b></span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;">
+                    <button class="btn btn-secondary btn-small" onclick="organizerEditRule('${r.id}')" title="编辑此规则">✏️ 编辑</button>
+                    <button class="btn btn-secondary btn-small" onclick="organizerDeleteRule('${r.id}')" style="color:#f87171;" title="删除此规则">🗑️</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function organizerToggleRule(ruleId) {
+    const rule = organizerState.rules.find(r => r.id === ruleId);
+    if (rule) {
+        rule.enabled = !rule.enabled;
+        _saveRulesToStorage();
+        organizerPreview();
+    }
+}
+
+function organizerDeleteRule(ruleId) {
+    organizerState.rules = organizerState.rules.filter(r => r.id !== ruleId);
+    _saveRulesToStorage();
+    organizerPreview();
+}
+
+function organizerResetDefaultRules() {
+    organizerState.rules = [
+        {
+            id: 'rule_default_' + Date.now(),
+            name: '默认规则 (按第 1 字段分组)',
+            enabled: true,
+            matchType: 'always',
+            matchValue: '',
+            folderMode: 'slots',
+            slots: [0],
+            slotJoiner: '_'
+        }
+    ];
+    _saveRulesToStorage();
+    organizerPreview();
+    showToast('已重置为默认规则', 'info');
+}
+
+function _saveRulesToStorage() {
+    try {
+        localStorage.setItem('videokit_organizer_rules_v2', JSON.stringify(organizerState.rules));
+    } catch (_) { }
+}
+
+function organizerOpenAddRule(sampleFile = null) {
+    let sample = sampleFile;
+    if (!sample) {
+        // 优先从 pending 取样本，若无则从全部样本取
+        sample = organizerState.plan?.pending?.[0] || organizerState.plan?.sampleFiles?.[0];
+    }
+
+    organizerState.editingRule = {
+        id: 'rule_' + Date.now(),
+        name: `规则 ${organizerState.rules.length + 1}`,
+        enabled: true,
+        matchType: sample ? 'contains' : 'always',
+        matchValue: sample?.tokens?.[0] || '',
+        folderMode: 'slots',
+        slots: [0],
+        slotJoiner: '_'
+    };
+    organizerState.editingSample = sample;
+    organizerState.selectedSlots = [0];
+
+    _renderOrganizerRuleEditor();
+}
+
+function organizerEditRule(ruleId) {
+    const rule = organizerState.rules.find(r => r.id === ruleId);
+    if (!rule) return;
+
+    organizerState.editingRule = JSON.parse(JSON.stringify(rule));
+    organizerState.selectedSlots = Array.isArray(rule.slots) ? [...rule.slots] : [0];
+
+    // 寻找匹配该规则的样本，或者默认样本
+    let sample = null;
+    if (organizerState.plan?.sampleFiles) {
+        sample = organizerState.plan.sampleFiles.find(f => {
+            if (rule.matchType === 'contains' && rule.matchValue) {
+                return f.base.toLowerCase().includes(rule.matchValue.toLowerCase());
+            }
+            return true;
+        });
+    }
+    organizerState.editingSample = sample || organizerState.plan?.sampleFiles?.[0];
+
+    _renderOrganizerRuleEditor();
+}
+
+function organizerCloseRuleEditor() {
+    organizerState.editingRule = null;
+    organizerState.editingSample = null;
+    const editorEl = document.getElementById('organizer-rule-editor');
+    if (editorEl) {
+        editorEl.classList.add('hidden');
+        editorEl.innerHTML = '';
+    }
+}
+
+function _renderOrganizerRuleEditor() {
+    const editorEl = document.getElementById('organizer-rule-editor');
+    if (!editorEl || !organizerState.editingRule) return;
+
+    const r = organizerState.editingRule;
+    const sample = organizerState.editingSample;
+    const tokens = sample?.tokens || ['字段1', '字段2', '字段3'];
+    const sampleList = organizerState.plan?.sampleFiles || (sample ? [sample] : []);
+
+    editorEl.classList.remove('hidden');
+
+    const pillsHtml = tokens.map((token, idx) => {
+        const isActive = organizerState.selectedSlots.includes(idx);
+        return `
+            <button type="button" class="organizer-token-pill ${isActive ? 'active' : ''}" 
+                onclick="organizerToggleSlot(${idx})" 
+                title="点击选择/取消此字段用于生成文件夹">
+                <span>[${idx + 1}]</span>
+                <b>${organizerEsc(token)}</b>
+            </button>
+        `;
+    }).join(' ');
+
+    const sampleSuggestions = tokens.map(t => {
+        return `<button type="button" class="organizer-kw-pill" data-kw="${organizerEsc(t)}" onclick="organizerToggleKeyword('${organizerEsc(t)}')" title="点击添加/移除此关键词">
+            "${organizerEsc(t)}"
+        </button>`;
+    }).join(' ');
+
+    const topKws = organizerState.plan?.topKeywords || [];
+    const topKeywordsHtml = topKws.map(item => {
+        return `<button type="button" class="organizer-kw-pill" data-kw="${organizerEsc(item.token)}" 
+            onclick="organizerToggleKeyword('${organizerEsc(item.token)}')" 
+            title="在全文件夹中出现 ${item.count} 次，点击添加/移除">
+            <span>${organizerEsc(item.token)}</span>
+            <span style="opacity:0.6;font-size:10px;">(${item.count})</span>
+        </button>`;
+    }).join(' ');
+
+    editorEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <span style="font-weight:600;font-size:14px;color:#c4b5fd;">🧩 配置对号入座规则</span>
+            <button class="btn btn-secondary btn-small" onclick="organizerCloseRuleEditor()">✕ 关闭</button>
+        </div>
+
+        <!-- 极速模式捷径栏 -->
+        <div style="background:linear-gradient(135deg,rgba(124,92,255,0.15),rgba(59,130,246,0.1));border:1px solid rgba(124,92,255,0.35);border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="font-size:12px;color:var(--text-primary);display:flex;align-items:center;gap:6px;">
+                <span style="font-size:16px;">⚡</span>
+                <div>
+                    <b>极速省时技巧：</b>若整批文件的角色/分类都在同一字段位置（如第 2 段），<b>无需为每个角色逐个建规则</b>！
+                    <div style="color:var(--text-secondary);font-size:11px;margin-top:2px;">点击右侧按钮，仅需 1 条通用规则即可将所有角色全自动分门别类，一步到位！</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-small" style="background:#7c5cff;color:#fff;font-weight:600;padding:4px 14px;" onclick="organizerQuickSlotMode()">
+                    ✨ 一键设为「通用字段分组」(全自动)
+                </button>
+                <button type="button" class="btn btn-secondary btn-small" onclick="organizerQuickAddCharacterKeywords()">
+                    🎯 一键填入所有角色词 (自动对号入座)
+                </button>
+            </div>
+        </div>
+
+        <!-- 样本文件名及字段切片 -->
+        <div style="background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;padding:12px 14px;margin-bottom:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                    <span style="font-size:12px;color:var(--text-secondary);flex-shrink:0;">当前参考样本:</span>
+                    <select id="organizer-sample-select" class="input" style="flex:1;height:28px;padding:2px 6px;font-size:12px;min-width:200px;max-width:520px;" onchange="organizerSwitchSample(this.value)">
+                        ${sampleList.map((s, idx) => `
+                            <option value="${idx}" ${s.path === sample?.path ? 'selected' : ''}>
+                                ${organizerEsc(s.name)}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+                <span class="hint" style="margin:0;font-size:11px;">(可任意切换样本查看不同批次文件的字段规律)</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
+                点击下列色块挑选要提取成文件夹名称的字段：
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                ${pillsHtml}
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
+            <!-- 左侧：实际文件名字内容条件 -->
+            <div style="background:rgba(0,0,0,0.15);padding:12px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text-primary);">1. 实际文件名字匹配条件:</div>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <select id="organizer-rule-type" class="input" style="width:165px;height:28px;padding:2px 6px;font-size:12px;flex-shrink:0;" onchange="_handleRuleTypeChange(this.value)">
+                            <option value="contains" ${r.matchType === 'contains' || r.matchType === 'containsAny' ? 'selected' : ''}>包含任一关键词 (或)</option>
+                            <option value="containsAll" ${r.matchType === 'containsAll' ? 'selected' : ''}>同时包含所有词 (且)</option>
+                            <option value="startsWith" ${r.matchType === 'startsWith' ? 'selected' : ''}>以指定文字开头</option>
+                            <option value="endsWith" ${r.matchType === 'endsWith' ? 'selected' : ''}>以指定文字结尾</option>
+                            <option value="always" ${r.matchType === 'always' ? 'selected' : ''}>无条件 (所有剩余文件)</option>
+                        </select>
+                        <div style="display:flex;gap:6px;flex:1;align-items:center;">
+                            <input id="organizer-rule-val" class="input" style="flex:1;height:28px;padding:2px 8px;font-size:12px;" 
+                                placeholder="支持输入多个词(逗号隔开)，如: 男1, 男2, 001" value="${organizerEsc(r.matchValue || '')}" 
+                                oninput="_updateRulePreviewFolder(); _highlightActiveKeywords();" ${r.matchType === 'always' ? 'disabled' : ''}>
+                            <button type="button" class="btn btn-secondary btn-small" onclick="organizerClearRuleVal()" style="padding:2px 8px;font-size:11px;flex-shrink:0;" title="清空关键词">✕ 清空</button>
+                        </div>
+                    </div>
+
+                    <!-- 当前样本特征词 -->
+                    <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">
+                        <span>样本特征词 (点击追加/移除):</span>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                            ${sampleSuggestions}
+                        </div>
+                    </div>
+
+                    <!-- 全文件夹高频词汇 -->
+                    ${topKeywordsHtml ? `
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;border-top:1px dashed rgba(255,255,255,0.06);padding-top:6px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                    <span style="font-weight:600;color:var(--text-primary);">🔥 词库快速检索与自定义:</span>
+                                    <input type="text" id="organizer-token-search" placeholder="输入任意词或前缀 (如 女、男、行、副本...)" 
+                                        oninput="_filterOrganizerPills(this.value)" class="input" 
+                                        style="width:190px;height:24px;font-size:11px;padding:2px 6px;border-radius:4px;">
+                                    <button type="button" class="btn btn-secondary btn-small" onclick="organizerSelectFilteredTokens()" 
+                                        style="font-size:11px;padding:2px 8px;color:#c4b5fd;border-color:rgba(124,92,255,0.4);" title="将当前匹配到的所有词一键追加到条件框">
+                                        ＋ 填入筛选词
+                                    </button>
+                                </div>
+                                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                    <button type="button" class="btn btn-secondary btn-small" style="font-size:10px;padding:1px 6px;" onclick="_quickFilterAndAdd('女')">＋ 选「女*」</button>
+                                    <button type="button" class="btn btn-secondary btn-small" style="font-size:10px;padding:1px 6px;" onclick="_quickFilterAndAdd('男')">＋ 选「男*」</button>
+                                    <button type="button" class="btn btn-secondary btn-small" style="font-size:10px;padding:1px 6px;" onclick="_quickFilterAndAdd('行')">＋ 选「行*」</button>
+                                    <button type="button" class="btn btn-secondary btn-small" style="font-size:10px;padding:1px 6px;color:#f87171;" onclick="organizerClearRuleVal()">清空条件词</button>
+                                </div>
+                            </div>
+                            <div id="organizer-top-keywords-container" style="display:flex;gap:6px;flex-wrap:wrap;max-height:100px;overflow-y:auto;padding:2px 0;">
+                                ${topKeywordsHtml}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+
+            <!-- 右侧：目标文件夹名称生成方式 -->
+            <div style="background:rgba(0,0,0,0.15);padding:12px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text-primary);">2. 目标文件夹命名方式:</div>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <select id="organizer-rule-folder-mode" class="input" style="width:160px;height:28px;padding:2px 6px;font-size:12px;flex-shrink:0;" onchange="_handleFolderModeChange(this.value)">
+                            <option value="slots" ${r.folderMode === 'slots' ? 'selected' : ''}>由选中的字段拼接</option>
+                            <option value="matchedKeyword" ${r.folderMode === 'matchedKeyword' ? 'selected' : ''}>使用实际匹配到的词</option>
+                            <option value="custom" ${r.folderMode === 'custom' ? 'selected' : ''}>指定固定文件夹名</option>
+                        </select>
+                        <div id="organizer-rule-joiner-wrap" style="display:${r.folderMode === 'slots' ? 'flex' : 'none'};align-items:center;gap:4px;">
+                            <label style="font-size:11px;">连接符:</label>
+                            <input id="organizer-rule-joiner" class="input" style="width:40px;height:28px;padding:2px 4px;text-align:center;font-size:12px;" value="${organizerEsc(r.slotJoiner || '_')}" oninput="_updateRulePreviewFolder()">
+                        </div>
+                        <input id="organizer-rule-custom-name" class="input" style="flex:1;height:28px;padding:2px 8px;font-size:12px;display:${r.folderMode === 'custom' ? 'block' : 'none'};" placeholder="输入固定文件夹名" value="${organizerEsc(r.customName || '')}" oninput="_updateRulePreviewFolder()">
+                    </div>
+                    <div id="organizer-rule-skip-date-wrap" style="display:${r.folderMode === 'slots' ? 'block' : 'none'};">
+                        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text-secondary);margin-top:2px;" title="勾选后，若选中的后续字段为纯日期或纯数字(如 0907、01)，将自动忽略，使普通文件保持单字段名">
+                            <input type="checkbox" id="organizer-rule-skip-date" ${r.skipDateSlots !== false ? 'checked' : ''} onchange="_updateRulePreviewFolder()">
+                            <span>智能跳过纯日期/纯数字字段 (如 0907、01)</span>
+                        </label>
+                    </div>
+                    <div style="font-size:11px;color:#86efac;margin-top:4px;">
+                        <span>归类目标预览: </span><b id="organizer-rule-preview-target" style="font-size:13px;text-decoration:underline;">--</b>
+                    </div>
+                    <div class="hint" style="margin-top:2px;font-size:11px;">
+                        ${r.folderMode === 'matchedKeyword' ? '提示：当条件包含多个词时，不同文件将自动归入对应匹配词的文件夹' : '可随时点击上方字段色块多选拼接，支持自动跳过日期'}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 规则名称与保存按钮 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,0.06);padding-top:10px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;color:var(--text-secondary);">规则别名:</label>
+                <input id="organizer-rule-name-input" class="input" style="width:180px;height:28px;padding:2px 8px;font-size:12px;" value="${organizerEsc(r.name || '')}">
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-secondary btn-small" onclick="organizerCloseRuleEditor()">取消</button>
+                <button class="btn btn-primary btn-small" onclick="organizerSaveCurrentRule()" style="padding:4px 16px;font-weight:600;">💾 保存并应用此规则</button>
+            </div>
+        </div>
+    `;
+
+    _highlightActiveKeywords();
+    _updateRulePreviewFolder();
+    editorEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function organizerQuickSlotMode() {
+    const typeSelect = document.getElementById('organizer-rule-type');
+    const valInput = document.getElementById('organizer-rule-val');
+    const folderSelect = document.getElementById('organizer-rule-folder-mode');
+    const ruleNameInput = document.getElementById('organizer-rule-name-input');
+
+    if (typeSelect) typeSelect.value = 'always';
+    if (valInput) { valInput.value = ''; valInput.disabled = true; }
+    if (folderSelect) folderSelect.value = 'slots';
+    if (ruleNameInput) ruleNameInput.value = '按提取字段通用自动分组';
+
+    _handleRuleTypeChange('always');
+    _handleFolderModeChange('slots');
+    _updateRulePreviewFolder();
+    _highlightActiveKeywords();
+    showToast('已设为通用字段分组模式：仅需这一条规则，整批文件自动按各自字段提取成文件夹！', 'success');
+}
+
+function organizerQuickAddCharacterKeywords() {
+    const topKws = organizerState.plan?.topKeywords || [];
+    const samples = organizerState.plan?.sampleFiles || [];
+    const pending = organizerState.plan?.pending || [];
+
+    // 全面扫描高频词、全部样本文件、以及当前未匹配文件中的所有字段
+    const allTokens = new Set(topKws.map(i => i.token));
+    [...samples, ...pending].forEach(s => {
+        (s.tokens || []).forEach(t => {
+            if (t) allTokens.add(t);
+        });
+    });
+
+    const charKws = [...allTokens].filter(t => {
+        if (!t) return false;
+        // 坚决排除常见的表格行号、集数、版本、页码等非角色词 (如 行23, 行60, 第1集, 副本2 等)
+        if (/^(行|列|页|集|第|卷|章|条|版|副本|cut|part|scene|seq|line|row)\d+/i.test(t)) return false;
+        // 严格匹配真正的角色名 (如 女1, 女11, 女19, 男1, 角色1, 人物1 等)
+        return /^[男女]\d+$/.test(t) || 
+               /^(角色|人物|主角|配角|演员|嘉宾|role|character|hero)\d*$/i.test(t);
+    }).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const finalKws = charKws.length > 0 ? charKws : topKws.slice(0, 10).map(i => i.token);
+    if (finalKws.length === 0) return showToast('未自动检测到常见角色关键词，可直接在下方高频词中点击选用', 'info');
+
+    const typeSelect = document.getElementById('organizer-rule-type');
+    const valInput = document.getElementById('organizer-rule-val');
+    const folderSelect = document.getElementById('organizer-rule-folder-mode');
+    const ruleNameInput = document.getElementById('organizer-rule-name-input');
+
+    if (typeSelect) typeSelect.value = 'contains';
+    if (valInput) { valInput.disabled = false; valInput.value = finalKws.join(', '); }
+    if (folderSelect) folderSelect.value = 'matchedKeyword';
+    if (ruleNameInput) ruleNameInput.value = '角色批量对号入座';
+
+    _handleRuleTypeChange('contains');
+    _handleFolderModeChange('matchedKeyword');
+    _updateRulePreviewFolder();
+    _highlightActiveKeywords();
+    showToast(`已一键填入全目录 ${finalKws.length} 个角色词并设置为各自建文件夹！`, 'success');
+}
+
+function organizerQuickAddTopKeywords(count = 10) {
+    const topKws = organizerState.plan?.topKeywords || [];
+    const tokens = topKws.slice(0, count).map(i => i.token);
+    if (tokens.length === 0) return;
+
+    const typeSelect = document.getElementById('organizer-rule-type');
+    const valInput = document.getElementById('organizer-rule-val');
+    const folderSelect = document.getElementById('organizer-rule-folder-mode');
+
+    if (typeSelect) typeSelect.value = 'contains';
+    if (valInput) { valInput.disabled = false; valInput.value = tokens.join(', '); }
+    if (folderSelect) folderSelect.value = 'matchedKeyword';
+
+    _handleRuleTypeChange('contains');
+    _handleFolderModeChange('matchedKeyword');
+    _updateRulePreviewFolder();
+    _highlightActiveKeywords();
+    showToast(`已批量填入前 ${tokens.length} 个高频词！`, 'success');
+}
+
+function _filterOrganizerPills(query) {
+    const container = document.getElementById('organizer-top-keywords-container');
+    if (!container) return;
+    const q = String(query || '').trim().toLowerCase();
+    const pills = container.querySelectorAll('.organizer-kw-pill');
+    pills.forEach(p => {
+        const token = (p.getAttribute('data-kw') || '').toLowerCase();
+        if (!q || token.includes(q)) {
+            p.style.display = 'inline-flex';
+        } else {
+            p.style.display = 'none';
+        }
+    });
+}
+
+function organizerSelectFilteredTokens() {
+    const container = document.getElementById('organizer-top-keywords-container');
+    const valInput = document.getElementById('organizer-rule-val');
+    const folderSelect = document.getElementById('organizer-rule-folder-mode');
+    const typeSelect = document.getElementById('organizer-rule-type');
+    if (!container || !valInput) return;
+
+    const visiblePills = Array.from(container.querySelectorAll('.organizer-kw-pill'))
+        .filter(p => p.style.display !== 'none');
+
+    if (visiblePills.length === 0) return showToast('未找到匹配该筛选条件的词汇', 'info');
+
+    const currentKws = new Set(valInput.value.split(/[,，|/、;\n]+/).map(s => s.trim()).filter(Boolean));
+    visiblePills.forEach(p => {
+        const kw = p.getAttribute('data-kw');
+        if (kw) currentKws.add(kw);
+    });
+
+    valInput.value = [...currentKws].join(', ');
+    if (typeSelect && typeSelect.value === 'always') typeSelect.value = 'contains';
+    if (folderSelect) folderSelect.value = 'matchedKeyword';
+    valInput.disabled = false;
+
+    _handleRuleTypeChange('contains');
+    _handleFolderModeChange('matchedKeyword');
+    _updateRulePreviewFolder();
+    _highlightActiveKeywords();
+    showToast(`已追加 ${visiblePills.length} 个筛选词到条件中！`, 'success');
+}
+
+function _quickFilterAndAdd(prefix) {
+    const searchInput = document.getElementById('organizer-token-search');
+    if (searchInput) searchInput.value = prefix;
+    _filterOrganizerPills(prefix);
+    organizerSelectFilteredTokens();
+}
+
+function organizerSwitchSample(sampleIndex) {
+    const samples = organizerState.plan?.sampleFiles || [];
+    const idx = parseInt(sampleIndex, 10);
+    if (samples[idx]) {
+        organizerState.editingSample = samples[idx];
+        _renderOrganizerRuleEditor();
+    }
+}
+
+function organizerToggleKeyword(kw) {
+    const input = document.getElementById('organizer-rule-val');
+    if (!input || input.disabled) return;
+
+    let current = input.value.trim();
+    let list = current ? current.split(/[,，|/、;\n]+/).map(s => s.trim()).filter(Boolean) : [];
+    const idx = list.findIndex(s => s.toLowerCase() === kw.toLowerCase());
+    if (idx >= 0) {
+        list.splice(idx, 1);
+    } else {
+        list.push(kw);
+    }
+    input.value = list.join(', ');
+    _updateRulePreviewFolder();
+    _highlightActiveKeywords();
+}
+
+function organizerClearRuleVal() {
+    const input = document.getElementById('organizer-rule-val');
+    if (!input || input.disabled) return;
+    input.value = '';
+    _updateRulePreviewFolder();
+    _highlightActiveKeywords();
+}
+
+function _highlightActiveKeywords() {
+    const input = document.getElementById('organizer-rule-val');
+    if (!input) return;
+    const current = input.value.trim();
+    const list = current ? current.split(/[,，|/、;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+    const pills = document.querySelectorAll('#organizer-rule-editor .organizer-kw-pill');
+    pills.forEach(p => {
+        const kw = p.getAttribute('data-kw')?.toLowerCase();
+        if (kw && list.includes(kw)) {
+            p.classList.add('active');
+        } else {
+            p.classList.remove('active');
+        }
+    });
+}
+
+function organizerToggleSlot(slotIndex) {
+    const idx = organizerState.selectedSlots.indexOf(slotIndex);
+    if (idx >= 0) {
+        organizerState.selectedSlots.splice(idx, 1);
+    } else {
+        organizerState.selectedSlots.push(slotIndex);
+        organizerState.selectedSlots.sort((a, b) => a - b);
+    }
+    if (organizerState.selectedSlots.length === 0) {
+        organizerState.selectedSlots = [slotIndex];
+    }
+
+    // 更新按钮样式
+    const editorEl = document.getElementById('organizer-rule-editor');
+    if (editorEl) {
+        const pills = editorEl.querySelectorAll('.organizer-token-pill');
+        pills.forEach((p, i) => {
+            if (organizerState.selectedSlots.includes(i)) p.classList.add('active');
+            else p.classList.remove('active');
+        });
+    }
+
+    _updateRulePreviewFolder();
+}
+
+function _handleRuleTypeChange(val) {
+    const valInput = document.getElementById('organizer-rule-val');
+    if (valInput) {
+        valInput.disabled = val === 'always';
+        if (val === 'always') valInput.value = '';
+    }
+    _updateRulePreviewFolder();
+}
+
+function _handleFolderModeChange(val) {
+    const joinerWrap = document.getElementById('organizer-rule-joiner-wrap');
+    const customInput = document.getElementById('organizer-rule-custom-name');
+    const skipDateWrap = document.getElementById('organizer-rule-skip-date-wrap');
+    if (joinerWrap) joinerWrap.style.display = val === 'slots' ? 'flex' : 'none';
+    if (customInput) customInput.style.display = val === 'custom' ? 'block' : 'none';
+    if (skipDateWrap) skipDateWrap.style.display = val === 'slots' ? 'block' : 'none';
+    _updateRulePreviewFolder();
+}
+
+function _isDateOrIndex(token) {
+    if (!token) return true;
+    const t = String(token).trim();
+    if (/^\d{2,}$/.test(t)) return true;
+    if (/^\d{4}[-._/]?\d{2}[-._/]?\d{2}$/.test(t)) return true;
+    return false;
+}
+
+function _updateRulePreviewFolder() {
+    const previewEl = document.getElementById('organizer-rule-preview-target');
+    if (!previewEl) return;
+
+    const ruleType = document.getElementById('organizer-rule-type')?.value || 'contains';
+    const folderMode = document.getElementById('organizer-rule-folder-mode')?.value || 'slots';
+    const matchVal = document.getElementById('organizer-rule-val')?.value?.trim() || '';
+    const customName = document.getElementById('organizer-rule-custom-name')?.value?.trim() || '';
+    const joiner = document.getElementById('organizer-rule-joiner')?.value !== undefined ? document.getElementById('organizer-rule-joiner').value : '_';
+    const sample = organizerState.editingSample;
+    const sampleName = sample?.base || '';
+    const tokens = sample?.tokens || [];
+
+    let target = '';
+    if (folderMode === 'matchedKeyword') {
+        const kws = matchVal ? matchVal.split(/[,，|/、;\n]+/).map(s => s.trim()).filter(Boolean) : [];
+        if (kws.length === 0) {
+            target = '【请输入匹配文字】';
+        } else {
+            const hit = kws.find(k => sampleName.toLowerCase().includes(k.toLowerCase()));
+            if (hit) {
+                target = `${hit} (当前样本命中 "${hit}")；整批文件按各自命中关键词对号入座`;
+            } else {
+                target = `按文件命中关键词入座 (如 ${kws.slice(0, 3).join('、')} 等分别建文件夹)`;
+            }
+        }
+    } else if (folderMode === 'custom') {
+        target = customName || '【输入固定名称】';
+    } else {
+        const skipDate = document.getElementById('organizer-rule-skip-date')?.checked !== false;
+        const parts = [];
+        for (const s of organizerState.selectedSlots) {
+            const tok = tokens[s];
+            if (tok !== undefined) {
+                if (skipDate && parts.length > 0 && _isDateOrIndex(tok)) continue;
+                parts.push(tok);
+            }
+        }
+        const folderStr = parts.join(joiner);
+        if (ruleType === 'always') {
+            target = `${folderStr || '目标文件夹'} (当前样本进 "${tokens[organizerState.selectedSlots[0]] || folderStr}"，其他文件自动按对应字段分别归类)`;
+        } else {
+            target = folderStr || '未选字段';
+        }
+    }
+
+    previewEl.textContent = target;
+}
+
+
+function organizerSaveCurrentRule() {
+    if (!organizerState.editingRule) return;
+
+    const nameInput = document.getElementById('organizer-rule-name-input');
+    const typeSelect = document.getElementById('organizer-rule-type');
+    const valInput = document.getElementById('organizer-rule-val');
+    const modeSelect = document.getElementById('organizer-rule-folder-mode');
+    const joinerInput = document.getElementById('organizer-rule-joiner');
+    const customInput = document.getElementById('organizer-rule-custom-name');
+    const skipDateCheck = document.getElementById('organizer-rule-skip-date');
+
+    const matchType = typeSelect?.value || 'contains';
+    const matchValue = valInput?.value?.trim() || '';
+
+    if (matchType !== 'always' && !matchValue) {
+        return showToast('请填写实际文件名字匹配条件', 'error');
+    }
+
+    const folderMode = modeSelect?.value || 'slots';
+    const ruleObj = {
+        id: organizerState.editingRule.id || ('rule_' + Date.now()),
+        name: nameInput?.value?.trim() || `规则 ${organizerState.rules.length + 1}`,
+        enabled: true,
+        matchType,
+        matchValue,
+        folderMode,
+        slots: organizerState.selectedSlots.length > 0 ? organizerState.selectedSlots : [0],
+        slotJoiner: joinerInput?.value !== undefined ? joinerInput.value : '_',
+        skipDateSlots: skipDateCheck ? skipDateCheck.checked : true,
+        customName: customInput?.value?.trim() || ''
+    };
+
+    const existIdx = organizerState.rules.findIndex(r => r.id === ruleObj.id);
+    if (existIdx >= 0) {
+        organizerState.rules[existIdx] = ruleObj;
+    } else {
+        organizerState.rules.push(ruleObj);
+    }
+
+    _saveRulesToStorage();
+    organizerCloseRuleEditor();
+    organizerPreview();
+    showToast('规则已保存并对号入座更新预览', 'success');
+}
+
+function _renderOrganizerSummary() {
+    const summaryEl = document.getElementById('organizer-summary');
+    const plan = organizerState.plan;
+    if (!summaryEl || !plan) return;
+
+    const matchedCount = plan.total - (plan.pending?.length || 0);
+    const groupsCount = plan.groups?.length || 0;
+    const pendingCount = plan.pending?.length || 0;
+
+    summaryEl.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;width:100%;">
+            <div>
+                <strong>已分析 ${plan.total} 个媒体文件</strong>，
+                已对号入座 <b style="color:#86efac;">${matchedCount} 个</b> 
+                (分入 <b>${groupsCount}</b> 个目标文件夹)；
+                待处理 <b style="color:${pendingCount ? '#fbbf24' : '#86efac'};">${pendingCount} 个</b>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-small" onclick="organizerUndoStep()" 
+                    style="padding:2px 8px;font-size:11px;${!organizerState.history?.length ? 'opacity:0.4;cursor:not-allowed;' : 'border-color:#38bdf8;color:#38bdf8;'}" 
+                    title="撤销上一次手动改名或细分操作">↺ 撤销上步${organizerState.history?.length ? ` (${organizerState.history.length})` : ''}</button>
+                <button class="btn btn-secondary btn-small" onclick="organizerResetPlan()" 
+                    style="padding:2px 8px;font-size:11px;color:#fca5a5;border-color:rgba(239,68,68,0.35);" 
+                    title="放弃当前手动细分与改名，重新按规则分配">↺ 重新按规则分</button>
+                <button class="btn btn-secondary btn-small" onclick="organizerToggleAllGroups(true)" style="padding:2px 8px;font-size:11px;">▼ 展开全部</button>
+                <button class="btn btn-secondary btn-small" onclick="organizerToggleAllGroups(false)" style="padding:2px 8px;font-size:11px;">▶ 收起全部</button>
+            </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;width:100%;">
+            <span>操作模式: <b style="color:var(--text-primary);">${organizerState.mode === 'copy' ? '安全复制到新目录 (保留源文件)' : '移动原文件'}</b></span>
+            <span style="font-size:11px;color:var(--text-secondary);">💡 点击文件夹可展开勾选/排除特定文件，或点击「改名」自定义目录名</span>
+        </div>
+    `;
+}
+
+function organizerToggleGroup(headerEl, groupName) {
+    const card = headerEl?.closest('.organizer-group-card');
+    if (!card) return;
+    const body = card.querySelector('.organizer-group-body');
+    const arrow = card.querySelector('.organizer-group-arrow');
+    if (!body) return;
+    const isHidden = (body.style.display === 'none');
+    body.style.display = isHidden ? 'block' : 'none';
+    if (arrow) arrow.textContent = isHidden ? '▼ 收起' : '▶ 展开';
+    if (groupName) {
+        if (!organizerState.openGroups) organizerState.openGroups = new Set();
+        if (isHidden) organizerState.openGroups.add(groupName);
+        else organizerState.openGroups.delete(groupName);
+    }
+}
+
+function organizerToggleAllGroups(expand) {
+    if (!organizerState.openGroups) organizerState.openGroups = new Set();
+    if (expand) {
+        (organizerState.plan?.groups || []).forEach(g => organizerState.openGroups.add(g.name));
+    } else {
+        organizerState.openGroups.clear();
+    }
+    const bodies = document.querySelectorAll('#organizer-groups .organizer-group-body');
+    const arrows = document.querySelectorAll('#organizer-groups .organizer-group-arrow');
+    bodies.forEach(b => {
+        b.style.display = expand ? 'block' : 'none';
+    });
+    arrows.forEach(a => {
+        a.textContent = expand ? '▼ 收起' : '▶ 展开';
+    });
+}
+
+function _renderOrganizerGroups() {
+    const container = document.getElementById('organizer-groups');
+    const plan = organizerState.plan;
+    if (!container || !plan) return;
+
+    if (!organizerState.openGroups) {
+        organizerState.openGroups = new Set();
+        // 目标文件夹数量少于等于 3 个时默认展开，较多时默认折叠保持清爽不刷屏
+        if (plan.groups && plan.groups.length <= 3) {
+            plan.groups.forEach(g => organizerState.openGroups.add(g.name));
+        }
+    }
+
+    let html = '';
+
+    // 1. 已对号入座的目标文件夹列表
+    if (plan.groups && plan.groups.length > 0) {
+        html += plan.groups.map(g => {
+            const isOpen = organizerState.openGroups.has(g.name);
+            const fileRows = (g.files || []).map(f => {
+                const isExcluded = f.excluded === true;
+                return `
+                    <div class="organizer-file-row">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;flex:1;min-width:0;">
+                            <input type="checkbox" ${isExcluded ? '' : 'checked'} 
+                                onchange="organizerToggleFileExcluded('${organizerEsc(g.name)}', '${organizerEsc(f.path)}', this.checked)">
+                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${isExcluded ? 'text-decoration:line-through;opacity:0.4;' : ''}">
+                                ${organizerEsc(f.name)}
+                            </span>
+                        </label>
+                        <span style="font-size:11px;color:var(--text-secondary);margin-left:12px;flex-shrink:0;">
+                            ${f.ruleName ? `由 [${organizerEsc(f.ruleName)}] 归入` : ''}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+
+            const sampleFile = (g.files && g.files[0]) || {};
+            const sampleTokens = sampleFile.tokens || [];
+            const isSubdividing = organizerState.subdividingGroup === g.name;
+
+            return `
+                <div class="organizer-group-card" style="flex-shrink:0;">
+                    <div class="organizer-group-header" onclick="organizerToggleGroup(this, '${organizerEsc(g.name)}')">
+                        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap;">
+                            <span style="font-size:16px;">📁</span>
+                            <span style="font-weight:600;font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${organizerEsc(g.name)}">${organizerEsc(g.name)}</span>
+                            <span style="font-size:11px;color:var(--text-secondary);flex-shrink:0;">(${g.files.length} 个文件)</span>
+                            <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); organizerRenameGroup('${organizerEsc(g.name)}');" 
+                                style="padding:1px 6px;font-size:11px;flex-shrink:0;" title="重命名此文件夹">✏️ 改名</button>
+                            <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); organizerToggleSubdivideDrawer('${organizerEsc(g.name)}');" 
+                                style="padding:1px 6px;font-size:11px;flex-shrink:0;color:#c4b5fd;border-color:rgba(124,92,255,0.35);" title="自定义选择字段将此文件夹进一步拆分">
+                                ⚡ 细分此组 ${isSubdividing ? '▲' : ''}
+                            </button>
+                        </div>
+                        <span class="organizer-group-arrow" style="font-size:11px;color:var(--text-secondary);flex-shrink:0;margin-left:8px;">${isOpen ? '▼ 收起' : '▶ 展开'}</span>
+                    </div>
+                    ${isSubdividing ? `
+                        <div style="background:rgba(124,92,255,0.12);border-top:1px solid rgba(124,92,255,0.3);border-bottom:1px solid rgba(124,92,255,0.3);padding:8px 14px;display:flex;flex-direction:column;gap:6px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+                                <span style="font-size:12px;font-weight:600;color:#c4b5fd;">
+                                    ⚡ 请点击要根据哪个字段拆细（当前样本: ${organizerEsc(sampleFile.name || '')}）:
+                                </span>
+                                <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); organizerCancelSubdivide();" style="font-size:10px;padding:1px 6px;">✕ 取消</button>
+                            </div>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                                ${sampleTokens.map((t, sIdx) => `
+                                    <button type="button" class="btn btn-secondary btn-small" 
+                                        onclick="event.stopPropagation(); organizerExecuteSubdivide('${organizerEsc(g.name)}', ${sIdx});" 
+                                        style="font-size:11px;padding:3px 10px;border-color:rgba(124,92,255,0.4);" 
+                                        title="点击以字段 [${sIdx + 1}]「${organizerEsc(t)}」作为子组细分依据">
+                                        <span style="opacity:0.6;margin-right:2px;">[${sIdx + 1}]</span>
+                                        <b>${organizerEsc(t)}</b>
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <div class="hint" style="margin:0;font-size:11px;color:rgba(255,255,255,0.6);">
+                                💡 点击上方任意字段，该组文件就会按那个位置的字段值自动裂变成子文件夹（如点击 [3] 副本，则裂变为 男1_副本、男1_副本2...）
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="organizer-group-body" style="display:${isOpen ? 'block' : 'none'};background:rgba(0,0,0,0.15);">
+                        ${fileRows}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 2. 尚未对号入座（待处理）的文件卡片
+    if (plan.pending && plan.pending.length > 0) {
+        const pendingRows = plan.pending.map(f => {
+            const escapedFile = JSON.stringify(f).replace(/"/g, '&quot;');
+            return `
+                <div class="organizer-file-row" style="background:rgba(251,191,36,0.02);">
+                    <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        <span style="color:#fbbf24;">⚠️</span> <span>${organizerEsc(f.name)}</span>
+                    </div>
+                    <button class="btn btn-secondary btn-small" onclick="organizerOpenAddRule(${escapedFile})" 
+                        style="color:#c4b5fd;border-color:rgba(124,92,255,0.4);font-size:11px;flex-shrink:0;margin-left:8px;" title="将此文件作为样本拆分字段建立新规则">
+                        ➕ 以此为样本建规则
+                    </button>
+                </div>
+            `;
+        }).join('');
+
+        html += `
+            <div class="organizer-group-card" style="flex-shrink:0;border-color:rgba(251,191,36,0.4);">
+                <div class="organizer-group-header" onclick="organizerToggleGroup(this)" style="background:rgba(251,191,36,0.06);">
+                    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                        <span style="font-size:16px;">⏳</span>
+                        <span style="font-weight:600;font-size:13px;color:#fbbf24;">未匹配 / 待处理文件 (${plan.pending.length} 个)</span>
+                        <span class="hint" style="margin:0;font-size:11px;">这些文件未满足现有任何规则，不会移动。可点击右侧按钮一键建规则！</span>
+                    </div>
+                    <span class="organizer-group-arrow" style="font-size:11px;color:#fbbf24;flex-shrink:0;margin-left:8px;">▼ 收起</span>
+                </div>
+                <div class="organizer-group-body" style="display:block;background:rgba(0,0,0,0.2);">
+                    ${pendingRows}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function organizerToggleFileExcluded(groupName, filePath, isChecked) {
+    const group = organizerState.plan?.groups?.find(g => g.name === groupName);
+    if (group) {
+        const file = group.files.find(f => f.path === filePath);
+        if (file) {
+            file.excluded = !isChecked;
+        }
+    }
+}
+
+function _pushOrganizerHistory(actionName) {
+    if (!organizerState.plan) return;
+    if (!organizerState.history) organizerState.history = [];
+    organizerState.history.push({
+        action: actionName,
+        plan: JSON.parse(JSON.stringify(organizerState.plan)),
+        openGroups: new Set(organizerState.openGroups || [])
+    });
+    if (organizerState.history.length > 30) {
+        organizerState.history.shift();
+    }
+}
+
+function organizerUndoStep() {
+    if (!organizerState.history || organizerState.history.length === 0) {
+        return showToast('暂无可撤销的手动操作', 'info');
+    }
+    const previous = organizerState.history.pop();
+    organizerState.plan = previous.plan;
+    organizerState.openGroups = previous.openGroups;
+    _renderOrganizerSummary();
+    _renderOrganizerGroups();
+    showToast(`已撤销操作（恢复至${previous.action}之前）`, 'info');
+}
+
+function organizerResetPlan() {
+    if (!organizerState.sourceDir) return showToast('尚未选择源目录', 'warning');
+    if (!confirm('确认放弃所有手动细分与重命名，重新按当前已设规则对号入座？')) return;
+    organizerState.history = [];
+    organizerState.subdividingGroup = null;
+    organizerPreview();
+    showToast('已重置并重新按规则分配所有文件', 'success');
+}
+
+function organizerRenameGroup(oldName) {
+    const newName = prompt(`将文件夹「${oldName}」重命名为：`, oldName);
+    if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+
+    const group = organizerState.plan?.groups?.find(g => g.name === oldName);
+    if (group) {
+        _pushOrganizerHistory(`重命名「${oldName}」`);
+        group.name = newName.trim();
+        _renderOrganizerSummary();
+        _renderOrganizerGroups();
+        showToast(`已重命名为「${newName.trim()}」`, 'info');
+    }
+}
+
+function organizerToggleSubdivideDrawer(groupName) {
+    if (organizerState.subdividingGroup === groupName) {
+        organizerState.subdividingGroup = null;
+    } else {
+        organizerState.subdividingGroup = groupName;
+    }
+    _renderOrganizerGroups();
+}
+
+function organizerCancelSubdivide() {
+    organizerState.subdividingGroup = null;
+    _renderOrganizerGroups();
+}
+
+function organizerExecuteSubdivide(groupName, slotIndex) {
+    if (!organizerState.plan?.groups) return;
+    const gIndex = organizerState.plan.groups.findIndex(g => g.name === groupName);
+    if (gIndex < 0) return;
+    const targetGroup = organizerState.plan.groups[gIndex];
+    if (!targetGroup.files || targetGroup.files.length === 0) return;
+
+    const subGroupMap = new Map();
+    targetGroup.files.forEach(f => {
+        const tokens = f.tokens || [];
+        const token = tokens[slotIndex] !== undefined ? String(tokens[slotIndex]).trim() : '';
+        
+        let newGroupName = groupName;
+        if (!token) {
+            newGroupName = `${groupName}_未标注`;
+        } else {
+            // 检查当前组名是否已经包含此字段，避免重复如 男1_男1
+            const parts = groupName.split(/[_\-\s]+/);
+            if (parts.includes(token)) {
+                newGroupName = groupName;
+            } else {
+                newGroupName = `${groupName}_${token}`;
+            }
+        }
+
+        if (!subGroupMap.has(newGroupName)) {
+            subGroupMap.set(newGroupName, []);
+        }
+        subGroupMap.get(newGroupName).push(f);
+    });
+
+    if (subGroupMap.size <= 1) {
+        return showToast(`该组所有文件在第 [${slotIndex + 1}] 字段的值相同（均为「${targetGroup.files[0]?.tokens?.[slotIndex] || ''}」），未能拆分出多个子组，请选择有差异的字段！`, 'info');
+    }
+
+    _pushOrganizerHistory(`细分「${groupName}」`);
+
+    const newGroups = [];
+    subGroupMap.forEach((files, name) => {
+        newGroups.push({
+            name,
+            ruleId: targetGroup.ruleId,
+            ruleName: targetGroup.ruleName ? `${targetGroup.ruleName}(按[${slotIndex + 1}]细分)` : `按[${slotIndex + 1}]细分`,
+            files
+        });
+        organizerState.openGroups.add(name);
+    });
+
+    organizerState.plan.groups.splice(gIndex, 1, ...newGroups);
+    organizerState.subdividingGroup = null;
+    _renderOrganizerSummary();
+    _renderOrganizerGroups();
+    showToast(`已按第 [${slotIndex + 1}] 字段成功将「${groupName}」细分为 ${newGroups.length} 个独立文件夹！`, 'success');
+}
+
+async function organizerApply() {
+    if (!organizerState.plan?.groups?.length) return showToast('当前没有可整理的分组', 'error');
+
+    const totalActive = organizerState.plan.groups.reduce((acc, g) => {
+        return acc + (g.files || []).filter(f => !f.excluded).length;
+    }, 0);
+
+    if (totalActive === 0) return showToast('所有文件均被排除，无文件需要处理', 'warning');
+
+    const actionWord = organizerState.mode === 'copy' ? '复制' : '移动';
+    const confirmed = confirm(
+        `确认按当前规划执行？\n\n` +
+        `• 目标文件夹数量: ${organizerState.plan.groups.length} 个\n` +
+        `• 即将${actionWord}文件: ${totalActive} 个\n` +
+        `• 整理方式: ${organizerState.mode === 'copy' ? '安全复制 (原文件不动)' : '移动原文件'}\n` +
+        `${organizerState.cleanEmptyDirs && organizerState.mode === 'move' ? '• 移动后清理空目录: 已开启\n' : ''}\n` +
+        `确认开始执行？`
+    );
+    if (!confirmed) return;
+
+    try {
+        const applyPayload = {
+            sourceDir: organizerState.sourceDir,
+            groups: organizerState.plan.groups,
+            mode: organizerState.mode,
+            cleanEmptyDirs: organizerState.cleanEmptyDirs
+        };
+
+        const res = await apiFetch(`${API_BASE}/media/organize/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plan: applyPayload })
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || '整理失败');
+
+        organizerState.lastLogPath = out.logPath;
+        document.getElementById('organizer-status').textContent = `整理完成！已成功${actionWord} ${out.moved} 个文件；支持随时撤销。`;
+        showToast(`整理完成：成功${actionWord} ${out.moved} 个文件`, 'success');
+
+        // 重新扫描最新目录状态
+        organizerPreview();
+    } catch (e) {
+        showToast(`整理失败: ${e.message}`, 'error');
+    }
+}
+
+async function organizerUndo() {
+    if (!organizerState.lastLogPath) return showToast('当前没有可撤销的操作记录', 'error');
+    if (!confirm('确认撤销上一次的整理操作？')) return;
+
+    try {
+        const r = await apiFetch(`${API_BASE}/media/organize/undo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ log_path: organizerState.lastLogPath })
+        });
+        const out = await r.json();
+        if (!r.ok) throw new Error(out.error || '撤销失败');
+
+        document.getElementById('organizer-status').textContent = `已成功撤销 ${out.restored} 个文件。`;
+        showToast(`已成功撤销 ${out.restored} 个文件`, 'success');
+        organizerState.lastLogPath = '';
+
+        // 重新扫描
+        organizerPreview();
+    } catch (e) {
+        showToast(`撤销失败: ${e.message}`, 'error');
+    }
+}
+
+window.organizerChooseFolder = organizerChooseFolder;
+window.organizerChangeDelim = organizerChangeDelim;
+window.organizerToggleRecursive = organizerToggleRecursive;
+window.organizerChangeMode = organizerChangeMode;
+window.organizerToggleCleanEmpty = organizerToggleCleanEmpty;
+window.organizerPreview = organizerPreview;
+window.organizerOpenAddRule = organizerOpenAddRule;
+window.organizerEditRule = organizerEditRule;
+window.organizerDeleteRule = organizerDeleteRule;
+window.organizerToggleRule = organizerToggleRule;
+window.organizerResetDefaultRules = organizerResetDefaultRules;
+window.organizerToggleSlot = organizerToggleSlot;
+window.organizerSaveCurrentRule = organizerSaveCurrentRule;
+window.organizerCloseRuleEditor = organizerCloseRuleEditor;
+window.organizerRenameGroup = organizerRenameGroup;
+window.organizerSubdivideGroup = organizerToggleSubdivideDrawer;
+window.organizerToggleSubdivideDrawer = organizerToggleSubdivideDrawer;
+window.organizerCancelSubdivide = organizerCancelSubdivide;
+window.organizerExecuteSubdivide = organizerExecuteSubdivide;
+window.organizerToggleGroup = organizerToggleGroup;
+window.organizerToggleAllGroups = organizerToggleAllGroups;
+window.organizerToggleFileExcluded = organizerToggleFileExcluded;
+window.organizerApply = organizerApply;
+window.organizerUndo = organizerUndo;
+window.organizerSwitchSample = organizerSwitchSample;
+window.organizerToggleKeyword = organizerToggleKeyword;
+window.organizerClearRuleVal = organizerClearRuleVal;
+window.organizerQuickSlotMode = organizerQuickSlotMode;
+window.organizerQuickAddCharacterKeywords = organizerQuickAddCharacterKeywords;
+window.organizerQuickAddTopKeywords = organizerQuickAddTopKeywords;
+window.organizerUndoStep = organizerUndoStep;
+window.organizerResetPlan = organizerResetPlan;
+window._handleRuleTypeChange = _handleRuleTypeChange;
+window._handleFolderModeChange = _handleFolderModeChange;
+window._updateRulePreviewFolder = _updateRulePreviewFolder;
+window._filterOrganizerPills = _filterOrganizerPills;
+window.organizerSelectFilteredTokens = organizerSelectFilteredTokens;
+window._quickFilterAndAdd = _quickFilterAndAdd;
+
+// 支持在素材整理界面按下快捷键 Cmd+Z (Mac) 或 Ctrl+Z (Windows) 撤销手动细分/改名
+document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        const organizerTab = document.getElementById('media-organizer-subtab');
+        if (organizerTab && !organizerTab.classList.contains('hidden')) {
+            const tag = document.activeElement?.tagName?.toLowerCase();
+            if (tag !== 'input' && tag !== 'textarea') {
+                e.preventDefault();
+                organizerUndoStep();
+            }
+        }
+    }
+});
+
+

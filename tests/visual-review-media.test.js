@@ -31,13 +31,22 @@ function visualReviewSuiteKey(item) {
     return parts.length > 1 ? parts[0] : '未分套';
 }
 
-function visualReviewBuildSuites(mediaList) {
+function visualReviewFolderGroupKey(item, suiteKey) {
+    const parts = String(item?.relativePath || item?.name || '').split(/[/\\]/).filter(Boolean);
+    const relativeToSuite = suiteKey === '未分套' ? parts : parts.slice(1);
+    const folders = relativeToSuite.slice(0, -1);
+    return folders.length ? `文件夹：${folders.join('/')}` : '文件夹：套根目录';
+}
+
+function visualReviewBuildSuites(mediaList, groupingMode = 'name') {
     const suiteMap = new Map();
     mediaList.forEach(item => {
         const suiteKey = visualReviewSuiteKey(item);
         if (!suiteMap.has(suiteKey)) suiteMap.set(suiteKey, new Map());
         const groupMap = suiteMap.get(suiteKey);
-        const key = visualReviewGroupKey(item.name);
+        const key = groupingMode === 'folder'
+            ? visualReviewFolderGroupKey(item, suiteKey)
+            : visualReviewGroupKey(item.name);
         if (!groupMap.has(key)) groupMap.set(key, []);
         const isImg = visualReviewIsImage(item);
         groupMap.get(key).push({
@@ -104,6 +113,19 @@ test('visualReviewBuildSuites correctly groups images and sets media type', () =
     assert.equal(group2.files.length, 2);
     assert.equal(group2.files[0].type, 'image');
     assert.equal(group2.files[1].type, 'video');
+});
+
+test('visual review can group a suite by each file parent folder instead of its name', () => {
+    const suites = visualReviewBuildSuites([
+        { path: '/root/套1/A/intro.mp4', name: 'intro.mp4', relativePath: '套1/A/intro.mp4' },
+        { path: '/root/套1/A/outro.png', name: 'outro.png', relativePath: '套1/A/outro.png' },
+        { path: '/root/套1/B/intro.mp4', name: 'intro.mp4', relativePath: '套1/B/intro.mp4' },
+        { path: '/root/套1/root.mp4', name: 'root.mp4', relativePath: '套1/root.mp4' },
+    ], 'folder');
+
+    assert.deepEqual(suites[0].groups.map(group => [group.key, group.files.length]), [
+        ['文件夹：A', 2], ['文件夹：B', 1], ['文件夹：套根目录', 1],
+    ]);
 });
 
 function visualReviewFormatGroupBadge(passCount, usableCount) {
@@ -799,7 +821,6 @@ test('apiRouter file/rename automatically creates missing target directories and
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
 });
-
 
 
 

@@ -489,6 +489,27 @@ function _batchTasksSnapshot(tasks) {
     }
 }
 
+function _restoreGroupedProjectionFromTabs(tabIds) {
+    const ids = [...new Set((tabIds || []).filter(id => _batchTableState.tabs.some(tab => tab.id === id)))];
+    const mergedTasks = [];
+    _batchTableState.tabs.forEach((tab, tabOrder) => {
+        if (!ids.includes(tab.id)) return;
+        (tab.tasks || []).forEach((task, taskOrder) => {
+            const cloned = _cloneBatchTasks([task])[0];
+            if (!cloned) return;
+            cloned._batchProjection = true;
+            cloned._batchTabId = tab.id;
+            cloned._batchTabName = tab.name;
+            cloned._batchTabOrder = tabOrder;
+            cloned._batchTaskOrder = taskOrder;
+            mergedTasks.push(cloned);
+        });
+    });
+    _batchTableState.appliedTabIds = ids;
+    window._reelsState.tasks = mergedTasks;
+    window._reelsState.selectedIdx = -1;
+}
+
 function _getProjectedBatchTasksSnapshot() {
     const state = window._reelsState;
     if (!state) return '[]';
@@ -542,6 +563,12 @@ function reelsToggleBatchTable(options = {}) {
                 }
             }
         }
+        const wasGroupedProjection = _isBatchGroupedProjection(window._reelsState?.tasks || []);
+        _batchTableState.openedGroupedProjection = wasGroupedProjection ? {
+            tasks: _cloneBatchTasks(window._reelsState.tasks || []),
+            appliedTabIds: [...(_batchTableState.appliedTabIds || [])],
+            selectedIdx: window._reelsState.selectedIdx,
+        } : null;
         // DEBUG
         const _dbg = (window._reelsState?.tasks || []).slice(0, 3).map((t, i) => `[${i}]bgScale=${t.bgScale}`);
         console.log('[BatchTable.toggle] 打开表格，当前 tasks:', _dbg.join(', '));
@@ -560,6 +587,12 @@ function reelsToggleBatchTable(options = {}) {
     } else {
         if (saveOnClose) {
             _applyBatchTableChanges();
+            _syncTasksToActiveTab();
+            // 从“外部按组视图”进入表格时，只暂时载入当前标签编辑；
+            // 关闭后重新投影全部原分组，不能退化为当前标签的平铺任务。
+            if (_batchTableState.openedGroupedProjection) {
+                _restoreGroupedProjectionFromTabs(_batchTableState.openedGroupedProjection.appliedTabIds);
+            }
             _batchTableState.openSnapshotTasks = _batchTasksSnapshot(window._reelsState?.tasks || []);
             console.log('[BatchTable.toggle] 关闭表格，已保存 changes');
             if (window._reelsState && window._reelsState.selectedIdx >= 0 && typeof reelsSelectTask === 'function') {
@@ -576,8 +609,16 @@ function reelsToggleBatchTable(options = {}) {
                 }
             }
             _restoreBatchTableOpenSnapshot();
+            const groupedSnapshot = _batchTableState.openedGroupedProjection;
+            if (groupedSnapshot && window._reelsState) {
+                window._reelsState.tasks = _cloneBatchTasks(groupedSnapshot.tasks || []);
+                window._reelsState.selectedIdx = groupedSnapshot.selectedIdx ?? -1;
+                _batchTableState.appliedTabIds = [...(groupedSnapshot.appliedTabIds || [])];
+                if (typeof _renderTaskList === 'function') _renderTaskList();
+            }
             console.log('[BatchTable.toggle] 关闭表格，已放弃 changes');
         }
+        _batchTableState.openedGroupedProjection = null;
         _batchTableState.container.style.display = 'none';
     }
 }
@@ -18009,6 +18050,8 @@ function _bindMediaSidebarEvents(container) {
 window.reelsCaptureBatchTableState = function() {
     return {
         activeTabId: _batchTableState?.activeTabId || '',
+        appliedTabIds: [...(_batchTableState?.appliedTabIds || [])],
+        nextTabId: _batchTableState?.nextTabId || 1,
         tabs: _cloneBatchTasks((_batchTableState?.tabs || []).map(tab => ({ ...tab, tasks: _cloneBatchTasks(tab.tasks || []) }))),
         selectedRows: [...(_batchTableState?.selectedRows || [])],
     };
@@ -18017,6 +18060,8 @@ window.reelsRestoreBatchTableState = function(snapshot) {
     if (!snapshot || !_batchTableState) return;
     _batchTableState.tabs = (snapshot.tabs || []).map(tab => ({ ...tab, tasks: _cloneBatchTasks(tab.tasks || []) }));
     _batchTableState.activeTabId = snapshot.activeTabId || _batchTableState.tabs[0]?.id || '';
+    _batchTableState.appliedTabIds = [...(snapshot.appliedTabIds || [])];
+    _batchTableState.nextTabId = Math.max(1, Number(snapshot.nextTabId) || _batchTableState.tabs.length + 1);
     _batchTableState.selectedRows = new Set(snapshot.selectedRows || []);
 };
 window.reelsGetSelectedBatchTasks = function() {

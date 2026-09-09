@@ -725,11 +725,15 @@ class ReelsFontManager {
 
     /**
      * 刷新字体下拉框 — 带分类分组。
-     * @param {string} selectId - <select> 元素的 ID
+     * @param {string|HTMLSelectElement} selectTarget - <select> 的 ID 或实际元素
      * @param {string} currentValue - 当前选中值
      */
-    refreshFontSelect(selectId, currentValue) {
-        const select = document.getElementById(selectId);
+    refreshFontSelect(selectTarget, currentValue) {
+        // 覆层批量预览会同时打开第二个面板，两个面板都有同名的 select ID。
+        // 接收实际元素才能保证刷新的是调用者所在面板，而不是 document 中第一个。
+        const select = typeof selectTarget === 'string'
+            ? document.getElementById(selectTarget)
+            : selectTarget;
         if (!select) return;
 
         const fonts = this.getAllFonts();
@@ -818,6 +822,24 @@ class ReelsFontManager {
 
         // ── 填充隐藏 <select>（保证 form 兼容 + .value 正常工作）──
         select.innerHTML = '';
+        const allowEmpty = select.dataset.allowEmpty === 'true';
+        // 旧模板里可能保存 CSS 字体候选串，例如
+        // "Georgia, Times New Roman, Playfair Display, serif"。Canvas 能正确
+        // 使用这串候选字体；选择器也必须保留该值，不能静默回退成 Arial。
+        const hasTemplateFontStack = !!currentValue && !fonts.includes(currentValue);
+        if (allowEmpty) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = select.dataset.emptyLabel || '跟随默认字体';
+            select.appendChild(empty);
+        }
+        if (hasTemplateFontStack) {
+            const templateFont = document.createElement('option');
+            templateFont.value = currentValue;
+            const primaryFont = String(currentValue).split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+            templateFont.textContent = `${primaryFont || currentValue}（模板字体）`;
+            select.appendChild(templateFont);
+        }
         for (const { key } of groupDefs) {
             for (const font of groups[key]) {
                 const opt = document.createElement('option');
@@ -828,7 +850,10 @@ class ReelsFontManager {
         }
 
         // 恢复选中
-        if (currentValue && fonts.includes(currentValue)) {
+        if (allowEmpty && !currentValue) {
+            // 空值是一个有效选择：例如滚动标题可继承正文字体。
+            select.value = '';
+        } else if (currentValue && (fonts.includes(currentValue) || hasTemplateFontStack)) {
             select.value = currentValue;
         } else if (oldValue && fonts.includes(oldValue)) {
             select.value = oldValue;
@@ -1103,9 +1128,14 @@ class ReelsFontManager {
         }
         
         const btn = wrap.querySelector('.fp-btn');
+        const isInherited = select.dataset.allowEmpty === 'true' && !select.value;
         const currentFont = select.value || DEFAULT_FONT_FAMILY;
-        btn.textContent = displayNames[currentFont] || currentFont;
-        btn.style.fontFamily = `"${currentFont}", sans-serif`;
+        const selectedLabel = select.selectedOptions[0]?.textContent;
+        btn.textContent = isInherited
+            ? (select.dataset.emptyLabel || '跟随默认字体')
+            : (selectedLabel || displayNames[currentFont] || currentFont);
+        // CSS 候选串本身已经带逗号；把它套进一对引号会变成不存在的字体名。
+        btn.style.fontFamily = isInherited ? 'inherit' : currentFont.includes(',') ? currentFont : `"${currentFont}", sans-serif`;
     }
 
     _openAdvancedFontPicker(selectEl, displayNames, groups) {

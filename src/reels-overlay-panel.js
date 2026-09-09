@@ -104,7 +104,7 @@ class ReelsOverlayPanel {
                         <div class="rop-group-title" style="margin:0;">卡片模板</div>
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;color:var(--text-primary); margin:0;">
                             <input type="checkbox" id="rop-card-apply-all">
-                            <span>应用到全部任务</span>
+                            <span title="批量生成的任务会限制在当前任务组内">应用到当前任务组</span>
                         </label>
                     </div>
                     <div style="display:flex;gap:4px;margin-top:4px;">
@@ -466,7 +466,7 @@ class ReelsOverlayPanel {
                         <div class="rop-group-title" style="margin:0;">滚动字幕</div>
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;color:var(--text-primary); margin:0;">
                             <input type="checkbox" id="rop-scroll-apply-all">
-                            <span>应用到全部任务</span>
+                            <span title="批量生成的任务会限制在当前任务组内">应用到当前任务组</span>
                         </label>
                     </div>
 
@@ -493,7 +493,7 @@ class ReelsOverlayPanel {
                         <label>标题字号</label><input type="number" id="rop-scroll-title-fontsize" class="rop-input" min="8" max="300" value="56">
                         <label>标题颜色</label><input type="color" id="rop-scroll-title-color" class="rop-color" value="#ffffff">
                         <label>标题字体</label>
-                        <select id="rop-scroll-title-font" class="rop-select"></select>
+                        <select id="rop-scroll-title-font" class="rop-select" data-allow-empty="true" data-empty-label="跟随正文"></select>
                         <label>标题字重</label>
                         <select id="rop-scroll-title-weight" class="rop-select">
                             <option value="400">Regular</option><option value="500">Medium</option>
@@ -1192,7 +1192,8 @@ class ReelsOverlayPanel {
                 showEndBtn.style.color = active ? '#fff' : '';
                 showEndBtn.textContent = active ? '👁 终点预览中' : '👁 显示终点';
                 // Set global flag for render loop
-                if (window._reelsState) window._reelsState._scrollPreviewEnd = active;
+                if (this.videoCanvas?.scopedTask) this.videoCanvas.previewEnd?.(active);
+                else if (window._reelsState) window._reelsState._scrollPreviewEnd = active;
             });
         }
 
@@ -1341,12 +1342,13 @@ class ReelsOverlayPanel {
         // 使用 FontManager 填充字体下拉框（和字幕面板一致）
         if (window.getFontManager) {
             const fm = getFontManager();
-            fm.refreshFontSelect('rop-font', 'Arial');
-            fm.refreshFontSelect('rop-title-font', 'Crimson Pro');
-            fm.refreshFontSelect('rop-body-font', 'Arial');
-            fm.refreshFontSelect('rop-footer-font', 'Arial');
-            fm.refreshFontSelect('rop-scroll-font', 'Arial');
-            fm.refreshFontSelect('rop-scroll-title-font', 'Arial');
+            const refreshFont = (id, value) => fm.refreshFontSelect(this.container.querySelector('#' + id) || id, value);
+            refreshFont('rop-font', 'Arial');
+            refreshFont('rop-title-font', 'Crimson Pro');
+            refreshFont('rop-body-font', 'Arial');
+            refreshFont('rop-footer-font', 'Arial');
+            refreshFont('rop-scroll-font', 'Arial');
+            refreshFont('rop-scroll-title-font', 'Arial');
             if (fm && typeof fm.loadGoogleFont === 'function') {
                 fm.loadGoogleFont('Crimson Pro').catch(() => { });
             }
@@ -1897,6 +1899,7 @@ class ReelsOverlayPanel {
      * 每行自动创建一个任务 + 文字卡片覆层
      */
     async _batchImportTextCards() {
+        if (this.videoCanvas?.scopedTask) return;
         const ReelsOverlay = window.ReelsOverlay;
         if (!ReelsOverlay) return;
 
@@ -2528,7 +2531,9 @@ class ReelsOverlayPanel {
         const overlayAboveSubtitle = this.container.querySelector('#rop-overlay-above-subtitle');
         if (overlayAboveSubtitle) overlayAboveSubtitle.checked = this.videoCanvas.getOverlayAboveSubtitle?.() !== false;
 
-        const overlays = this.videoCanvas.overlayMgr.overlays || [];
+        // 面板显示顺序必须与时间线/预览/导出使用的合成栈一致。
+        // getOrderedOverlays 会返回底到顶的普通覆层；列表反转后仍保持“顶层在最上”。
+        const overlays = this.videoCanvas.getOrderedOverlays?.() || this.videoCanvas.overlayMgr.overlays || [];
         if (overlays.length === 0) {
             list.innerHTML = '<div class="rop-empty">暂无覆层，点击上方按钮添加</div>';
             return;
@@ -2611,39 +2616,41 @@ class ReelsOverlayPanel {
             });
         });
 
-        // Move Up (Z-index + 1)
+        // Move Up：改写任务的唯一合成顺序，不再只交换临时 overlayMgr 数组。
         list.querySelectorAll('.rop-list-move-up').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const id = btn.dataset.id;
-                const overlays = this.videoCanvas?.overlayMgr?.overlays || [];
+                const overlays = this.videoCanvas?.getOrderedOverlays?.()
+                    || this.videoCanvas?.overlayMgr?.overlays || [];
                 const idx = overlays.findIndex(o => o.id === id);
                 if (idx >= 0 && idx < overlays.length - 1) {
                     const temp = overlays[idx];
                     overlays[idx] = overlays[idx + 1];
                     overlays[idx + 1] = temp;
+                    this.videoCanvas?.setOverlayOrder?.(overlays.map(overlay => overlay.id));
                     this._refreshList();
                     if (this.videoCanvas) this.videoCanvas.render();
-                    // 传入实际被移动的覆层，才能同步属性且不会在回调中读到 undefined。
                     if (typeof this.videoCanvas?.onOverlayChange === 'function') this.videoCanvas.onOverlayChange(overlays[idx + 1]);
                 }
             });
         });
 
-        // Move Down (Z-index - 1)
+        // Move Down：同上，所有渲染端读取同一份 visualOverlayOrder。
         list.querySelectorAll('.rop-list-move-down').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const id = btn.dataset.id;
-                const overlays = this.videoCanvas?.overlayMgr?.overlays || [];
+                const overlays = this.videoCanvas?.getOrderedOverlays?.()
+                    || this.videoCanvas?.overlayMgr?.overlays || [];
                 const idx = overlays.findIndex(o => o.id === id);
                 if (idx > 0) {
                     const temp = overlays[idx];
                     overlays[idx] = overlays[idx - 1];
                     overlays[idx - 1] = temp;
+                    this.videoCanvas?.setOverlayOrder?.(overlays.map(overlay => overlay.id));
                     this._refreshList();
                     if (this.videoCanvas) this.videoCanvas.render();
-                    // 交换后该位置保存的是被点击、刚刚移动的覆层。
                     if (typeof this.videoCanvas?.onOverlayChange === 'function') this.videoCanvas.onOverlayChange(overlays[idx - 1]);
                 }
             });
@@ -2797,7 +2804,7 @@ class ReelsOverlayPanel {
             if (window.getFontManager) {
                 const fm = getFontManager();
                 if (fm && typeof fm.refreshFontSelect === 'function') {
-                    fm.refreshFontSelect(id, v ?? '');
+                    fm.refreshFontSelect(el, v ?? '');
                 }
             }
         }
@@ -2815,6 +2822,7 @@ class ReelsOverlayPanel {
     }
 
     _getCanvasSize() {
+        if (this.videoCanvas?.getCanvasSize) return this.videoCanvas.getCanvasSize();
         const v2Size = window.ReelsPreviewV2?.isOpen?.()
             ? window.ReelsPreviewV2.getCanvasSize?.()
             : null;
@@ -2949,7 +2957,7 @@ class ReelsOverlayPanel {
         // 9999 = 全程，面板显示实际时长但不修改数据
         let displayEnd = ov.end || 0;
         if (displayEnd >= 9999) {
-            const v2Duration = window.ReelsPreviewV2?.isOpen?.()
+            const v2Duration = this.videoCanvas?.getDuration ? this.videoCanvas.getDuration() : window.ReelsPreviewV2?.isOpen?.()
                 ? window.ReelsPreviewV2.getDuration?.()
                 : 0;
             const mediaEl = document.getElementById('reels-preview-video') || document.querySelector('#reels-preview video');
@@ -3498,7 +3506,7 @@ class ReelsOverlayPanel {
         const panelEnd = _ropRound(this._get('rop-end'));
         if (ov.end >= 9999) {
             // 检查用户是否手动修改了结束时间
-            const v2Duration = window.ReelsPreviewV2?.isOpen?.()
+            const v2Duration = this.videoCanvas?.getDuration ? this.videoCanvas.getDuration() : window.ReelsPreviewV2?.isOpen?.()
                 ? window.ReelsPreviewV2.getDuration?.()
                 : 0;
             const mediaEl = document.getElementById('reels-preview-video') || document.querySelector('#reels-preview video');
@@ -3932,7 +3940,8 @@ class ReelsOverlayPanel {
 
     _applyTextcardStyleToAllTasks(ov) {
         if (!ov || ov.type !== 'textcard') return;
-        if (!window._reelsState || !Array.isArray(window._reelsState.tasks)) return;
+        const scopedTasks = this._getStyleApplyScopeTasks();
+        if (!Array.isArray(scopedTasks)) return;
         
         // Ensure we do not trigger an infinite loop by setting a flag
         if (this._isApplyingAllTextcards) return;
@@ -3949,7 +3958,7 @@ class ReelsOverlayPanel {
             styleObj.opacity = ov.opacity;
             styleObj.scale = ov.scale;
 
-            window._reelsState.tasks.forEach(task => {
+            scopedTasks.forEach(task => {
                 if (task && Array.isArray(task.overlays)) {
                     task.overlays.forEach(otherOv => {
                         if (otherOv && otherOv.type === 'textcard' && otherOv !== ov) {
@@ -4025,7 +4034,8 @@ class ReelsOverlayPanel {
 
     _applyScrollStyleToAllTasks(ov) {
         if (!ov || ov.type !== 'scroll') return;
-        if (!window._reelsState || !Array.isArray(window._reelsState.tasks)) return;
+        const scopedTasks = this._getStyleApplyScopeTasks();
+        if (!Array.isArray(scopedTasks)) return;
         
         if (this._isApplyingAllScrolls) return;
         this._isApplyingAllScrolls = true;
@@ -4033,7 +4043,7 @@ class ReelsOverlayPanel {
         try {
             const styleObj = this._extractScrollStyle(ov);
 
-            window._reelsState.tasks.forEach(task => {
+            scopedTasks.forEach(task => {
                 if (task && Array.isArray(task.overlays)) {
                     task.overlays.forEach(otherOv => {
                         if (otherOv && otherOv.type === 'scroll' && otherOv !== ov) {
@@ -4046,6 +4056,14 @@ class ReelsOverlayPanel {
         } finally {
             this._isApplyingAllScrolls = false;
         }
+    }
+
+    // 在大量制作的分组投影中，主队列会同时显示多个任务组。样式同步只应
+    // 修改所选任务所属的那一组；普通单组队列仍保持原来的全部任务范围。
+    _getStyleApplyScopeTasks() {
+        if (this.videoCanvas?.scopedTask) return [this.videoCanvas.scopedTask];
+        const groupTasks = this.videoCanvas?.getTaskGroupTasks?.();
+        return Array.isArray(groupTasks) ? groupTasks : (window._reelsState?.tasks || []);
     }
 
     _syncTextcardMaskEnabledUI() {

@@ -1025,7 +1025,48 @@ function _initReelsModule() {
                     mgr.removeOverlay(id);
                     _syncCurrentOverlayEditorToSelectedTask();
                 },
+                // 覆层面板、左侧时间线与预览/导出必须共享同一个栈。
+                // 普通覆层保存在 overlayMgr，插入素材是独立轨；这里只替换
+                // 普通覆层所在的位置，保留插入素材在合成栈中的相对位置。
+                getOrderedOverlays() {
+                    const task = _getSelectedTask();
+                    const overlays = mgr.overlays || [];
+                    if (!task || !window.ReelsRenderPlan?.getCompositedOverlays) return overlays;
+                    const rank = new Map(window.ReelsRenderPlan.getCompositedOverlays(task, { forExport: false })
+                        .map((overlay, index) => [String(overlay.id), index]));
+                    return overlays.slice().sort((a, b) => (rank.get(String(a.id)) ?? 0) - (rank.get(String(b.id)) ?? 0));
+                },
+                setOverlayOrder(overlayIds) {
+                    const task = _getSelectedTask();
+                    if (!task) return;
+                    const sourceIds = new Set((mgr.overlays || []).map(overlay => String(overlay.id)));
+                    const orderedIds = (overlayIds || []).map(String).filter(id => sourceIds.has(id));
+                    if (!orderedIds.length) return;
+                    const current = window.ReelsRenderPlan?.getCompositedOverlays?.(task, { forExport: false }) || [];
+                    const saved = Array.isArray(task.visualOverlayOrder) ? task.visualOverlayOrder : [];
+                    const stack = saved.length ? saved : current.map(overlay => overlay._compositeOrderKey);
+                    let cursor = 0;
+                    const next = stack.map(key => String(key).startsWith('overlay:')
+                        ? `overlay:${orderedIds[cursor++] || String(key).slice('overlay:'.length)}`
+                        : key);
+                    while (cursor < orderedIds.length) next.push(`overlay:${orderedIds[cursor++]}`);
+                    task.visualOverlayOrder = [...new Set(next)];
+                    _syncCurrentOverlayEditorToSelectedTask();
+                    _updateTimelineForTask(task);
+                    reelsUpdatePreview();
+                    if (typeof window.ReelsPreviewV2?.render === 'function') window.ReelsPreviewV2.render();
+                },
                 getSelected() { return null; },
+                getTaskGroupTasks() {
+                    const selected = _getSelectedTask();
+                    const tasks = Array.isArray(_reelsState.tasks) ? _reelsState.tasks : [];
+                    // 大量制作会把多组任务投影到同一队列，并用 _batchTabId 标识组。
+                    // 选中其中一项时，模板样式只能同步给同一组的任务。
+                    if (selected?._batchProjection && selected._batchTabId) {
+                        return tasks.filter(task => task?._batchProjection && task._batchTabId === selected._batchTabId);
+                    }
+                    return tasks;
+                },
                 render() { /* rAF loop handles rendering */ },
                 getOverlayAboveSubtitle() {
                     const task = _getSelectedTask();
@@ -3615,11 +3656,9 @@ function reelsUpdatePreview() {
     } else if (window.ReelsOverlay && _selectedTask) {
         // Cover edit mode OR Normal mode > Main Phase -> Render overlayMgr or task overlays + insertClips
         const ovMgr = _reelsState.overlayProxy ? _reelsState.overlayProxy.overlayMgr : null;
-        const baseOverlays = ovMgr ? (ovMgr.overlays || []) : (_selectedTask.overlays || []);
-        // 插入轨不写入用户的普通覆层管理器，预览时临时投影进来，避免切换
-        // 任务或编辑文字覆层时污染 insertClips。
-        const insertOverlays = _getTaskRenderOverlays(_selectedTask).filter(ov => ov._insertClip);
-        const overlays = [...insertOverlays, ...baseOverlays];
+        // 使用与时间线、导出完全相同的合成栈。不能从 overlayMgr 和插入轨
+        // 临时拼接后再按陈旧 z_index 排序，否则右侧/左侧的层级调整不会反映到画面。
+        const overlays = _getTaskRenderOverlays(_selectedTask, { forExport: false });
         if (overlays.length > 0) {
             // 注入覆层列表引用（供跟随绑定），确保 scroll 先渲染
             const sorted = overlays.filter(o => !o.disabled).slice().sort((a, b) => {
@@ -8397,13 +8436,16 @@ function _renderTaskList() {
         }
         lastFolderQueueId = queueId || null;
 
-        return `${batchGroupHeader}${folderHeader}
+                 const versionBadge = task.versionTag
+                    ? `<span class="reels-version-tag" style="display:inline-block;margin-left:4px;padding:0 5px;font-size:9.5px;line-height:16px;border-radius:3px;background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);font-weight:600;vertical-align:middle;flex-shrink:0;" title="版本说明: ${escapeTaskText(task.versionTag)}">${escapeTaskText(task.versionTag)}</span>`
+                    : '';
+                 return `${batchGroupHeader}${folderHeader}
             <div class="reels-task-item ${selected ? 'reels-task-selected' : ''}"
                  draggable="true" data-task-idx="${i}"
                  ondragstart="reelsTaskDragStart(event, ${i})"
                  ondragend="reelsTaskDragEnd(event)"
                  onclick="reelsSelectTask(${i})"
-                 title="${escapeTaskText(displayName)}${task.exportName && task.fileName ? `\n内部任务名：${escapeTaskText(task.fileName)}` : ''}"
+                 title="${escapeTaskText(displayName)}${task.versionTag ? ` [版本: ${escapeTaskText(task.versionTag)}]` : ''}${task.exportName && task.fileName ? `\n内部任务名：${escapeTaskText(task.fileName)}` : ''}"
                  style="display:flex; align-items:center; gap:4px; padding:5px 6px; margin-bottom:2px;
                         border-radius:5px; cursor:pointer; transition:background .12s, opacity .15s;
                         background: ${selected ? 'rgba(0,212,255,0.15)' : 'transparent'};
@@ -8416,11 +8458,12 @@ function _renderTaskList() {
                     style="accent-color:var(--accent-color,#7b8bef);transform:scale(1.25);margin:0 6px 0 4px;flex-shrink:0;cursor:pointer;"
                     onclick="event.stopPropagation(); reelsToggleExportSelect(${i}, this.checked)"
                     title="勾选以包含在批量导出中">
-                <span class="reels-task-name" style="font-size:12px; font-weight:${selected ? '600' : '400'}; color:${selected ? '#fff' : 'var(--text-primary)'}; ${taskNameStyle}">${escapeTaskText(shortName)}</span>
+                <span class="reels-task-name" style="font-size:12px; font-weight:${selected ? '600' : '400'}; color:${selected ? '#fff' : 'var(--text-primary)'}; ${taskNameStyle}">${escapeTaskText(shortName)}</span>${versionBadge}
                 ${alphaIcon}
                 ${ovPreview}
                 ${task.autoEditProject ? `<button class="btn" style="padding:1px 4px;font-size:10px;border:none;background:transparent;color:#86efac;" onclick="event.stopPropagation(); reelsRefreshAutoEditTask(${i})" title="读取此自动剪辑任务最新导出的成片和 SRT；保留 Reels 覆层、贴纸、BGM 与样式">🔄</button>` : ''}
                 <span style="font-size:10px; white-space:nowrap; opacity:0.8; margin-left:auto;">${statusText}</span>
+                <button class="btn reels-task-duplicate-btn" style="padding:1px 4px; font-size:10px; opacity:0.65; border:none; background:transparent; color:#a78bfa; cursor:pointer;" onclick="event.stopPropagation(); reelsDuplicateTask(${i})" title="复制此任务为新版本副本">📋</button>
                 <button class="btn" style="padding:1px 4px; font-size:10px; opacity:0.5; border:none; background:transparent; color:var(--text-secondary);" onclick="event.stopPropagation(); reelsRemoveTask(${i})" title="删除">✕</button>
             </div>
         `;
@@ -8848,7 +8891,7 @@ function reelsSelectTask(idx) {
     }
 
     const previewText = document.getElementById('reels-preview-text');
-    if (previewText && task.segments.length > 0) {
+    if (previewText && Array.isArray(task.segments) && task.segments.length > 0) {
         previewText.value = task.segments[0].text;
     }
 
@@ -8907,6 +8950,129 @@ function reelsRemoveTask(idx) {
     // 统一走选择逻辑，确保预览背景/音频/时间线同步
     reelsSelectTask(_reelsState.selectedIdx);
 }
+
+async function reelsDuplicateTask(idx, versionTagInput) {
+    if (idx < 0 || idx >= (_reelsState?.tasks || []).length) return null;
+    const srcTask = _reelsState.tasks[idx];
+    if (!srcTask) return null;
+
+    let versionTag = versionTagInput;
+    if (versionTag === undefined || versionTag === null) {
+        const promptFn = window.reelsPrompt || window._bcPrompt;
+        if (typeof promptFn === 'function') {
+            const res = await promptFn('请输入副本版本说明（例如 Hook-B、短版、变体A）', '副本');
+            if (res === null) return null;
+            versionTag = res.trim() || '副本';
+        } else if (typeof prompt === 'function') {
+            const res = prompt('请输入副本版本说明（例如 Hook-B、短版、变体A）', '副本');
+            if (res === null) return null;
+            versionTag = res.trim() || '副本';
+        } else {
+            versionTag = '副本';
+        }
+    }
+
+    const cloned = JSON.parse(JSON.stringify(srcTask));
+    if (window.ReelsTaskDerivation?.rekeyTask) {
+        window.ReelsTaskDerivation.rekeyTask(cloned);
+    } else {
+        cloned.id = 'task_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    }
+
+    cloned.versionTag = versionTag;
+    if (cloned.exportName) {
+        cloned.exportName = `${cloned.exportName}_${versionTag}`;
+    }
+    if (cloned.fileName && !cloned.exportName) {
+        const parts = cloned.fileName.split('.');
+        const ext = parts.length > 1 ? '.' + parts.pop() : '';
+        cloned.fileName = `${parts.join('.')}_${versionTag}${ext}`;
+    }
+
+    const insertIdx = idx + 1;
+    _reelsState.tasks.splice(insertIdx, 0, cloned);
+    _renderTaskList();
+    if (typeof _renderBatchTable === 'function') _renderBatchTable();
+    reelsSelectTask(insertIdx);
+    if (typeof reelsSaveHistory === 'function') reelsSaveHistory();
+    if (typeof showToast === 'function') {
+        showToast(`已复制任务副本（${versionTag}）`, 'success');
+    }
+    return cloned;
+}
+window.reelsDuplicateTask = reelsDuplicateTask;
+
+async function reelsDuplicateSelectedTasks(versionTagInput) {
+    const tasks = _reelsState?.tasks || [];
+    if (!tasks.length) {
+        if (typeof showToast === 'function') showToast('任务列表为空', 'warning');
+        return [];
+    }
+
+    const selectedIndices = [];
+    tasks.forEach((t, i) => {
+        if (t._exportSelected !== false) {
+            selectedIndices.push(i);
+        }
+    });
+
+    if (!selectedIndices.length) {
+        if (typeof showToast === 'function') showToast('请先勾选需要复制的任务', 'warning');
+        return [];
+    }
+
+    let versionTag = versionTagInput;
+    if (versionTag === undefined || versionTag === null) {
+        const promptFn = window.reelsPrompt || window._bcPrompt;
+        if (typeof promptFn === 'function') {
+            const res = await promptFn(`请输入选中的 ${selectedIndices.length} 个任务的副本版本说明（例如 Hook-B、短版）`, '副本');
+            if (res === null) return [];
+            versionTag = res.trim() || '副本';
+        } else if (typeof prompt === 'function') {
+            const res = prompt(`请输入选中的 ${selectedIndices.length} 个任务的副本版本说明（例如 Hook-B、短版）`, '副本');
+            if (res === null) return [];
+            versionTag = res.trim() || '副本';
+        } else {
+            versionTag = '副本';
+        }
+    }
+
+    const newTasks = [];
+    selectedIndices.forEach(idx => {
+        const srcTask = tasks[idx];
+        if (!srcTask) return;
+        const cloned = JSON.parse(JSON.stringify(srcTask));
+        if (window.ReelsTaskDerivation?.rekeyTask) {
+            window.ReelsTaskDerivation.rekeyTask(cloned);
+        } else {
+            cloned.id = 'task_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+        }
+        cloned.versionTag = versionTag;
+        if (cloned.exportName) {
+            cloned.exportName = `${cloned.exportName}_${versionTag}`;
+        }
+        if (cloned.fileName && !cloned.exportName) {
+            const parts = cloned.fileName.split('.');
+            const ext = parts.length > 1 ? '.' + parts.pop() : '';
+            cloned.fileName = `${parts.join('.')}_${versionTag}${ext}`;
+        }
+        cloned._exportSelected = true;
+        newTasks.push(cloned);
+    });
+
+    const lastIdx = selectedIndices[selectedIndices.length - 1];
+    _reelsState.tasks.splice(lastIdx + 1, 0, ...newTasks);
+
+    _renderTaskList();
+    if (typeof _renderBatchTable === 'function') _renderBatchTable();
+    reelsSelectTask(lastIdx + 1);
+    if (typeof reelsSaveHistory === 'function') reelsSaveHistory();
+    if (typeof showToast === 'function') {
+        showToast(`已批量复制 ${newTasks.length} 个任务副本（${versionTag}）`, 'success');
+    }
+    return newTasks;
+}
+window.reelsDuplicateSelectedTasks = reelsDuplicateSelectedTasks;
 
 // ═══════════════════════════════════════════════════════
 // Video preview controls
@@ -10530,26 +10696,41 @@ function _reelsTaskCardBaseName(task) {
 
 function _resolveReelsExportBaseName(task, namingMode = 'text') {
     const manual = _sanitizeReelsFileBaseName(task?.exportName || '', '');
-    if (manual) return manual;
+    let base = '';
+    if (manual) {
+        base = manual;
+    } else {
+        const mode = namingMode || 'text';
+        const byMode = mode === 'background'
+            ? _reelsTaskBackgroundBaseName(task)
+            : mode === 'audio'
+                ? _reelsTaskAudioBaseName(task)
+                : mode === 'card'
+                    ? _reelsTaskCardBaseName(task)
+                    : mode === 'custom'
+                        ? ''
+                        : _reelsTaskTextBaseName(task);
+        if (byMode) {
+            base = byMode;
+        } else {
+            base = _reelsTaskTextBaseName(task)
+                || _reelsTaskBackgroundBaseName(task)
+                || _reelsTaskAudioBaseName(task)
+                || _reelsTaskCardBaseName(task)
+                || _sanitizeReelsFileBaseName(task?.fileName || task?.baseName || 'reel');
+        }
+    }
 
-    const mode = namingMode || 'text';
-    const byMode = mode === 'background'
-        ? _reelsTaskBackgroundBaseName(task)
-        : mode === 'audio'
-            ? _reelsTaskAudioBaseName(task)
-            : mode === 'card'
-                ? _reelsTaskCardBaseName(task)
-                : mode === 'custom'
-                    ? ''
-                    : _reelsTaskTextBaseName(task);
-    if (byMode) return byMode;
+    if (task?.versionTag) {
+        const tag = _sanitizeReelsFileBaseName(String(task.versionTag).trim(), '');
+        if (tag && !base.endsWith(`_${tag}`)) {
+            base = `${base}_${tag}`;
+        }
+    }
 
-    return _reelsTaskTextBaseName(task)
-        || _reelsTaskBackgroundBaseName(task)
-        || _reelsTaskAudioBaseName(task)
-        || _reelsTaskCardBaseName(task)
-        || _sanitizeReelsFileBaseName(task?.fileName || task?.baseName || 'reel');
+    return base;
 }
+window._resolveReelsExportBaseName = _resolveReelsExportBaseName;
 
 // ═══════════════════════════════════════════════════════
 // Cover PNG Export Utility
@@ -12753,13 +12934,14 @@ function applyRestoredProject(result) {
 
     // 在渲染/同步当前标签之前恢复完整批量表格快照，避免撤销时把其他标签页
     // 的任务、素材配置和参数覆盖成当前任务页的数据。
-    if (result.batchTable && typeof window.reelsRestoreBatchTableState === 'function') {
+    const restoredBatchTable = !!(result.batchTable && typeof window.reelsRestoreBatchTableState === 'function');
+    if (restoredBatchTable) {
         window.reelsRestoreBatchTableState(result.batchTable);
     }
 
     // Keep the batch-table active tab in sync so loaded template paths appear
     // in the table as well as in the Reels task list.
-    if (typeof _batchTableState !== 'undefined' && typeof _getActiveTab === 'function') {
+    if (!restoredBatchTable && typeof _batchTableState !== 'undefined' && typeof _getActiveTab === 'function') {
         const tab = _getActiveTab();
         if (tab) {
             try {

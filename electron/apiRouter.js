@@ -17,6 +17,7 @@ const elevenlabsAuth = require('./services/elevenlabsAuth');
 const subtitleService = require('./services/subtitle');
 const fcpxmlService = require('./services/fcpxml');
 const davinciFusionExport = require('./services/davinciFusionExport');
+const fileOrganizer = require('./services/fileOrganizer');
 
 const ytdlpService = require('./services/ytdlp');
 const gladiaService = require('./services/gladia');
@@ -1211,6 +1212,33 @@ async function routeAPI(endpoint, data, progressSender = null, sender = null) {
             return { reviewPath };
         }
 
+        // 本地缓存会随应用重置而丢失；审核结果的权威备份是总文件夹内
+        // `审核批次_*/review.json`。打开素材审核时读取最近一次有效记录。
+        case 'media/visual-review-load': {
+            const rootDir = String(data.rootDir || '');
+            if (!rootDir || !fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) return { session: null };
+            const candidates = fs.readdirSync(rootDir, { withFileTypes: true })
+                .filter(entry => entry.isDirectory() && /^审核批次[_-]/u.test(entry.name))
+                .map(entry => {
+                    const reviewPath = path.join(rootDir, entry.name, 'review.json');
+                    try {
+                        const stat = fs.statSync(reviewPath);
+                        return stat.isFile() ? { reviewPath, mtimeMs: stat.mtimeMs } : null;
+                    } catch (_) { return null; }
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.mtimeMs - a.mtimeMs);
+            for (const candidate of candidates) {
+                try {
+                    const session = JSON.parse(fs.readFileSync(candidate.reviewPath, 'utf8'));
+                    if (session && typeof session === 'object' && session.statuses && typeof session.statuses === 'object') {
+                        return { session, reviewPath: candidate.reviewPath };
+                    }
+                } catch (_) { /* 忽略损坏的旧记录，继续尝试上一份 */ }
+            }
+            return { session: null };
+        }
+
         case 'media/auto-edit-by-script':
         case 'media/auto-edit':
         case 'auto-edit-by-script':
@@ -1642,6 +1670,13 @@ async function routeAPI(endpoint, data, progressSender = null, sender = null) {
                 converted: allResults,
             };
         }
+
+        case 'media/organize/preview':
+            return fileOrganizer.preview(data.source_dir, data.rules, data.options);
+        case 'media/organize/apply':
+            return fileOrganizer.apply(data.plan);
+        case 'media/organize/undo':
+            return fileOrganizer.undo(data.log_path);
 
         case 'media/batch-thumbnail': {
             if (!data.files || data.files.length === 0) throw new Error('缺少文件列表');

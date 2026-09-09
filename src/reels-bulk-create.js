@@ -15,6 +15,22 @@ const _bulkState = {
     rows: [],
     // templates: [{ task: {...}, label: '', bindings: { title_text: colIdx, ... } }]
     templates: [],
+    backgroundFolders: [],
+    musicFiles: [],
+    groupAssignments: null,
+    allowTemplateReuse: false,
+    allowBackgroundReuse: false,
+    allowMusicReuse: false,
+    filterUnassignedTemplates: false,
+    filterUnassignedBackgrounds: false,
+    filterUnassignedMusic: false,
+    filterUnassignedGroups: false,
+    collapsedSections: {
+        templates: false,
+        backgrounds: false,
+        music: false,
+        groups: false,
+    },
 };
 
 const BC_DRAFT_KEY = 'reels_bulk_create_last_state';
@@ -35,6 +51,23 @@ function _bcNormalizeStateShape() {
     }
     if (!Array.isArray(_bulkState.rows)) _bulkState.rows = [];
     if (!Array.isArray(_bulkState.templates)) _bulkState.templates = [];
+    if (!Array.isArray(_bulkState.backgroundFolders)) _bulkState.backgroundFolders = [];
+    if (!Array.isArray(_bulkState.musicFiles)) _bulkState.musicFiles = [];
+    if (typeof _bulkState.allowTemplateReuse !== 'boolean') _bulkState.allowTemplateReuse = false;
+    if (typeof _bulkState.allowBackgroundReuse !== 'boolean') _bulkState.allowBackgroundReuse = false;
+    if (typeof _bulkState.allowMusicReuse !== 'boolean') _bulkState.allowMusicReuse = false;
+    if (typeof _bulkState.filterUnassignedTemplates !== 'boolean') _bulkState.filterUnassignedTemplates = false;
+    if (typeof _bulkState.filterUnassignedBackgrounds !== 'boolean') _bulkState.filterUnassignedBackgrounds = false;
+    if (typeof _bulkState.filterUnassignedMusic !== 'boolean') _bulkState.filterUnassignedMusic = false;
+    if (typeof _bulkState.filterUnassignedGroups !== 'boolean') _bulkState.filterUnassignedGroups = false;
+    if (!_bulkState.collapsedSections || typeof _bulkState.collapsedSections !== 'object') {
+        _bulkState.collapsedSections = {
+            templates: false,
+            backgrounds: false,
+            music: false,
+            groups: false,
+        };
+    }
 
     _bulkState.rows = _bulkState.rows.map(row => Array.isArray(row) ? row : []);
     _bulkState.rows.forEach(row => {
@@ -54,6 +87,24 @@ function _bcLoadDraftOnce() {
         if (!draft || draft.type !== 'bulk_create_draft') return;
         if (!Array.isArray(draft.columns)) return;
 
+        _bulkState.backgroundFolders = draft.backgroundFolders || [];
+        _bulkState.musicFiles = draft.musicFiles || [];
+        _bulkState.groupAssignments = draft.groupAssignments || null;
+        _bulkState.allowTemplateReuse = !!draft.allowTemplateReuse;
+        _bulkState.allowBackgroundReuse = !!draft.allowBackgroundReuse;
+        _bulkState.allowMusicReuse = !!draft.allowMusicReuse;
+        _bulkState.filterUnassignedTemplates = !!draft.filterUnassignedTemplates;
+        _bulkState.filterUnassignedBackgrounds = !!draft.filterUnassignedBackgrounds;
+        _bulkState.filterUnassignedMusic = !!draft.filterUnassignedMusic;
+        _bulkState.filterUnassignedGroups = !!draft.filterUnassignedGroups;
+        if (draft.collapsedSections && typeof draft.collapsedSections === 'object') {
+            _bulkState.collapsedSections = {
+                templates: !!draft.collapsedSections.templates,
+                backgrounds: !!draft.collapsedSections.backgrounds,
+                music: !!draft.collapsedSections.music,
+                groups: !!draft.collapsedSections.groups,
+            };
+        }
         _bulkState.columns = JSON.parse(JSON.stringify(draft.columns));
         _bulkState.rows = Array.isArray(draft.rows) ? JSON.parse(JSON.stringify(draft.rows)) : [];
         _bulkState.templates = Array.isArray(draft.templates)
@@ -87,16 +138,67 @@ function _bcLoadDraftOnce() {
     }
 }
 
+function _bcRestoreDraft() {
+    _bcDraftLoaded = false;
+    _bcLoadDraftOnce();
+}
+
+function _bcSanitizeTaskForDraft(task) {
+    if (!task || typeof task !== 'object') return {};
+    const clone = JSON.parse(JSON.stringify(task));
+    delete clone._video;
+    delete clone._bgThumb;
+    Object.keys(clone).forEach(k => {
+        if (k.startsWith('_dom') || k.startsWith('_el') || k.startsWith('_canvas')) {
+            delete clone[k];
+        }
+    });
+    if (clone.bgSrcUrl && String(clone.bgSrcUrl).startsWith('blob:')) clone.bgSrcUrl = null;
+    if (clone.srcUrl && String(clone.srcUrl).startsWith('blob:')) clone.srcUrl = null;
+    if (clone.cover?.previewUrl && String(clone.cover.previewUrl).startsWith('data:')) {
+        clone.cover = { ...clone.cover };
+        delete clone.cover.previewUrl;
+    }
+    if (clone._thumbUrl && String(clone._thumbUrl).startsWith('data:')) {
+        delete clone._thumbUrl;
+    }
+    if (Array.isArray(clone.overlays)) {
+        clone.overlays.forEach(ov => {
+            if (ov && typeof ov === 'object') {
+                delete ov._thumb;
+                delete ov._thumbUrl;
+                Object.keys(ov).forEach(k => {
+                    if (k.startsWith('_dom') || k.startsWith('_el') || k.startsWith('_canvas')) {
+                        delete ov[k];
+                    }
+                });
+            }
+        });
+    }
+    return clone;
+}
+
 function _bcSaveDraftNow() {
     try {
         _bcNormalizeStateShape();
         const draft = {
             type: 'bulk_create_draft',
+            backgroundFolders: _bulkState.backgroundFolders,
+            musicFiles: _bulkState.musicFiles,
+            groupAssignments: _bulkState.groupAssignments,
+            allowTemplateReuse: _bulkState.allowTemplateReuse,
+            allowBackgroundReuse: _bulkState.allowBackgroundReuse,
+            allowMusicReuse: _bulkState.allowMusicReuse,
+            filterUnassignedTemplates: _bulkState.filterUnassignedTemplates,
+            filterUnassignedBackgrounds: _bulkState.filterUnassignedBackgrounds,
+            filterUnassignedMusic: _bulkState.filterUnassignedMusic,
+            filterUnassignedGroups: _bulkState.filterUnassignedGroups,
+            collapsedSections: _bulkState.collapsedSections || {},
             version: 5,
             columns: JSON.parse(JSON.stringify(_bulkState.columns)),
             rows: JSON.parse(JSON.stringify(_bulkState.rows)),
             templates: _bulkState.templates.map(t => ({
-                task: t.task || {},
+                task: _bcSanitizeTaskForDraft(t.task || {}),
                 label: t.label || '',
                 bindings: { ...(t.bindings || {}) },
                 bgCycle: t.bgCycle || null,
@@ -105,7 +207,19 @@ function _bcSaveDraftNow() {
             })),
             savedAt: new Date().toISOString(),
         };
-        localStorage.setItem(BC_DRAFT_KEY, JSON.stringify(draft));
+        try {
+            localStorage.setItem(BC_DRAFT_KEY, JSON.stringify(draft));
+        } catch (storageErr) {
+            console.warn('[BulkCreate] 完整草稿保存超出配额，尝试降级精简保存:', storageErr);
+            draft.templates.forEach(t => {
+                if (t.task) {
+                    delete t.task.segments;
+                    delete t.task.words;
+                    delete t.task.history;
+                }
+            });
+            localStorage.setItem(BC_DRAFT_KEY, JSON.stringify(draft));
+        }
     } catch (e) {
         console.warn('[BulkCreate] 保存上次草稿失败:', e);
     }
@@ -221,6 +335,7 @@ function _bcPickBgCycleFiles(tpl, ti) {
                 result.filePaths.forEach(p => { if (!tpl.bgCycle.includes(p)) tpl.bgCycle.push(p); });
                 console.log(`[BulkCreate] 模板「${tpl.label}」设置背景循环: ${tpl.bgCycle.length} 个素材`);
                 _bcRenderBindings();
+                _bcScheduleDraftSave();
             }
         });
     } else {
@@ -229,6 +344,89 @@ function _bcPickBgCycleFiles(tpl, ti) {
 }
 
 const BC_FOLDER_BG_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp']);
+
+async function _bcImportBackgroundFolders(paths) {
+    if (!window.electronAPI?.scanDirectory) { alert('请在桌面版中导入背景文件夹'); return; }
+    const errors = [];
+    for (const path of [...new Set(paths)]) {
+        try {
+            const entries = await window.electronAPI.scanDirectory(path);
+            const files = (entries || []).filter(item => !item.isDirectory && item.path && BC_FOLDER_BG_EXTS.has(_bcFileExt(item.name || item.path)))
+                .sort((a, b) => String(a.name || a.path).localeCompare(String(b.name || b.path), undefined, { numeric: true })).map(item => item.path);
+            const folder = { path, name: _bcFileName(path), files };
+            const index = _bulkState.backgroundFolders.findIndex(item => item.path === path);
+            if (index < 0) _bulkState.backgroundFolders.push(folder);
+            else _bulkState.backgroundFolders[index] = folder;
+        } catch (error) { errors.push(`${_bcFileName(path)}：${error.message || error}`); }
+    }
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (errors.length) alert(`部分文件夹读取失败：\n${errors.join('\n')}`);
+}
+
+function _bcClearBackgroundFolders() {
+    _bulkState.backgroundFolders = [];
+    (_bulkState.groupAssignments || []).forEach(entry => {
+        entry.backgroundFolder = '';
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+}
+
+function _bcApplyAssignedBackground(task, tpl, index) {
+    if (!tpl.assignedBackgroundFolder) return;
+    const folder = _bulkState.backgroundFolders.find(item => item.path === tpl.assignedBackgroundFolder);
+    if (!folder?.files?.length) throw new Error('所选背景分类为空或已移除，请重新分配');
+    const files = folder.files;
+    const mode = tpl.assignedBackgroundMode || 'cycle';
+    let hash = ((tpl.assignedBackgroundSeed || 0) + Math.imul(index + 1, 0x9e3779b9)) | 0;
+    hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
+    hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
+    const random = tpl.assignedBackgroundSeed == null ? Math.random() : ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
+    const path = files[mode === 'random' ? Math.floor(random * files.length) : index % files.length];
+    _bcApplySingleBackground(task, path);
+    task.bgClipActivePool = [];
+    if (mode === 'concat') {
+        task.bgMode = 'multi';
+        task.bgPath = task.videoPath = files[0];
+        task.bgClipPool = files.slice();
+        task.bgClipActivePool = files.slice();
+        task.bgClipOrder = 'sequence';
+    }
+}
+
+function _bcImportMusicFiles(paths) {
+    const allowed = new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'wma']);
+    const existing = new Set(_bulkState.musicFiles.map(item => item.path));
+    (paths || []).forEach(path => {
+        if (!path || !allowed.has(_bcFileExt(path)) || existing.has(path)) return;
+        _bulkState.musicFiles.push({ path, name: _bcFileName(path) });
+        existing.add(path);
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+}
+
+function _bcClearMusicFiles() {
+    _bulkState.musicFiles = [];
+    (_bulkState.groupAssignments || []).forEach(entry => {
+        entry.musicPath = '';
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+}
+
+function _bcApplyAssignedMusic(task, tpl, taskIndex = 0) {
+    const path = tpl.assignedMusicMode === 'cycle'
+        ? _bulkState.musicFiles[taskIndex % Math.max(1, _bulkState.musicFiles.length)]?.path
+        : tpl.assignedMusicPath;
+    if (path) {
+        task.bgmPath = path;
+        task.bgmMode = 'single';
+        task.bgmClipPool = [];
+        task.bgmClipActivePool = [];
+    }
+}
 
 function _bcEnsureFolderBackgroundColumn(tpl, ti) {
     let ci = Number(tpl?.bindings?.__bg__);
@@ -389,7 +587,7 @@ function _bcShowBgCycleDetail(tpl, ti) {
     document.body.appendChild(ov);
     _bgcSeekAllThumbs();
 
-    const close = () => { ov.remove(); _bcRenderBindings(); };
+    const close = () => { ov.remove(); _bcRenderBindings(); _bcScheduleDraftSave(); };
     ov.querySelector('#bgc-close').onclick = close;
     ov.querySelector('#bgc-done').onclick = close;
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
@@ -403,6 +601,7 @@ function _bcShowBgCycleDetail(tpl, ti) {
             tpl.bgCycle.splice(idx, 1);
             if (tpl.bgCycle.length === 0) tpl.bgCycle = null;
             rebuild();
+            _bcScheduleDraftSave();
         }
     });
 
@@ -736,6 +935,7 @@ function _bcFillMediaColumn(paths, startRi, ci) {
         c2: ci,
     };
     _bcRenderTable();
+    _bcScheduleDraftSave();
     return cleanPaths.length;
 }
 
@@ -764,6 +964,83 @@ function _bcPrompt(title, placeholder) {
         inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const v = inp.value; m.remove(); resolve(v); } });
     });
 }
+window._bcPrompt = _bcPrompt;
+window.reelsPrompt = _bcPrompt;
+
+async function _bcPromptRowDuplication(indices) {
+    if (!indices || !indices.length) return;
+    const res = await _bcPrompt('请输入副本版本说明（例如 Hook-B、短版、变体A）', '副本');
+    if (res === null) return;
+    const tag = res.trim() || '副本';
+    _bcDuplicateRows(indices, tag);
+}
+window._bcPromptRowDuplication = _bcPromptRowDuplication;
+
+function _bcDuplicateRows(indices, versionTag = '副本') {
+    if (!indices || !indices.length || !_bulkState?.rows) return [];
+    const uniqueSorted = Array.from(new Set(indices.map(Number))).filter(i => !isNaN(i) && i >= 0 && i < _bulkState.rows.length).sort((a, b) => a - b);
+    if (!uniqueSorted.length) return [];
+    const tag = String(versionTag || '副本').trim() || '副本';
+
+    const cols = _bulkState.columns || [];
+    let nameColIdx = cols.findIndex(c => {
+        const n = String(c?.name || '').toLowerCase();
+        return /导出|命名|文件名|export|filename/.test(n);
+    });
+    if (nameColIdx < 0) {
+        nameColIdx = cols.findIndex(c => {
+            const n = String(c?.name || '').toLowerCase();
+            return /标题|title|hook|文案/.test(n);
+        });
+    }
+
+    const newRows = [];
+    uniqueSorted.forEach(ri => {
+        const srcRow = _bulkState.rows[ri];
+        if (!srcRow) return;
+        const clonedRow = srcRow.slice();
+        clonedRow._versionTag = tag;
+        if (nameColIdx >= 0 && nameColIdx < clonedRow.length) {
+            const val = clonedRow[nameColIdx] || '';
+            clonedRow[nameColIdx] = val ? `${val}_${tag}` : tag;
+        } else {
+            let modified = false;
+            for (let ci = 0; ci < clonedRow.length; ci++) {
+                if (cols[ci]?.type !== 'media' && clonedRow[ci]) {
+                    clonedRow[ci] = `${clonedRow[ci]}_${tag}`;
+                    modified = true;
+                    break;
+                }
+            }
+            if (!modified && clonedRow.length > 0) {
+                clonedRow[0] = clonedRow[0] ? `${clonedRow[0]}_${tag}` : tag;
+            }
+        }
+        newRows.push(clonedRow);
+    });
+
+    if (!newRows.length) return [];
+    const insertAfter = uniqueSorted[uniqueSorted.length - 1];
+    _bulkState.rows.splice(insertAfter + 1, 0, ...newRows);
+
+    const startRi = insertAfter + 1;
+    const endRi = startRi + newRows.length - 1;
+    _bcSelection = {
+        r1: startRi,
+        c1: 0,
+        r2: endRi,
+        c2: Math.max(0, cols.length - 1)
+    };
+
+    if (typeof _bcRenderTable === 'function') _bcRenderTable();
+    if (typeof _bcRenderBindings === 'function') _bcRenderBindings();
+    if (typeof _bcScheduleDraftSave === 'function') _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        showToast(`已复制 ${newRows.length} 行副本（版本: ${tag}）`, 'success');
+    }
+    return newRows;
+}
+window._bcDuplicateRows = _bcDuplicateRows;
 
 // ── Bindable fields from a task's overlays ──
 function _bcFieldsFromTask(task) {
@@ -786,16 +1063,16 @@ function _bcFieldsFromTask(task) {
         fields.push({ key: '__cv__', label: '📹 内容视频', type: 'media', kinds: ['video'] });
     }
     if (_bcTextColumnCandidatesForCategory('ai_source').length > 0 || task.aiScript) {
-        fields.push({ key: '__ai__', label: '🧠 人声-原文案（手动绑定）', type: 'text', category: 'ai_source' });
+        fields.push({ key: '__ai__', label: '🧠 人声-原文案', type: 'text', category: 'ai_source' });
     }
     if (_bcTextColumnCandidatesForCategory('dynamic_subtitle').length > 0 || task.txtContent) {
-        fields.push({ key: '__txt__', label: '💬 人声-断行文案（手动绑定）', type: 'text', category: 'dynamic_subtitle' });
+        fields.push({ key: '__txt__', label: '💬 人声-断行文案', type: 'text', category: 'dynamic_subtitle' });
     }
     if (_bcTextColumnCandidatesForCategory('tts_text').length > 0 || task.ttsText) {
-        fields.push({ key: '__tts__', label: '🎙️ 人声-配音文案（手动绑定）', type: 'text', category: 'tts_text' });
+        fields.push({ key: '__tts__', label: '🎙️ 人声-配音文案', type: 'text', category: 'tts_text' });
     }
     if (_bcTextColumnCandidatesForCategory('voice_id').length > 0 || task.ttsVoiceId) {
-        fields.push({ key: '__voice_id__', label: '🗣️ 人声ID（可手动输入）', type: 'text', category: 'voice_id' });
+        fields.push({ key: '__voice_id__', label: '🗣️ 人声ID', type: 'text', category: 'voice_id' });
     }
     const overlays = task.overlays || [];
     overlays.forEach((ov, li) => {
@@ -862,7 +1139,7 @@ function _bcPickCandidateForTemplate(candidates, templateIndex = 0) {
 }
 
 const BC_FIELD_CATEGORY_COLUMN_NAMES = {
-    ai_source: ['人声-原文案', 'ai源文案', 'ai源', 'ai原文', '原文案', '源文案', 'ai_script', 'aiscript'],
+    ai_source: ['原始文案', '原始完整文案', '人声-原文案', 'ai源文案', 'ai源', 'ai原文', '原文案', '源文案', 'ai_script', 'aiscript'],
     dynamic_subtitle: ['人声-断行文案', '断行文案', '动态字幕断行后', '断行后', '字幕断行', '字幕文本', '字幕文案', 'txtcontent', 'txt_content'],
     tts_text: ['人声-配音文案', '配音文案', 'tts文案', 'tts_text', 'ttstext', 'voice text'],
     voice_id: ['人声id', '音色id', 'voice id', 'voice_id', 'voiceid', 'ttsvoiceid'],
@@ -947,10 +1224,1282 @@ function _bcAutoRebindAllTemplates() {
     _bcScheduleDraftSave();
 }
 
+// Match the complete numbered group, never fall back to another group's text.
+function _bcNumberedColumnGroups() {
+    const value = (id, fallback) => document.getElementById(id)?.value ?? fallback;
+    const prefix = value('bc-header-prefix', 'reels').trim() + value('bc-header-before', '-');
+    const after = value('bc-header-after', '-');
+    const groups = new Map();
+    _bulkState.columns.forEach((col, ci) => {
+        const name = String(col.name || '');
+        if (!name.startsWith(prefix)) return;
+        const rest = name.slice(prefix.length);
+        const match = rest.match(/^-?\d+/);
+        if (!match || !rest.slice(match[0].length).startsWith(after)) return;
+        const fieldName = rest.slice(match[0].length + after.length).trim();
+        if (!fieldName) return;
+        const key = prefix + match[0];
+        if (!groups.has(key)) groups.set(key, { key, number: Number(match[0]), columns: [] });
+        groups.get(key).columns.push({ ci, name: fieldName.toLowerCase() });
+    });
+    return [...groups.values()].sort((a, b) => a.number - b.number);
+}
+
+function _bcBindNumberedGroup(tpl, group) {
+    const aliases = {
+        ai_source: ['原始文案', '原始完整文案'],
+        card_body: ['正文', '内容'],
+        scroll_title: ['标题'],
+        scroll_body: ['正文', '内容'],
+        plain_text: ['内容', '正文'],
+    };
+    const bindings = { ...(tpl.bindings || {}) };
+    _bcFieldsFromTask(tpl.task).forEach(field => {
+        const candidates = [...(BC_FIELD_CATEGORY_COLUMN_NAMES[field.category] || []), ...(aliases[field.category] || [])];
+        const hit = candidates.map(name => group.columns.find(col => col.name === name.toLowerCase()
+            && _bcFieldAcceptsColumn(field, _bulkState.columns[col.ci]))).find(Boolean);
+        if (hit) bindings[field.key] = hit.ci;
+        else if (field.type === 'text') delete bindings[field.key];
+    });
+    tpl.bindings = bindings;
+}
+
+function _bcAssignNumberedGroups(random = false) {
+    const groups = _bcNumberedColumnGroups();
+    if (!groups.length) { alert('未找到编号组，请检查表头与上方前缀、连接符设置是否一致。'); return; }
+    if (!_bulkState.templates.length) { alert("请先添加模板"); return; }
+    // Copy groups drive the assignment count; unused templates remain in the library.
+    if (groups.length > _bulkState.templates.length) _bulkState.allowTemplateReuse = true;
+    const templateIndices = _bulkState.templates.map((_, index) => index);
+    let pool = [];
+    if (random) {
+        if (_bulkState.allowTemplateReuse) {
+            pool = groups.map(() => Math.floor(Math.random() * _bulkState.templates.length));
+        } else {
+            let shuffled = [];
+            while (pool.length < groups.length) {
+                if (!shuffled.length) {
+                    shuffled = [...templateIndices];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+                }
+                pool.push(shuffled.shift());
+            }
+        }
+    } else {
+        if (_bulkState.allowTemplateReuse) {
+            pool = groups.map((_, i) => i % _bulkState.templates.length);
+        } else {
+            pool = groups.map((_, i) => i < templateIndices.length ? templateIndices[i] : -1);
+        }
+    }
+    const previousAssignments = _bulkState.groupAssignments || [];
+    _bulkState.groupAssignments = groups.map((group, index) => {
+        const rawIdx = pool[index];
+        const templateIndex = rawIdx != null ? rawIdx : -1;
+        if (templateIndex >= 0 && _bulkState.templates[templateIndex]) {
+            _bcBindNumberedGroup(_bulkState.templates[templateIndex], group);
+        }
+        const previous = previousAssignments.find(entry => entry.key === group.key);
+        return {
+            key: group.key,
+            templateIndex,
+            bindings: {},
+            backgroundFolder: previous?.backgroundFolder || '',
+            backgroundMode: previous?.backgroundMode || 'cycle',
+            backgroundSeed: previous?.backgroundSeed,
+            musicPath: previous?.musicPath || '',
+            musicMode: previous?.musicMode || 'suite'
+        };
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        const desc = _bulkState.allowTemplateReuse ? '（可重复）' : '（一一配对）';
+        showToast(`🎲 已${random ? '随机分配' : '按顺序分配'} ${groups.length} 个编号组的模板${desc}`, 'success');
+    }
+}
+
 function _bcClearAllTemplateBindings() {
+    _bulkState.groupAssignments = null;
     _bulkState.templates.forEach(tpl => { tpl.bindings = {}; });
     _bcRenderBindings();
     _bcScheduleDraftSave();
+}
+
+function _bcClearTemplateAssignments() {
+    if (!Array.isArray(_bulkState.groupAssignments) || !_bulkState.groupAssignments.length) {
+        if (typeof showToast === 'function') showToast('当前没有模板分配', 'info');
+        return;
+    }
+    _bulkState.groupAssignments.forEach(entry => {
+        entry.templateIndex = -1;
+        entry.bindings = {};
+        delete entry.overlayOverrides;
+        delete entry.overlayAboveSubtitle;
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') showToast('已清空全部编号组的模板分配', 'info');
+}
+
+function _bcClearTemplateLibrary() {
+    if (!_bulkState.templates?.length) {
+        if (typeof showToast === 'function') showToast('模版库已经是空的', 'info');
+        else alert('模版库已经是空的');
+        return;
+    }
+    if (confirm('确定清空模版库中的所有模板？')) {
+        _bulkState.templates = [];
+        (_bulkState.groupAssignments || []).forEach(entry => {
+            entry.templateIndex = -1;
+            entry.bindings = {};
+            delete entry.overlayOverrides;
+            delete entry.overlayAboveSubtitle;
+        });
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') showToast('已清空模版库', 'info');
+    }
+}
+
+function _bcChangeTemplateGroupAssignment(ti, oldGroupKey, newGroupKey) {
+    ti = Number(ti);
+    if (!Array.isArray(_bulkState.groupAssignments)) _bulkState.groupAssignments = [];
+    if (oldGroupKey && oldGroupKey !== newGroupKey) {
+        const oldEntry = _bulkState.groupAssignments.find(item => item.key === oldGroupKey);
+        if (oldEntry && oldEntry.templateIndex === ti) {
+            oldEntry.templateIndex = -1;
+            oldEntry.bindings = {};
+            delete oldEntry.overlayOverrides;
+            delete oldEntry.overlayAboveSubtitle;
+        }
+    }
+    if (newGroupKey) {
+        const groups = _bcNumberedColumnGroups();
+        const group = groups.find(g => g.key === newGroupKey);
+        let newEntry = _bulkState.groupAssignments.find(item => item.key === newGroupKey);
+        if (!newEntry) {
+            newEntry = { key: newGroupKey, templateIndex: ti, bindings: {}, backgroundMode: 'cycle', musicMode: 'suite' };
+            _bulkState.groupAssignments.push(newEntry);
+        } else {
+            newEntry.templateIndex = ti;
+            newEntry.bindings = {};
+            delete newEntry.overlayOverrides;
+            delete newEntry.overlayAboveSubtitle;
+        }
+        if (_bulkState.templates[ti] && group) {
+            _bcBindNumberedGroup(_bulkState.templates[ti], group);
+        }
+    }
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        const tplLabel = _bulkState.templates[ti]?.label || `模板${ti + 1}`;
+        if (newGroupKey) showToast(`✅ 已将「${tplLabel}」分配给 ${newGroupKey}`, 'success');
+        else if (oldGroupKey) showToast(`已取消 ${oldGroupKey} 的模板分配，该组已空出`, 'info');
+    }
+}
+
+function _bcUnassignTemplateFromGroup(groupKey) {
+    if (!Array.isArray(_bulkState.groupAssignments)) return;
+    const entry = _bulkState.groupAssignments.find(item => item.key === groupKey);
+    if (entry && entry.templateIndex >= 0) {
+        entry.templateIndex = -1;
+        entry.bindings = {};
+        delete entry.overlayOverrides;
+        delete entry.overlayAboveSubtitle;
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') {
+            showToast(`已取消 ${groupKey} 的模板分配，该组已空出`, 'info');
+        }
+    }
+}
+
+function _bcUnassignAllGroupsForTemplate(ti) {
+    ti = Number(ti);
+    if (!Array.isArray(_bulkState.groupAssignments)) return;
+    let changed = false;
+    _bulkState.groupAssignments.forEach(entry => {
+        if (entry.templateIndex === ti) {
+            entry.templateIndex = -1;
+            entry.bindings = {};
+            delete entry.overlayOverrides;
+            delete entry.overlayAboveSubtitle;
+            changed = true;
+        }
+    });
+    if (changed) {
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') {
+            showToast(`已取消该模板的全部组分配`, 'info');
+        }
+    }
+}
+
+function _bcAssignedTemplate(assignment, group) {
+    const source = _bulkState.templates[assignment.templateIndex];
+    if (!source || !group) return null;
+    if (assignment.backgroundSeed == null) assignment.backgroundSeed = Math.floor(Math.random() * 4294967296);
+    const tpl = { ...source, bindings: { ...source.bindings }, assignedBackgroundFolder: assignment.backgroundFolder, assignedBackgroundMode: assignment.backgroundMode, assignedBackgroundSeed: assignment.backgroundSeed };
+    tpl.assignedMusicPath = assignment.musicPath || '';
+    tpl.assignedMusicMode = assignment.musicMode || 'suite';
+    if (Array.isArray(assignment.overlayOverrides)) tpl.task = { ...source.task, overlays: JSON.parse(JSON.stringify(assignment.overlayOverrides)) };
+    if (assignment.overlayAboveSubtitle != null) tpl.task = { ...tpl.task, overlayAboveSubtitle: assignment.overlayAboveSubtitle };
+    _bcBindNumberedGroup(tpl, group);
+    Object.entries(assignment.bindings || {}).forEach(([field, name]) => {
+        const ci = _bulkState.columns.findIndex(col => col.name === name);
+        if (name != null && ci >= 0) tpl.bindings[field] = ci;
+        else delete tpl.bindings[field];
+    });
+    return tpl;
+}
+
+function _bcSetGroupTemplate(key, templateIndex) {
+    if (!_bulkState.groupAssignments) _bulkState.groupAssignments = [];
+    const entries = _bulkState.groupAssignments;
+    let entry = entries.find(item => item.key === key);
+    if (!_bulkState.allowTemplateReuse && templateIndex >= 0) {
+        const other = entries.find(item => item.key !== key && item.templateIndex === templateIndex);
+        if (other) { other.templateIndex = entry?.templateIndex ?? -1; other.bindings = {}; delete other.overlayOverrides; delete other.overlayAboveSubtitle; }
+    }
+    if (!entry) { entry = { key }; entries.push(entry); }
+    entry.templateIndex = templateIndex;
+    entry.bindings = {};
+    delete entry.overlayOverrides;
+    delete entry.overlayAboveSubtitle;
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+}
+
+function _bcSaveSuiteOverlays(entry, overlays) {
+    const old = entry.overlayOverrides || _bulkState.templates[entry.templateIndex]?.task?.overlays || [];
+    const bindings = {};
+    Object.entries(entry.bindings || {}).forEach(([field, value]) => {
+        const match = field.match(/^L(\d+)_(.+)$/);
+        if (!match) { bindings[field] = value; return; }
+        const id = old[Number(match[1])]?.id;
+        const index = overlays.findIndex(overlay => id != null && overlay.id === id);
+        if (index >= 0) bindings[`L${index}_${match[2]}`] = value;
+    });
+    entry.bindings = bindings;
+    entry.overlayOverrides = JSON.parse(JSON.stringify(overlays));
+}
+
+function _bcAssignBackgroundGroups(random = false) {
+    const folders = _bulkState.backgroundFolders.filter(folder => folder.files?.length);
+    if (!folders.length) { alert('请先添加含有视频或图片的背景文件夹'); return; }
+    const groups = _bcNumberedColumnGroups();
+    if (!groups.length) { alert('未找到编号组，请检查表头与上方前缀、连接符设置是否一致。'); return; }
+    if (!_bulkState.groupAssignments || !_bulkState.groupAssignments.length) {
+        _bcAssignNumberedGroups();
+    }
+    let pool = [];
+    if (random) {
+        if (_bulkState.allowBackgroundReuse) {
+            pool = groups.map(() => folders[Math.floor(Math.random() * folders.length)].path);
+        } else {
+            let shuffled = [];
+            while (pool.length < groups.length) {
+                if (!shuffled.length) {
+                    shuffled = [...folders.map(f => f.path)];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+                }
+                pool.push(shuffled.shift());
+            }
+        }
+    } else {
+        if (_bulkState.allowBackgroundReuse) {
+            pool = groups.map((_, i) => folders[i % folders.length].path);
+        } else {
+            pool = groups.map((_, i) => i < folders.length ? folders[i].path : '');
+        }
+    }
+    groups.forEach((group, index) => {
+        let entry = _bulkState.groupAssignments.find(item => item.key === group.key);
+        if (!entry) {
+            const templateIndex = _bulkState.templates.length ? (index % _bulkState.templates.length) : -1;
+            entry = { key: group.key, templateIndex, bindings: {}, backgroundMode: 'cycle', musicMode: 'suite' };
+            _bulkState.groupAssignments.push(entry);
+        }
+        if (entry.templateIndex < 0 && _bulkState.templates.length) {
+            entry.templateIndex = index % _bulkState.templates.length;
+        }
+        entry.backgroundFolder = pool[index] || '';
+        entry.backgroundSeed = Math.floor(Math.random() * 4294967296);
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        const desc = _bulkState.allowBackgroundReuse ? '（可重复）' : (folders.length >= groups.length ? '（不重复）' : '（循环轮次不重复）');
+        showToast(`已为 ${groups.length} 个编号组${random ? '🎲 随机分配' : '按顺序分配'}背景素材${desc}`, 'success');
+    }
+}
+
+function _bcRandomizeBackgroundGroups() {
+    _bcAssignBackgroundGroups(true);
+}
+
+function _bcClearBackgroundAssignments() {
+    if (!Array.isArray(_bulkState.groupAssignments) || !_bulkState.groupAssignments.length) {
+        if (typeof showToast === 'function') showToast('当前没有背景素材分配', 'info');
+        return;
+    }
+    _bulkState.groupAssignments.forEach(entry => {
+        entry.backgroundFolder = '';
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') showToast('已清空全部编号组的背景素材分配', 'info');
+}
+
+function _bcAssignMusicGroups(random = false) {
+    if (!_bulkState.musicFiles.length) { alert('请先添加配乐文件'); return; }
+    const groups = _bcNumberedColumnGroups();
+    if (!groups.length) { alert('未找到编号组，请检查表头与上方前缀、连接符设置是否一致。'); return; }
+    if (!_bulkState.groupAssignments || !_bulkState.groupAssignments.length) {
+        _bcAssignNumberedGroups();
+    }
+    let pool = [];
+    if (random) {
+        if (_bulkState.allowMusicReuse) {
+            pool = groups.map(() => _bulkState.musicFiles[Math.floor(Math.random() * _bulkState.musicFiles.length)].path);
+        } else {
+            let shuffled = [];
+            while (pool.length < groups.length) {
+                if (!shuffled.length) {
+                    shuffled = [..._bulkState.musicFiles.map(f => f.path)];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+                }
+                pool.push(shuffled.shift());
+            }
+        }
+    } else {
+        if (_bulkState.allowMusicReuse) {
+            pool = groups.map((_, i) => _bulkState.musicFiles[i % _bulkState.musicFiles.length].path);
+        } else {
+            pool = groups.map((_, i) => i < _bulkState.musicFiles.length ? _bulkState.musicFiles[i].path : '');
+        }
+    }
+    groups.forEach((group, index) => {
+        let entry = _bulkState.groupAssignments.find(item => item.key === group.key);
+        if (!entry) {
+            const templateIndex = _bulkState.templates.length ? (index % _bulkState.templates.length) : -1;
+            entry = { key: group.key, templateIndex, bindings: {}, backgroundMode: 'cycle', musicMode: 'suite' };
+            _bulkState.groupAssignments.push(entry);
+        }
+        if (entry.templateIndex < 0 && _bulkState.templates.length) {
+            entry.templateIndex = index % _bulkState.templates.length;
+        }
+        entry.musicPath = pool[index] || '';
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        const desc = _bulkState.allowMusicReuse ? '（可重复）' : '（不重复）';
+        showToast(`已为 ${groups.length} 个编号组${random ? '🎲 随机分配' : '按顺序分配'}配乐${desc}`, 'success');
+    }
+}
+
+function _bcRandomizeMusicGroups() {
+    if (!_bulkState.musicFiles.length) { alert('请先添加配乐文件'); return; }
+    const groups = _bcNumberedColumnGroups();
+    if (!groups.length) { alert('未找到编号组，请检查表头与上方前缀、连接符设置是否一致。'); return; }
+    if (!_bulkState.groupAssignments || !_bulkState.groupAssignments.length) {
+        _bcAssignNumberedGroups();
+    }
+    groups.forEach((group, index) => {
+        let entry = _bulkState.groupAssignments.find(item => item.key === group.key);
+        if (!entry) {
+            const templateIndex = _bulkState.templates.length ? (index % _bulkState.templates.length) : -1;
+            entry = { key: group.key, templateIndex, bindings: {}, backgroundMode: 'cycle', musicMode: 'suite' };
+            _bulkState.groupAssignments.push(entry);
+        }
+        const song = _bulkState.musicFiles[Math.floor(Math.random() * _bulkState.musicFiles.length)];
+        entry.musicPath = song.path;
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        showToast(`已为 ${groups.length} 个编号组🎲 随机分配配乐`, 'success');
+    }
+}
+
+function _bcClearMusicAssignments() {
+    if (!Array.isArray(_bulkState.groupAssignments) || !_bulkState.groupAssignments.length) {
+        if (typeof showToast === 'function') showToast('当前没有配乐分配', 'info');
+        return;
+    }
+    _bulkState.groupAssignments.forEach(entry => {
+        entry.musicPath = '';
+    });
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') showToast('已清空全部编号组的配乐分配', 'info');
+}
+
+function _bcChangeFolderGroupAssignment(folderPath, oldGroupKey, newGroupKey) {
+    if (!Array.isArray(_bulkState.groupAssignments)) _bulkState.groupAssignments = [];
+    if (oldGroupKey && oldGroupKey !== newGroupKey) {
+        const oldEntry = _bulkState.groupAssignments.find(item => item.key === oldGroupKey);
+        if (oldEntry && oldEntry.backgroundFolder === folderPath) {
+            oldEntry.backgroundFolder = '';
+        }
+    }
+    if (newGroupKey) {
+        const groups = _bcNumberedColumnGroups();
+        const groupIndex = groups.findIndex(g => g.key === newGroupKey);
+        let newEntry = _bulkState.groupAssignments.find(item => item.key === newGroupKey);
+        if (!newEntry) {
+            const templateIndex = _bulkState.templates.length ? (Math.max(0, groupIndex) % _bulkState.templates.length) : -1;
+            newEntry = { key: newGroupKey, templateIndex, bindings: {}, backgroundMode: 'cycle', musicMode: 'suite' };
+            _bulkState.groupAssignments.push(newEntry);
+        }
+        if (newEntry.templateIndex < 0 && _bulkState.templates.length) {
+            newEntry.templateIndex = Math.max(0, groupIndex) % _bulkState.templates.length;
+        }
+        newEntry.backgroundFolder = folderPath;
+        newEntry.backgroundSeed = Math.floor(Math.random() * 4294967296);
+    }
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        const folderName = _bcFileName(folderPath);
+        if (newGroupKey) {
+            showToast(`✅ 已将「${folderName}」分配给 ${newGroupKey}`, 'success');
+        } else if (oldGroupKey) {
+            showToast(`已取消 ${oldGroupKey} 的背景素材分配，该组已空出`, 'info');
+        }
+    }
+}
+
+function _bcUnassignFolderFromGroup(groupKey) {
+    if (!Array.isArray(_bulkState.groupAssignments)) return;
+    const entry = _bulkState.groupAssignments.find(item => item.key === groupKey);
+    if (entry && entry.backgroundFolder) {
+        entry.backgroundFolder = '';
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') {
+            showToast(`已取消 ${groupKey} 的背景素材分配，该组已空出`, 'info');
+        }
+    }
+}
+
+function _bcUnassignAllFoldersForPath(folderPath) {
+    if (!Array.isArray(_bulkState.groupAssignments)) return;
+    let changed = false;
+    _bulkState.groupAssignments.forEach(entry => {
+        if (entry.backgroundFolder === folderPath) {
+            entry.backgroundFolder = '';
+            changed = true;
+        }
+    });
+    if (changed) {
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') {
+            showToast(`已取消该素材分类的全部组分配`, 'info');
+        }
+    }
+}
+
+function _bcChangeMusicGroupAssignment(musicPath, oldGroupKey, newGroupKey) {
+    if (!Array.isArray(_bulkState.groupAssignments)) _bulkState.groupAssignments = [];
+    if (oldGroupKey && oldGroupKey !== newGroupKey) {
+        const oldEntry = _bulkState.groupAssignments.find(item => item.key === oldGroupKey);
+        if (oldEntry && oldEntry.musicPath === musicPath) {
+            oldEntry.musicPath = '';
+        }
+    }
+    if (newGroupKey) {
+        const groups = _bcNumberedColumnGroups();
+        const groupIndex = groups.findIndex(g => g.key === newGroupKey);
+        let newEntry = _bulkState.groupAssignments.find(item => item.key === newGroupKey);
+        if (!newEntry) {
+            const templateIndex = _bulkState.templates.length ? (Math.max(0, groupIndex) % _bulkState.templates.length) : -1;
+            newEntry = { key: newGroupKey, templateIndex, bindings: {}, backgroundMode: 'cycle', musicMode: 'suite' };
+            _bulkState.groupAssignments.push(newEntry);
+        }
+        newEntry.musicPath = musicPath;
+    }
+    _bcRenderBindings();
+    _bcScheduleDraftSave();
+    if (typeof showToast === 'function') {
+        const musicName = _bcFileName(musicPath);
+        if (newGroupKey) showToast(`✅ 已将配乐「${musicName}」分配给 ${newGroupKey}`, 'success');
+        else if (oldGroupKey) showToast(`已取消 ${oldGroupKey} 的配乐分配，该组已空出`, 'info');
+    }
+}
+
+function _bcUnassignMusicFromGroup(groupKey) {
+    if (!Array.isArray(_bulkState.groupAssignments)) return;
+    const entry = _bulkState.groupAssignments.find(item => item.key === groupKey);
+    if (entry && entry.musicPath) {
+        entry.musicPath = '';
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') {
+            showToast(`已取消 ${groupKey} 的配乐分配，该组已空出`, 'info');
+        }
+    }
+}
+
+function _bcUnassignAllMusicForPath(musicPath) {
+    if (!Array.isArray(_bulkState.groupAssignments)) return;
+    let changed = false;
+    _bulkState.groupAssignments.forEach(entry => {
+        if (entry.musicPath === musicPath) {
+            entry.musicPath = '';
+            changed = true;
+        }
+    });
+    if (changed) {
+        _bcRenderBindings();
+        _bcScheduleDraftSave();
+        if (typeof showToast === 'function') {
+            showToast(`已取消该配乐的全部组分配`, 'info');
+        }
+    }
+}
+
+let _bcAudioPreview = null;
+let _bcCurrentPlayingMusic = null;
+
+function _bcToggleMusicPreview(audioPath) {
+    if (_bcAudioPreview && _bcCurrentPlayingMusic === audioPath) {
+        _bcAudioPreview.pause();
+        _bcAudioPreview = null;
+        _bcCurrentPlayingMusic = null;
+        _bcRenderBindings();
+        return;
+    }
+    if (_bcAudioPreview) {
+        _bcAudioPreview.pause();
+        _bcAudioPreview = null;
+        _bcCurrentPlayingMusic = null;
+    }
+    try {
+        const url = _bcFileUrl(audioPath);
+        _bcAudioPreview = new Audio(url);
+        _bcCurrentPlayingMusic = audioPath;
+        _bcAudioPreview.onended = () => {
+            _bcAudioPreview = null;
+            _bcCurrentPlayingMusic = null;
+            _bcRenderBindings();
+        };
+        _bcAudioPreview.onerror = () => {
+            _bcAudioPreview = null;
+            _bcCurrentPlayingMusic = null;
+            _bcRenderBindings();
+        };
+        _bcAudioPreview.play().catch(err => {
+            console.warn('[BulkCreate] Audio play error:', err);
+        });
+        _bcRenderBindings();
+    } catch (e) {
+        console.warn('[BulkCreate] Audio error:', e);
+    }
+}
+
+function _bcRenderItemAssignControls(options) {
+    const { kind, itemVal, assignedKeys, freeGroups, allGroups } = options;
+    const count = assignedKeys.length;
+    if (!allGroups.length) {
+        return `<select disabled style="flex:1;min-width:0;padding:2px 6px;background:#12121c;color:#666;border:1px solid #333;border-radius:4px;font-size:10px;"><option>未检测到编号组</option></select>`;
+    }
+    if (count === 1) {
+        const currentKey = assignedKeys[0];
+        return `<select class="bc-${kind}-assign-group" data-${kind}="${_bcEsc(itemVal)}" data-current-group="${_bcEsc(currentKey)}" style="flex:1;min-width:0;padding:2px 6px;background:#16162a;color:#d8cfff;border:1px solid #7c5cff;border-radius:4px;font-size:10px;cursor:pointer;" title="当前分配给 ${currentKey}；可切换到其他空闲组或取消分配">
+            <option value="">⚪ 取消分配（空出该组）</option>
+            <option value="${_bcEsc(currentKey)}" selected>🎯 ${_bcEsc(currentKey)}（当前组）</option>
+            ${freeGroups.map(g => `<option value="${_bcEsc(g.key)}">${_bcEsc(g.key)}（可分配）</option>`).join('')}
+        </select>
+        <button class="bc-${kind}-unassign" data-group="${_bcEsc(currentKey)}" style="padding:2px 6px;font-size:10px;cursor:pointer;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:#ff8888;flex-shrink:0;" title="取消分配给 ${currentKey}，释放该组">取消分配</button>`;
+    }
+    if (count === 0) {
+        return `<select class="bc-${kind}-assign-group" data-${kind}="${_bcEsc(itemVal)}" data-current-group="" style="flex:1;min-width:0;padding:2px 6px;background:#12121c;color:#8e8ea8;border:1px dashed #44445c;border-radius:4px;font-size:10px;cursor:pointer;" title="选择要分配的编号组（仅显示尚未分配的空闲组）">
+            <option value="" selected>⚪ 未分配（点击选择分配组）</option>
+            ${freeGroups.length
+                ? freeGroups.map(g => `<option value="${_bcEsc(g.key)}">${_bcEsc(g.key)}</option>`).join('')
+                : '<option value="" disabled>全部编号组均已有分配</option>'}
+        </select>`;
+    }
+    return `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;flex:1;min-width:0;">
+        ${assignedKeys.map(k => `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(124,92,255,0.22);border:1px solid rgba(124,92,255,0.5);border-radius:3px;padding:1px 5px;color:#d8cfff;font-size:10px;">${_bcEsc(k)} <span class="bc-${kind}-unassign" data-group="${_bcEsc(k)}" style="cursor:pointer;color:#ff8888;font-weight:bold;margin-left:2px;" title="取消分配给 ${k}">✕</span></span>`).join('')}
+        <select class="bc-${kind}-assign-group" data-${kind}="${_bcEsc(itemVal)}" data-current-group="" style="padding:2px 6px;background:#181828;color:#b9aaff;border:1px solid #554488;border-radius:4px;font-size:10px;cursor:pointer;" title="追加分配给其他空闲组">
+            <option value="" selected>+ 追加组...</option>
+            ${freeGroups.map(g => `<option value="${_bcEsc(g.key)}">${_bcEsc(g.key)}</option>`).join('')}
+        </select>
+    </div>
+    <button class="bc-${kind}-unassign-all" data-${kind}="${_bcEsc(itemVal)}" style="padding:2px 6px;font-size:10px;cursor:pointer;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:#ff8888;flex-shrink:0;" title="全部取消分配">全部取消</button>`;
+}
+
+function _bcVisualPicker(kind, selected, choose) {
+    const isPicker = typeof choose === 'function';
+    const templates = kind === 'template';
+    const music = kind === 'music';
+    const items = templates ? _bulkState.templates : (music ? _bulkState.musicFiles : _bulkState.backgroundFolders);
+    const panel = document.createElement('div');
+    panel.style.cssText = 'position:fixed;inset:0;z-index:410000;background:#101018;color:#ddd;padding:20px;display:flex;flex-direction:column;gap:12px;';
+    const label = templates ? (isPicker ? '看图选模板' : '模版库') : (music ? (isPicker ? '试听选配乐' : '配乐库') : (isPicker ? '看图选背景' : '背景库浏览'));
+    const suffix = templates ? '个模板' : (music ? '首配乐' : '组背景');
+    const action = templates ? '模板' : (music ? '配乐' : '背景');
+    panel.innerHTML = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><strong>${label}</strong><span>共 ${items.length} ${suffix}${isPicker ? `，向下滚动浏览；点击卡片替换整套${action}` : '；可向下滚动并左右滑动查看各背景素材'}</span>${!isPicker || templates ? '' : `<button data-default>${music ? '不使用指定配乐' : '沿用模板背景'}</button>`}<button data-close>返回</button></div><div data-cards style="overflow:auto;flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;align-content:start;"></div>`;
+    document.body.appendChild(panel);
+    ['click', 'mousedown', 'keydown'].forEach(type => panel.addEventListener(type, event => event.stopPropagation()));
+    const get = selector => panel.querySelector(selector);
+    let revision = 0;
+    const cleanup = () => {
+        revision++;
+        panel.querySelectorAll('video').forEach(video => { video.pause(); video.removeAttribute('src'); video.load(); });
+    };
+    const close = () => { cleanup(); panel.remove(); };
+    const select = value => { close(); if (isPicker) choose(value); };
+    const render = () => {
+        cleanup();
+        const token = revision;
+        const grid = get('[data-cards]'); grid.innerHTML = '';
+        items.forEach((item, index) => {
+            const value = templates ? index : item.path;
+            const active = value === selected;
+            const card = document.createElement('button');
+            card.style.cssText = `background:#20202c;color:#ddd;border:2px solid ${active ? '#a78bfa' : '#444'};border-radius:8px;padding:10px;text-align:left;cursor:${isPicker ? 'pointer' : 'default'};min-width:0;`;
+            card.innerHTML = `<div data-images style="display:flex;gap:6px;overflow-x:auto;"></div><div style="margin-top:8px;font-weight:bold;">${active ? '✓ 当前 · ' : ''}${_bcEsc(templates ? item.label : item.name)}</div><div data-status style="font-size:12px;color:#aaa;"></div>`;
+            grid.appendChild(card);
+            if (isPicker) card.onclick = () => select(value);
+            const images = card.querySelector('[data-images]');
+            const status = card.querySelector('[data-status]');
+            if (templates) {
+                const img = document.createElement('img');
+                img.style.cssText = 'width:100%;height:300px;object-fit:contain;background:#14141e;';
+                images.appendChild(img); status.textContent = '正在加载模板样式…';
+                _bcRenderTemplateThumb(item.task?.overlays || []).then(url => {
+                    if (!panel.isConnected || revision !== token) return;
+                    if (url) { img.src = url; status.textContent = '样式示意；选中后左侧显示本组实际文案'; }
+                    else status.textContent = '此模板暂无覆层缩略图，点击查看实际效果';
+                }).catch(() => { if (panel.isConnected && revision === token) status.textContent = '缩略图加载失败，可点击查看实际效果'; });
+            } else if (music) {
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.preload = 'metadata';
+                audio.src = _bcFileUrl(item.path);
+                audio.addEventListener('click', event => event.stopPropagation());
+                images.appendChild(audio);
+                status.textContent = '点击播放试听；点击卡片即选用。';
+            } else {
+                status.textContent = `${item.files.length} 个素材 · 左右滚动查看素材缩略图`;
+                // Browser lazy images and metadata-only videos avoid starting playback for the library.
+                item.files.forEach(path => {
+                    const media = document.createElement(_bcMediaKind(path) === 'image' ? 'img' : 'video');
+                    media.style.cssText = 'flex:0 0 130px;width:130px;height:220px;object-fit:cover;background:#111;border-radius:4px;';
+                    media.title = `${_bcFileName(path)}${media.tagName === 'VIDEO' ? '（点击播放/暂停）' : ''}`;
+                    if (media.tagName === 'VIDEO') {
+                        media.muted = true;
+                        media.preload = 'none';
+                        media.playsInline = true;
+                        media.style.cursor = 'pointer';
+                        media.onclick = e => {
+                            e.stopPropagation();
+                            if (media.paused) media.play().catch(() => {});
+                            else media.pause();
+                        };
+                    } else {
+                        media.loading = 'lazy';
+                    }
+                    media.dataset.path = path;
+                    images.appendChild(media);
+                });
+                const loadVisible = () => {
+                    const bounds = images.getBoundingClientRect();
+                    images.querySelectorAll('[data-path]').forEach(media => {
+                        const rect = media.getBoundingClientRect();
+                        if (rect.right >= bounds.left && rect.left <= bounds.right && !media.getAttribute('src')) {
+                            if (media.tagName === 'VIDEO') media.preload = 'auto';
+                            media.src = _bcFileUrl(media.dataset.path);
+                        } else if ((rect.right < bounds.left || rect.left > bounds.right) && media.tagName === 'VIDEO' && media.getAttribute('src')) {
+                            media.pause(); media.removeAttribute('src'); media.load();
+                        }
+                    });
+                };
+                images.addEventListener('scroll', loadVisible); loadVisible();
+            }
+            if (active) {
+                setTimeout(() => card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60);
+            }
+        });
+    };
+    get('[data-close]').onclick = close;
+    if (!templates && isPicker && get('[data-default]')) get('[data-default]').onclick = () => select('');
+    render();
+}
+
+function _bcEditTemplateOverlays(ti) {
+    const tpl = _bulkState.templates[ti];
+    if (!tpl) return;
+    if (typeof ReelsOverlayPanel === 'undefined' || !window.ReelsOverlay?.OverlayManager) {
+        alert('覆层编辑器尚未加载');
+        return;
+    }
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:450000;background:#000d;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `<div style="background:#181822;padding:16px;border-radius:10px;display:flex;gap:16px;max-height:94vh;max-width:96vw;overflow:auto;color:#ddd;">
+        <div style="position:relative;width:min(40vw,360px);aspect-ratio:9/16;background:#000;align-self:flex-start;">
+            <video data-bg-video muted loop playsinline style="position:absolute;width:100%;height:100%;object-fit:cover;"></video>
+            <img data-bg-image style="position:absolute;width:100%;height:100%;object-fit:cover;display:none;">
+            <canvas width="1080" height="1920" style="position:absolute;width:100%;height:100%;pointer-events:none;"></canvas>
+        </div>
+        <div style="width:280px;display:flex;flex-direction:column;gap:10px;font-size:13px;">
+            <strong>✏️ 编辑模板「<span data-tpl-label>${_bcEsc(tpl.label)}</span>」</strong>
+            <label>模板名称 <input data-tpl-name value="${_bcEsc(tpl.label)}" style="width:100%;background:#10101b;color:#ddd;border:1px solid #444;border-radius:4px;padding:3px 6px;"></label>
+            <label>预览秒数 <input data-time type="number" min="0" value="0" step="0.5" style="width:80px;"></label>
+            <button data-play>播放 / 暂停背景</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                <button data-save-preset style="padding:4px 10px;background:rgba(245,158,11,0.2);border:1px solid #f59e0b;border-radius:4px;color:#fcd34d;cursor:pointer;font-size:11px;">💾 存为预设</button>
+            </div>
+            <div data-status style="color:#b9aaff;">修改立即同步并保存草稿</div>
+            <div style="color:#999;font-size:11px;">右侧修改覆层参数后，将自动作为该模板的基础样式，使用该模板的编号组将自动应用。</div>
+            <button data-close style="margin-top:auto;padding:6px;background:linear-gradient(135deg,#7c5cff,#a855f7);color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;">完成并保存</button>
+        </div>
+        <div data-host style="width:460px;min-width:380px;max-height:85vh;overflow:auto;border-left:1px solid #444;padding-left:12px;">
+            <div style="color:#b9aaff;padding:8px;font-size:11px;">可以直接添加、删除、调整覆层。修改将直接更新此模板。</div>
+            <div data-panel></div>
+        </div>
+    </div>`;
+    document.body.appendChild(modal);
+    ['click', 'mousedown', 'keydown'].forEach(type => modal.addEventListener(type, event => event.stopPropagation()));
+
+    const get = selector => modal.querySelector(selector);
+    const video = get('[data-bg-video]'), img = get('[data-bg-image]'), canvas = get('canvas');
+    const localTask = JSON.parse(JSON.stringify(tpl.task || {}));
+    if (!Array.isArray(localTask.overlays)) localTask.overlays = [];
+    const mgr = new window.ReelsOverlay.OverlayManager();
+    mgr.overlays = localTask.overlays;
+
+    const path = localTask.bgPath || localTask.videoPath || '';
+    const isImage = _bcMediaKind(path) === 'image';
+    img.style.display = isImage ? 'block' : 'none'; video.style.display = isImage ? 'none' : 'block';
+    if (path) (isImage ? img : video).src = _bcFileUrl(path);
+
+    const draw = () => {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, 1080, 1920);
+        const time = Math.max(0, Number(get('[data-time]').value) || 0);
+        (mgr.overlays || []).forEach(overlay => ReelsOverlay.drawOverlay(ctx, { ...overlay, _exporting: true }, time, 1080, 1920));
+    };
+
+    const saveChanges = () => {
+        localTask.overlays = mgr.overlays;
+        tpl.task.overlays = JSON.parse(JSON.stringify(mgr.overlays));
+        if (localTask.overlayAboveSubtitle != null) {
+            tpl.task.overlayAboveSubtitle = localTask.overlayAboveSubtitle;
+        }
+        tpl.bindings = typeof _bcAutoBind === 'function' ? _bcAutoBind(tpl.task, ti) : (tpl.bindings || {});
+        _bcScheduleDraftSave();
+        draw();
+    };
+
+    let suitePanel = null;
+    const proxy = {
+        overlayMgr: mgr, scopedTask: localTask,
+        getOverlayAboveSubtitle: () => localTask.overlayAboveSubtitle !== false,
+        setOverlayAboveSubtitle(value) { localTask.overlayAboveSubtitle = value; tpl.task.overlayAboveSubtitle = value; saveChanges(); },
+        getCanvasSize: () => ({ w: 1080, h: 1920, cx: 540, cy: 960 }),
+        getDuration: () => Number.isFinite(video.duration) ? video.duration : 9999,
+        previewEnd(active) { get('[data-time]').value = active ? String(Number.isFinite(video.duration) ? video.duration : 10) : '0'; draw(); },
+        addOverlay(overlay) { mgr.addOverlay(overlay); saveChanges(); suitePanel?._refreshList(); },
+        removeOverlay(id) { mgr.removeOverlay(id); saveChanges(); suitePanel?._refreshList(); },
+        render: saveChanges,
+    };
+    suitePanel = new ReelsOverlayPanel(get('[data-panel]'), proxy);
+    modal.querySelectorAll('#rop-group-preset-update,#rop-group-preset-del,#rop-group-preset-rename,#rop-batch-import').forEach(el => { el.style.display = 'none'; });
+    suitePanel._refreshList();
+    if (mgr.overlays[0]) suitePanel.selectOverlay(mgr.overlays[0]);
+    draw();
+
+    get('[data-time]').oninput = () => { video.currentTime = Math.max(0, Number(get('[data-time]').value) || 0); draw(); };
+    get('[data-play]').onclick = () => video.paused ? video.play().catch(() => {}) : video.pause();
+    get('[data-tpl-name]').onchange = e => {
+        const val = (e.target.value || '').trim();
+        if (val) {
+            tpl.label = val;
+            get('[data-tpl-label]').textContent = val;
+            _bcScheduleDraftSave();
+        }
+    };
+    get('[data-save-preset]').onclick = () => {
+        const name = prompt('输入预设名称：', tpl.label);
+        if (!name || !name.trim()) return;
+        let presets = {};
+        try { presets = JSON.parse(localStorage.getItem('reels_overlay_group_presets') || '{}'); } catch(e) {}
+        presets[name.trim()] = {
+            name: name.trim(),
+            createdAt: new Date().toISOString(),
+            layers: JSON.parse(JSON.stringify(mgr.overlays)),
+            overlayAboveSubtitle: localTask.overlayAboveSubtitle !== false,
+        };
+        localStorage.setItem('reels_overlay_group_presets', JSON.stringify(presets));
+        alert(`✅ 已保存到覆层预设「${name.trim()}」`);
+    };
+
+    get('[data-close]').onclick = () => {
+        const nameInput = get('[data-tpl-name]');
+        if (nameInput && nameInput.value.trim()) tpl.label = nameInput.value.trim();
+        saveChanges();
+        _bcSaveDraftNow();
+        if (suitePanel?._renderRaf) cancelAnimationFrame(suitePanel._renderRaf);
+        suitePanel = null;
+        video.pause(); video.removeAttribute('src'); video.load();
+        modal.remove();
+        _bcRenderBindings();
+    };
+}
+
+function _bcPreviewGroup(key, initialRow = null, onClose = null) {
+    const group = _bcNumberedColumnGroups().find(item => item.key === key);
+    const entry = _bulkState.groupAssignments?.find(item => item.key === key);
+    if (!group || !entry || entry.templateIndex < 0) { alert('请先为本组分配模板'); return; }
+    if (typeof ReelsOverlay === 'undefined') { alert('预览渲染器尚未加载'); return; }
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:400000;background:#000d;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `<div style="background:#181822;padding:16px;border-radius:10px;display:flex;gap:16px;max-height:94vh;max-width:96vw;overflow:auto;color:#ddd;">
+        <div style="position:relative;width:min(40vw,360px);aspect-ratio:9/16;background:#000;align-self:flex-start;flex-shrink:0;">
+            <video data-bg-video muted loop playsinline style="position:absolute;width:100%;height:100%;object-fit:cover;"></video>
+            <img data-bg-image style="position:absolute;width:100%;height:100%;object-fit:cover;display:none;">
+            <canvas width="1080" height="1920" style="position:absolute;width:100%;height:100%;pointer-events:none;"></canvas>
+        </div>
+        <div style="width:330px;min-width:300px;display:flex;flex-direction:column;gap:10px;font-size:12.5px;max-height:90vh;overflow-y:auto;padding-right:4px;">
+            <strong style="font-size:14px;color:#fff;">${_bcEsc(key)} · 文案与背景预览</strong>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-weight:600;color:#c4b5fd;font-size:11.5px;flex-shrink:0;">数据行</label>
+                <select data-row style="flex:1;min-width:0;background:#141525;color:#e2e8f0;border:1px solid #363852;border-radius:4px;height:26px;font-size:11px;padding:0 6px;"></select>
+            </div>
+
+            <!-- ✏️ 实时编辑文案区块 -->
+            <div data-edit-copy-section style="background:rgba(124,92,255,0.06);border:1px solid rgba(124,92,255,0.22);border-radius:8px;padding:9px;display:flex;flex-direction:column;gap:7px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <span style="font-weight:700;color:#c4b5fd;font-size:11.5px;display:inline-flex;align-items:center;gap:4px;">✏️ 实时修改文案（同步表格）</span>
+                    <span data-copy-sync-tip style="font-size:10px;color:#34d399;font-weight:600;display:none;background:rgba(52,211,153,0.12);padding:1px 5px;border-radius:3px;border:1px solid rgba(52,211,153,0.3);">✓ 已同步</span>
+                </div>
+                <div data-copy-fields-container style="display:flex;flex-direction:column;gap:7px;"></div>
+            </div>
+
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:#94a3b8;">模板
+                <div style="display:flex;gap:4px;">
+                    <select data-template style="flex:1;min-width:0;background:#141525;color:#e2e8f0;border:1px solid #363852;border-radius:4px;height:24px;font-size:11px;padding:0 6px;"></select>
+                    <button data-pick-template class="bc-btn bc-btn-purple bc-btn-xs" style="flex-shrink:0;">🖼 看图换模板</button>
+                </div>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:#94a3b8;">背景分类
+                <div style="display:flex;gap:4px;">
+                    <select data-folder style="flex:1;min-width:0;background:#141525;color:#e2e8f0;border:1px solid #363852;border-radius:4px;height:24px;font-size:11px;padding:0 6px;"></select>
+                    <button data-pick-folder class="bc-btn bc-btn-purple bc-btn-xs" style="flex-shrink:0;">🖼 看图换分类</button>
+                </div>
+            </label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:#94a3b8;">配乐模式
+                    <select data-music-mode style="background:#141525;color:#e2e8f0;border:1px solid #363852;border-radius:4px;height:24px;font-size:11px;padding:0 4px;"><option value="suite">整套共用一首</option><option value="cycle">每条轮流配乐</option></select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:#94a3b8;">预览秒数
+                    <input data-time type="number" min="0" value="0" step="0.5" style="width:100%;box-sizing:border-box;background:#141525;color:#e2e8f0;border:1px solid #363852;border-radius:4px;height:24px;font-size:11px;padding:0 6px;">
+                </label>
+            </div>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:#94a3b8;">整套配乐
+                <div style="display:flex;gap:4px;">
+                    <select data-music style="flex:1;min-width:0;background:#141525;color:#e2e8f0;border:1px solid #363852;border-radius:4px;height:24px;font-size:11px;padding:0 6px;"></select>
+                    <button data-pick-music class="bc-btn bc-btn-emerald bc-btn-xs" style="flex-shrink:0;">🎵 试听</button>
+                </div>
+            </label>
+            <audio data-music-player controls style="width:100%;display:none;margin-top:2px;"></audio>
+            <div style="display:flex;gap:6px;margin-top:2px;">
+                <button data-play class="bc-btn bc-btn-default bc-btn-sm" style="flex:1;">播放 / 暂停背景</button>
+                <button data-edit-overlays class="bc-btn bc-btn-purple bc-btn-sm" style="flex:1;">⚙ 覆层排版参数</button>
+            </div>
+            <div data-status style="color:#b9aaff;font-size:10.5px;margin-top:2px;"></div>
+            <div style="color:#717496;font-size:10px;line-height:1.35;">修改文案会立即同步到外层表格；拼接模式展示首个素材，完整效果生成任务后检查。</div>
+            <button data-close class="bc-btn bc-btn-primary" style="margin-top:4px;height:30px;font-size:12px;">完成预览</button>
+        </div></div>`;
+    document.body.appendChild(modal);
+    const get = selector => modal.querySelector(selector);
+    const video = get('[data-bg-video]'), img = get('[data-bg-image]'), canvas = get('canvas');
+    const rows = _bulkState.rows.map((row, index) => ({ row, index })).filter(({ row }) => row.some(cell => String(cell || '').trim()));
+    get('[data-row]').innerHTML = rows.map(({ index }, i) => `<option value="${i}">第 ${index + 1} 行</option>`).join('');
+    if (initialRow != null) get('[data-row]').value = String(Math.max(0, rows.findIndex(item => item.index === initialRow)));
+    const syncOptions = () => {
+        get('[data-template]').innerHTML = _bulkState.templates.map((tpl, i) => `<option value="${i}" ${entry.templateIndex === i ? 'selected' : ''}>${_bcEsc(tpl.label)}</option>`).join('');
+        get('[data-folder]').innerHTML = '<option value="">沿用模板背景</option>' + _bulkState.backgroundFolders.map(folder => `<option value="${_bcEsc(folder.path)}" ${entry.backgroundFolder === folder.path ? 'selected' : ''}>${_bcEsc(folder.name)}</option>`).join('');
+        get('[data-music]').innerHTML = '<option value="">沿用模板 / 不指定配乐</option>' + _bulkState.musicFiles.map(music => `<option value="${_bcEsc(music.path)}" ${entry.musicPath === music.path ? 'selected' : ''}>${_bcEsc(music.name)}</option>`).join('');
+        get('[data-music-mode]').value = entry.musicMode || 'suite';
+        get('[data-music]').disabled = entry.musicMode === 'cycle';
+        get('[data-pick-music]').disabled = entry.musicMode === 'cycle';
+    };
+    let task = null, timer = null, suitePanel = null, suiteHost = null;
+    const closeSuitePanel = () => {
+        if (suitePanel?._renderRaf) cancelAnimationFrame(suitePanel._renderRaf);
+        if (suitePanel) suitePanel.videoCanvas = null;
+        suitePanel = null; suiteHost?.remove(); suiteHost = null;
+    };
+    const draw = () => {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, 1080, 1920);
+        if (!task) return;
+        const time = Math.max(0, Number(get('[data-time]').value) || 0);
+        (task.overlays || []).forEach(overlay => ReelsOverlay.drawOverlay(ctx, { ...overlay, _exporting: true }, time, 1080, 1920));
+    };
+    const renderBoundTextEditors = () => {
+        const container = get('[data-copy-fields-container]');
+        if (!container) return;
+        const tpl = _bcAssignedTemplate(entry, group);
+        const ri = Number(get('[data-row]').value) || 0;
+        if (!tpl || !rows[ri]) {
+            container.innerHTML = '<div style="color:#717496;font-size:11px;">本组暂无可编辑的文案</div>';
+            return;
+        }
+        const actualRowIndex = rows[ri].index;
+        const currentRow = _bulkState.rows[actualRowIndex] || [];
+        const fields = _bcFieldsFromTask(tpl.task || {});
+        const boundTextFields = fields.filter(f => {
+            if (f.type !== 'text') return false;
+            const ci = tpl.bindings?.[f.key];
+            return ci != null && ci >= 0 && ci < _bulkState.columns.length;
+        });
+
+        if (boundTextFields.length === 0) {
+            container.innerHTML = '<div style="color:#717496;font-size:10.5px;line-height:1.4;">当前模板暂未绑定文本列<br><span style="color:#94a3b8;font-size:10px;">可在编号组卡片中指定绑定的表格列。</span></div>';
+            return;
+        }
+
+        container.innerHTML = boundTextFields.map(f => {
+            const ci = tpl.bindings[f.key];
+            const colName = _bulkState.columns[ci]?.name || `列 ${ci + 1}`;
+            const val = currentRow[ci] || '';
+            const isMultiline = f.key.includes('body') || f.key.includes('content') || f.key === '__ai__' || f.key === '__txt__' || f.key === '__tts__';
+            return `<div style="display:flex;flex-direction:column;gap:3px;" data-field-row="${_bcEsc(f.key)}">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:10.5px;">
+                    <span style="color:#e2e8f0;font-weight:600;">${_bcEsc(f.label)}</span>
+                    <span style="color:#a78bfa;font-size:10px;background:rgba(124,92,255,0.15);border:1px solid rgba(124,92,255,0.3);padding:1px 5px;border-radius:3px;font-family:monospace;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="已绑定表格列: ${_bcEsc(colName)}">${_bcEsc(colName)}</span>
+                </div>
+                ${isMultiline ? `
+                    <textarea data-bound-input data-ci="${ci}" data-fk="${_bcEsc(f.key)}" rows="3" placeholder="输入${_bcEsc(f.label)}..." style="width:100%;box-sizing:border-box;background:#10111d;border:1px solid #363852;border-radius:4px;color:#f1f5f9;padding:6px 8px;font-size:11.5px;line-height:1.45;resize:vertical;font-family:inherit;outline:none;">${_bcEsc(val)}</textarea>
+                ` : `
+                    <input data-bound-input data-ci="${ci}" data-fk="${_bcEsc(f.key)}" type="text" value="${_bcEsc(val)}" placeholder="输入${_bcEsc(f.label)}..." style="width:100%;box-sizing:border-box;background:#10111d;border:1px solid #363852;border-radius:4px;color:#f1f5f9;padding:4px 8px;font-size:11.5px;height:26px;outline:none;">
+                `}
+            </div>`;
+        }).join('');
+    };
+    const copyContainer = get('[data-copy-fields-container]');
+    if (copyContainer) {
+        copyContainer.addEventListener('input', e => {
+            const target = e.target;
+            if (!target || !target.hasAttribute('data-bound-input')) return;
+            const ci = Number(target.dataset.ci);
+            const ri = Number(get('[data-row]').value) || 0;
+            if (!rows[ri]) return;
+            const actualRowIndex = rows[ri].index;
+            const newVal = target.value;
+
+            // 1. Synchronize to _bulkState.rows and active row
+            if (!_bulkState.rows[actualRowIndex]) _bulkState.rows[actualRowIndex] = [];
+            while (_bulkState.rows[actualRowIndex].length <= ci) _bulkState.rows[actualRowIndex].push('');
+            _bulkState.rows[actualRowIndex][ci] = newVal;
+            rows[ri].row[ci] = newVal;
+
+            // 2. Synchronize any other inputs bound to the same column
+            copyContainer.querySelectorAll(`[data-bound-input][data-ci="${ci}"]`).forEach(inp => {
+                if (inp !== target && inp.value !== newVal) inp.value = newVal;
+            });
+
+            // 3. Immediately re-render canvas
+            const tpl = _bcAssignedTemplate(entry, group);
+            const localIndex = rows.slice(0, ri).filter(({row}) => _bcRowHasBoundData(tpl, row)).length;
+            task = _bcBuildTask(tpl, rows[ri].row, localIndex, ri + 1, _bulkState.columns);
+            _bcApplyAssignedBackground(task, tpl, localIndex);
+            _bcApplyAssignedMusic(task, tpl, localIndex);
+            draw();
+
+            // 4. Synchronize back to outer table and draft save
+            _bcRenderTable();
+            _bcScheduleDraftSave();
+
+            // 5. Visual sync tip
+            const tip = get('[data-copy-sync-tip]');
+            if (tip) {
+                tip.textContent = `✓ 第 ${actualRowIndex + 1} 行已同步`;
+                tip.style.display = 'inline-block';
+                clearTimeout(tip._timer);
+                tip._timer = setTimeout(() => { tip.style.display = 'none'; }, 2200);
+            }
+        });
+    }
+    const refresh = (skipEditorRebuild = false) => {
+        try {
+            video.pause(); video.removeAttribute('src'); img.removeAttribute('src');
+            const tpl = _bcAssignedTemplate(entry, group);
+            const ri = Number(get('[data-row]').value) || 0;
+            if (!tpl || !rows[ri]) throw new Error('本组暂无可预览文案');
+            const localIndex = rows.slice(0, ri).filter(({row}) => _bcRowHasBoundData(tpl, row)).length;
+            task = _bcBuildTask(tpl, rows[ri].row, localIndex, ri + 1, _bulkState.columns);
+            _bcApplyAssignedBackground(task, tpl, localIndex);
+            _bcApplyAssignedMusic(task, tpl, localIndex);
+            const path = task.bgPath || task.videoPath || '';
+            const isImage = _bcMediaKind(path) === 'image';
+            img.style.display = isImage ? 'block' : 'none'; video.style.display = isImage ? 'none' : 'block';
+            if (path) (isImage ? img : video).src = _bcFileUrl(path);
+            get('[data-status]').textContent = path ? `背景：${_bcFileName(path)}` : '当前无背景素材';
+            const music = get('[data-music-player]');
+            music.pause(); music.removeAttribute('src');
+            if (task.bgmPath) { music.src = _bcFileUrl(task.bgmPath); music.style.display = 'block'; }
+            else music.style.display = 'none';
+            draw(); clearTimeout(timer); timer = setTimeout(draw, 600);
+            if (!skipEditorRebuild) renderBoundTextEditors();
+            _bcScheduleDraftSave();
+        } catch (error) { task = null; draw(); get('[data-status]').textContent = error.message; }
+    };
+    ['click', 'mousedown', 'keydown'].forEach(type => modal.addEventListener(type, event => event.stopPropagation()));
+    syncOptions(); refresh();
+    get('[data-edit-overlays]').onclick = () => {
+        if (suiteHost) { closeSuitePanel(); return; }
+        if (typeof ReelsOverlayPanel === 'undefined' || !window.ReelsOverlay?.OverlayManager) { alert('覆层编辑器尚未加载'); return; }
+        const tpl = _bcAssignedTemplate(entry, group);
+        const localTask = { ...tpl.task, overlays: JSON.parse(JSON.stringify(tpl.task.overlays || [])) };
+        const mgr = new window.ReelsOverlay.OverlayManager();
+        mgr.overlays = localTask.overlays;
+        suiteHost = document.createElement('div');
+        suiteHost.style.cssText = 'width:460px;min-width:380px;max-height:85vh;overflow:auto;border-left:1px solid #444;padding-left:12px;';
+        suiteHost.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;margin-bottom:8px;font-size:11px;">
+            <div style="color:#b9aaff;line-height:1.4;">
+                💡 正在编辑本组覆层。已绑定文案仍从表格实时读取。
+            </div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                <button id="bc-suite-sync-source" style="padding:3px 8px;background:rgba(124,92,255,0.25);border:1px solid #7c5cff;border-radius:4px;color:#c4b5fd;cursor:pointer;font-size:10px;" title="把当前修改后的覆层样式直接保存回该模板本身，后续使用该模板的组也会继承">💾 同步保存到源模板</button>
+                <button id="bc-suite-save-as-new" style="padding:3px 8px;background:rgba(16,185,129,0.2);border:1px solid #10b981;border-radius:4px;color:#6ee7b7;cursor:pointer;font-size:10px;" title="将当前修改另存为一个全新的独立模板，并自动分配给当前组">✨ 另存为新模板</button>
+                <button id="bc-suite-save-as-preset" style="padding:3px 8px;background:rgba(245,158,11,0.2);border:1px solid #f59e0b;border-radius:4px;color:#fcd34d;cursor:pointer;font-size:10px;" title="存入全局覆层预设库，可在任意工程直接选用">🎨 存为覆层预设</button>
+            </div>
+        </div>
+        <div data-panel></div>`;
+        modal.firstElementChild.appendChild(suiteHost);
+        const save = () => {
+            if (!suiteHost) return;
+            localTask.overlays = mgr.overlays;
+            _bcSaveSuiteOverlays(entry, mgr.overlays);
+            _bcScheduleDraftSave(); refresh();
+        };
+        const proxy = {
+            overlayMgr: mgr, scopedTask: localTask,
+            getOverlayAboveSubtitle: () => localTask.overlayAboveSubtitle !== false,
+            setOverlayAboveSubtitle(value) { localTask.overlayAboveSubtitle = value; entry.overlayAboveSubtitle = value; save(); },
+            getCanvasSize: () => ({ w: 1080, h: 1920, cx: 540, cy: 960 }),
+            getDuration: () => Number.isFinite(video.duration) ? video.duration : 9999,
+            previewEnd(active) { get('[data-time]').value = active ? String(Number.isFinite(video.duration) ? video.duration : 10) : '0'; draw(); },
+            addOverlay(overlay) { mgr.addOverlay(overlay); save(); suitePanel?._refreshList(); },
+            removeOverlay(id) { mgr.removeOverlay(id); save(); suitePanel?._refreshList(); },
+            render: save,
+        };
+        suitePanel = new ReelsOverlayPanel(suiteHost.querySelector('[data-panel]'), proxy);
+        // Library management and batch task import are separate from editing this suite's parameters.
+        suiteHost.querySelectorAll('#rop-group-preset-update,#rop-group-preset-del,#rop-group-preset-rename,#rop-batch-import').forEach(el => { el.style.display = 'none'; });
+        suitePanel._refreshList();
+        if (mgr.overlays[0]) suitePanel.selectOverlay(mgr.overlays[0]);
+
+        suiteHost.querySelector('#bc-suite-sync-source').onclick = () => {
+            const sourceTpl = _bulkState.templates[entry.templateIndex];
+            if (sourceTpl) {
+                sourceTpl.task.overlays = JSON.parse(JSON.stringify(mgr.overlays));
+                if (localTask.overlayAboveSubtitle != null) {
+                    sourceTpl.task.overlayAboveSubtitle = localTask.overlayAboveSubtitle;
+                }
+                delete entry.overlayOverrides;
+                delete entry.overlayAboveSubtitle;
+                _bcScheduleDraftSave();
+                _bcRenderBindings();
+                refresh();
+                alert(`✅ 已同步更新到源模板「${sourceTpl.label}」`);
+            }
+        };
+        suiteHost.querySelector('#bc-suite-save-as-new').onclick = () => {
+            const sourceTpl = _bulkState.templates[entry.templateIndex];
+            const defaultName = (sourceTpl?.label || '新模板') + '_已修改';
+            const newName = prompt('输入新模板名称：', defaultName);
+            if (newName && newName.trim()) {
+                const newTplTask = JSON.parse(JSON.stringify(sourceTpl ? sourceTpl.task : localTask));
+                newTplTask.overlays = JSON.parse(JSON.stringify(mgr.overlays));
+                if (localTask.overlayAboveSubtitle != null) {
+                    newTplTask.overlayAboveSubtitle = localTask.overlayAboveSubtitle;
+                }
+                const newIndex = _bulkState.templates.length;
+                const newTpl = {
+                    task: newTplTask,
+                    label: newName.trim(),
+                    bindings: typeof _bcAutoBind === 'function' ? _bcAutoBind(newTplTask, newIndex) : {},
+                    bgCycle: sourceTpl?.bgCycle ? [...sourceTpl.bgCycle] : null,
+                    source: null,
+                };
+                _bulkState.templates.push(newTpl);
+                entry.templateIndex = newIndex;
+                delete entry.overlayOverrides;
+                delete entry.overlayAboveSubtitle;
+                _bcScheduleDraftSave();
+                _bcRenderBindings();
+                syncOptions();
+                refresh();
+                alert(`✅ 已另存为新模板「${newName.trim()}」并分配给本组`);
+            }
+        };
+        suiteHost.querySelector('#bc-suite-save-as-preset').onclick = () => {
+            const sourceTpl = _bulkState.templates[entry.templateIndex];
+            const defaultName = (sourceTpl?.label || '自定义覆层') + '_预设';
+            const presetName = prompt('输入要保存的覆层预设名称：', defaultName);
+            if (presetName && presetName.trim()) {
+                let presets = {};
+                try { presets = JSON.parse(localStorage.getItem('reels_overlay_group_presets') || '{}'); } catch(e) {}
+                presets[presetName.trim()] = {
+                    name: presetName.trim(),
+                    createdAt: new Date().toISOString(),
+                    layers: JSON.parse(JSON.stringify(mgr.overlays)),
+                    overlayAboveSubtitle: localTask.overlayAboveSubtitle !== false,
+                };
+                localStorage.setItem('reels_overlay_group_presets', JSON.stringify(presets));
+                alert(`✅ 已成功保存到全局覆层预设「${presetName.trim()}」`);
+            }
+        };
+    };
+    get('[data-pick-template]').onclick = () => _bcVisualPicker('template', entry.templateIndex, value => { closeSuitePanel(); _bcSetGroupTemplate(key, value); syncOptions(); refresh(); });
+    get('[data-pick-folder]').onclick = () => _bcVisualPicker('folder', entry.backgroundFolder || '', value => { entry.backgroundFolder = value; _bcRenderBindings(); syncOptions(); refresh(); });
+    get('[data-pick-music]').onclick = () => _bcVisualPicker('music', entry.musicPath || '', value => { entry.musicPath = value; _bcRenderBindings(); syncOptions(); refresh(); });
+    get('[data-template]').onchange = event => { closeSuitePanel(); _bcSetGroupTemplate(key, Number(event.target.value)); syncOptions(); refresh(); };
+    get('[data-folder]').onchange = event => { entry.backgroundFolder = event.target.value; _bcRenderBindings(); refresh(); };
+    get('[data-music]').onchange = event => { entry.musicPath = event.target.value; _bcRenderBindings(); refresh(); };
+    get('[data-music-mode]').onchange = event => { entry.musicMode = event.target.value; _bcRenderBindings(); syncOptions(); refresh(); };
+    get('[data-row]').onchange = refresh;
+    get('[data-time]').oninput = () => { video.currentTime = Math.max(0, Number(get('[data-time]').value) || 0); draw(); };
+    get('[data-play]').onclick = () => video.paused ? video.play().catch(() => {}) : video.pause();
+    video.onerror = img.onerror = () => { get('[data-status]').textContent = '背景加载失败，请检查文件路径或刷新素材分类。'; };
+    get('[data-close]').onclick = () => { closeSuitePanel(); clearTimeout(timer); video.pause(); video.removeAttribute('src'); video.load(); get('[data-music-player]').pause(); get('[data-music-player]').removeAttribute('src'); _bcSaveDraftNow(); modal.remove(); _bcRenderTable(); _bcRenderBindings(); if (onClose) onClose(); };
+}
+
+function _bcAllPreviewItems() {
+    const groups = _bcNumberedColumnGroups();
+    const items = [];
+    (_bulkState.groupAssignments || []).forEach(entry => {
+        const group = groups.find(group => group.key === entry.key);
+        const tpl = _bcAssignedTemplate(entry, group);
+        if (!tpl) return;
+        let localIndex = 0;
+        _bulkState.rows.forEach((row, rowIndex) => {
+            if (!row.some(cell => String(cell || '').trim()) || !_bcRowHasBoundData(tpl, row)) return;
+            items.push({ key: entry.key, tpl, row, rowIndex, localIndex: localIndex++ });
+        });
+    });
+    return items;
+}
+
+function _bcPreviewAll() {
+    if (typeof ReelsOverlay === 'undefined') { alert('预览渲染器尚未加载'); return; }
+    if (!_bcAllPreviewItems().length) { alert('请先分配模板并填入文案，再批量预览'); return; }
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:400000;background:#101018;color:#ddd;padding:18px;display:flex;flex-direction:column;gap:12px;';
+    modal.innerHTML = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>全部文案 · 批量预览</strong><span data-count></span>
+
+        <button data-refresh>刷新预览</button><button data-close>关闭</button>
+        <span style="font-size:12px;color:#999;">每套一行，左右滚动对比；上下滚动切换套组。点击卡片放大、换模板或背景。更换模板会应用到该编号组的所有文案。此处检查排版与背景组合。</span>
+        </div><div data-grid style="overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:20px;"></div>`;
+    document.body.appendChild(modal);
+    ['click', 'mousedown', 'keydown'].forEach(type => modal.addEventListener(type, event => event.stopPropagation()));
+    const get = selector => modal.querySelector(selector);
+    let timers = [], observer = null;
+    const cleanup = () => {
+        observer?.disconnect();
+        timers.forEach(clearTimeout); timers = [];
+        modal.querySelectorAll('video').forEach(video => { video.pause(); video.removeAttribute('src'); video.load(); });
+    };
+    const render = () => {
+        cleanup();
+        const items = _bcAllPreviewItems();
+        const grid = get('[data-grid]');
+        const scrollTop = grid.scrollTop;
+        const positions = new Map(Array.from(grid.querySelectorAll('[data-suite]')).map(row => [row.dataset.suite, row.scrollLeft]));
+        const suites = new Map();
+        items.forEach(item => { if (!suites.has(item.key)) suites.set(item.key, []); suites.get(item.key).push(item); });
+        get('[data-count]').textContent = `共 ${suites.size} 套 · ${items.length} 项`;
+        grid.innerHTML = '';
+        observer = new IntersectionObserver(entries => entries.forEach(entry => {
+            if (entry.isIntersecting) entry.target._loadPreview?.();
+            else entry.target._unloadPreview?.();
+        }), { root: grid, rootMargin: '100px' });
+        suites.forEach((suiteItems, key) => {
+            const section = document.createElement('section');
+            section.style.cssText = 'flex:none;min-width:0;border-bottom:1px solid #444;padding-bottom:16px;';
+            section.innerHTML = `<div style="margin-bottom:8px;color:#b9aaff;font-weight:600;">${_bcEsc(key)} · ${_bcEsc(suiteItems[0].tpl.label)} · ${suiteItems.length} 条</div>`;
+            const row = document.createElement('div');
+            row.dataset.suite = key;
+            row.style.cssText = 'display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;scrollbar-width:auto;';
+            section.appendChild(row); grid.appendChild(section);
+            suiteItems.forEach(item => {
+            const card = document.createElement('button');
+            card.style.cssText = 'flex:0 0 220px;width:220px;padding:8px;background:#20202c;color:#ddd;border:1px solid #444;border-radius:8px;text-align:left;cursor:pointer;';
+            card.innerHTML = `<div style="position:relative;aspect-ratio:9/16;background:#000;">
+                <video muted playsinline preload="auto" style="position:absolute;width:100%;height:100%;object-fit:cover;"></video>
+                <img style="position:absolute;width:100%;height:100%;object-fit:cover;display:none;">
+                <canvas width="270" height="480" style="position:absolute;width:100%;height:100%;"></canvas>
+                </div><div style="margin-top:6px;">${_bcEsc(item.key)} · 第 ${item.rowIndex + 1} 行</div>
+                <div style="font-size:11px;color:#b9aaff;">${_bcEsc(item.tpl.label)}</div><div data-status style="font-size:11px;"></div>`;
+            row.appendChild(card);
+            card.onclick = () => _bcPreviewGroup(item.key, item.rowIndex, render);
+            let loaded = false;
+            card._unloadPreview = () => {
+                loaded = false;
+                const video = card.querySelector('video');
+                video.pause(); video.removeAttribute('src'); video.load();
+                card.querySelector('img').removeAttribute('src');
+                card.querySelector('canvas').width = 270;
+            };
+            card._loadPreview = () => {
+            if (loaded) return;
+            loaded = true;
+            try {
+                const task = _bcBuildTask(item.tpl, item.row, item.localIndex, item.rowIndex + 1, _bulkState.columns);
+                _bcApplyAssignedBackground(task, item.tpl, item.localIndex);
+                _bcApplyAssignedMusic(task, item.tpl, item.localIndex);
+                const path = task.bgPath || task.videoPath || '';
+                const video = card.querySelector('video'), img = card.querySelector('img');
+                const isImage = _bcMediaKind(path) === 'image';
+                video.style.display = isImage ? 'none' : 'block'; img.style.display = isImage ? 'block' : 'none';
+                const status = card.querySelector('[data-status]');
+                status.textContent = path ? _bcFileName(path) : '无背景素材';
+                video.onerror = img.onerror = () => { status.textContent = '背景加载失败，请检查素材路径'; };
+                if (path) (isImage ? img : video).src = _bcFileUrl(path);
+                const draw = () => {
+                    if (!card.isConnected || !loaded) return;
+                    const ctx = card.querySelector('canvas').getContext('2d');
+                    ctx.clearRect(0, 0, 270, 480); ctx.save(); ctx.scale(0.25, 0.25);
+                    try {
+                        (task.overlays || []).forEach(overlay => ReelsOverlay.drawOverlay(ctx, { ...overlay, _exporting: true }, Math.max(0, Number(overlay.start) || 0), 1080, 1920));
+                    } finally { ctx.restore(); }
+                };
+                draw(); timers.push(setTimeout(() => { try { draw(); } catch (error) { status.textContent = error.message; } }, 600));
+            } catch (error) { card.querySelector('[data-status]').textContent = error.message; }
+            };
+            observer.observe(card);
+            });
+            row.scrollLeft = positions.get(key) || 0;
+        });
+        grid.scrollTop = scrollTop;
+        _bcScheduleDraftSave();
+    };
+    get('[data-refresh]').onclick = render;
+    get('[data-close]').onclick = () => { cleanup(); modal.remove(); };
+    render();
 }
 
 function _bcTemplateProjectIdsInUse() {
@@ -1094,7 +2643,7 @@ function _bcRenderTable() {
             </div>
         </th>`;
     });
-    hdr += '<th style="width:28px;"><button id="bc-add-col" style="background:none;border:none;color:#7c5cff;cursor:pointer;font-size:13px;" title="末尾添加列">+</button></th></tr>';
+    hdr += '<th style="width:46px;text-align:center;"><button id="bc-add-col" style="background:none;border:none;color:#7c5cff;cursor:pointer;font-size:13px;" title="末尾添加列">+</button></th></tr>';
     let body = '';
     _bulkState.rows.forEach((row, ri) => {
         body += `<tr><td style="text-align:center;color:#555;font-size:10px;">${ri+1}</td>`;
@@ -1105,7 +2654,7 @@ function _bcRenderTable() {
                 <div class="${cls}" data-ri="${ri}" data-ci="${ci}" title="${_bcEsc(v)}">${c.type === 'media' ? _bcMediaCellHtml(v) : (v ? _bcCellPreview(v) : '<span class="bc-cell-placeholder"> </span>')}</div>
             </td>`;
         });
-        body += `<td><span class="bc-row-del" data-ri="${ri}" style="cursor:pointer;color:#f44;font-size:9px;">✕</span></td></tr>`;
+        body += `<td style="text-align:center;white-space:nowrap;"><span class="bc-row-copy" data-ri="${ri}" title="复制此行副本（做新版本）" style="cursor:pointer;color:#a78bfa;font-size:11px;margin-right:5px;">📋</span><span class="bc-row-del" data-ri="${ri}" title="删除此行" style="cursor:pointer;color:#f44;font-size:9px;">✕</span></td></tr>`;
     });
     const columnNameOptions = BC_STANDARD_COLUMN_NAMES.map(name => `<option value="${_bcEsc(name)}"></option>`).join('');
     el.innerHTML = `<datalist id="bc-standard-column-names">${columnNameOptions}</datalist><table class="bc-data-table"><thead>${hdr}</thead><tbody>${body}</tbody></table>`;
@@ -1117,10 +2666,16 @@ function _bcRenderTable() {
 function _bcRenderBindings() {
     const el = document.getElementById('bc-bind-panel');
     if (!el) return;
+    const prevScroll = el.scrollTop;
     _bcNormalizeStateShape();
     const cols = _bulkState.columns;
-    let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-weight:600;color:#b8a0ff;">模板 & 列绑定</span>';
-    html += '<div style="display:flex;gap:4px;"><button id="bc-clear-bindings" style="padding:3px 8px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:5px;color:#f88;cursor:pointer;font-size:10px;" title="清空全部模板的列绑定，避免旧草稿绑定继续生效">清空绑定</button><button id="bc-rebind-tpl" style="padding:3px 8px;background:rgba(255,200,50,0.08);border:1px solid rgba(255,200,50,0.2);border-radius:5px;color:#ffc832;cursor:pointer;font-size:10px;" title="按当前列名重新自动绑定全部模板字段">重绑</button><button id="bc-add-tpl" style="padding:3px 10px;background:rgba(124,92,255,0.2);border:1px solid rgba(124,92,255,0.3);border-radius:5px;color:#b8a0ff;cursor:pointer;font-size:11px;">+ 添加模板</button></div></div>';
+    const assignments = _bulkState.groupAssignments;
+    const numberedGroups = _bcNumberedColumnGroups();
+    const templateGroupKeys = _bulkState.templates.map(tpl => {
+        const textIndices = Object.values(tpl.bindings || {}).filter(ci => ci >= 0 && cols[ci]?.type === 'text');
+        return numberedGroups.find(group => textIndices.length && textIndices.every(ci => group.columns.some(col => col.ci === ci)))?.key;
+    });
+    const usage = _bulkState.templates.map((_, ti) => (assignments || []).filter(item => item.templateIndex === ti && numberedGroups.some(group => group.key === item.key)).length);
     const globalUsedFieldByCol = new Map();
     _bulkState.templates.forEach((tpl, ti) => {
         const fields = _bcFieldsFromTask(tpl.task || {});
@@ -1137,79 +2692,461 @@ function _bcRenderBindings() {
             }
         });
     });
+    const unassignedGroupCount = numberedGroups.filter(g => {
+        const entry = (assignments || []).find(e => e.key === g.key);
+        return !entry || !entry.backgroundFolder;
+    }).length;
 
-    _bulkState.templates.forEach((tpl, ti) => {
-        const task = tpl.task;
-        const bgName = (task.bgPath || task.videoPath || '').split(/[/\\]/).pop() || '无背景';
-        const cycleBadge = tpl.bgCycle && tpl.bgCycle.length > 0
-            ? `<span class="bc-tpl-bgcycle" data-ti="${ti}" style="cursor:pointer;font-size:9px;background:rgba(16,185,129,0.2);color:#10b981;border:1px solid rgba(16,185,129,0.3);padding:1px 4px;border-radius:4px;" title="已自动读取当前预设的 ${tpl.bgCycle.length} 个循环素材，点击查看">🔄 自动循环(${tpl.bgCycle.length})</span>`
-            : `<span class="bc-tpl-bgcycle" data-ti="${ti}" style="cursor:pointer;font-size:9px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#777;padding:1px 4px;border-radius:4px;" title="没有从该模板工程读取到多个背景素材，点击可手动补充">单背景</span>`;
-        const materialFolderName = tpl.materialFolder?.path
-            ? _bcFileName(tpl.materialFolder.path)
-            : '未绑定文件夹';
-        const materialFolderCount = tpl.materialFolder?.files?.length || 0;
-        const fields = _bcFieldsFromTask(task);
-        html += `<div style="background:rgba(255,255,255,0.03);border:1px solid #2a2a3a;border-radius:8px;padding:8px;margin-bottom:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
-                <div style="width:36px;height:48px;border-radius:4px;background:#000;border:1px solid #333;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;">
-                    <div id="bc-bind-thumb-loader-${ti}" style="font-size:10px;color:#666;text-align:center;">...</div>
-                    <img id="bc-bind-thumb-${ti}" src="" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;top:0;left:0;" />
-                </div>
-                <div style="flex:1;overflow:hidden;min-width:0;">
-                    <div style="color:#eee;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                        ${_bcEsc(tpl.label)}
-                    </div>
-                    <div style="display:flex;align-items:center;gap:4px;margin-top:2px;">
-                        <span style="color:#666;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;" title="${_bcEsc(task.bgPath || task.videoPath || '')}">bg: ${_bcEsc(bgName)}</span>
-                        ${cycleBadge}
-                    </div>
-                    <div style="display:flex;align-items:center;gap:3px;margin-top:4px;">
-                        <button class="bc-tpl-folder-pick" data-ti="${ti}" title="${_bcEsc(tpl.materialFolder?.path || '选择固定素材文件夹')}" style="padding:1px 5px;background:rgba(76,158,255,.1);border:1px solid rgba(76,158,255,.25);border-radius:3px;color:#8fc7ff;font-size:9px;cursor:pointer;">📁 ${_bcEsc(materialFolderName)}</button>
-                        <select class="bc-tpl-folder-mode" data-ti="${ti}" title="文件夹素材使用方式" style="background:#10101b;border:1px solid #2d2d40;border-radius:3px;color:#aaa;font-size:9px;padding:1px;">
-                            <option value="rows" ${tpl.materialFolder?.mode !== 'concat' ? 'selected' : ''}>一个素材一行</option>
-                            <option value="concat" ${tpl.materialFolder?.mode === 'concat' ? 'selected' : ''}>顺序拼接</option>
-                        </select>
-                        <button class="bc-tpl-folder-refresh" data-ti="${ti}" style="padding:1px 5px;background:rgba(46,213,115,.08);border:1px solid rgba(46,213,115,.2);border-radius:3px;color:#6fcf97;font-size:9px;cursor:pointer;">刷新${materialFolderCount ? `(${materialFolderCount})` : ''}</button>
-                    </div>
-                </div>
-                <span class="bc-tpl-del" data-ti="${ti}" style="cursor:pointer;color:#f44;font-size:11px;margin-left:6px;flex-shrink:0;" title="移除此模板">✕</span>
+    const isTplCollapsed = !!_bulkState.collapsedSections?.templates;
+    const isBgCollapsed = !!_bulkState.collapsedSections?.backgrounds;
+    const isMusicCollapsed = !!_bulkState.collapsedSections?.music;
+    const isGroupsCollapsed = !!_bulkState.collapsedSections?.groups;
+    const allCollapsed = isTplCollapsed && isBgCollapsed && isMusicCollapsed && isGroupsCollapsed;
+
+    // 🔝 1. 最顶层：总览与全局操作栏（总预览放最醒目位置）
+    let html = `<div class="bc-global-toolbar" style="background:linear-gradient(180deg, #18192c 0%, #121322 100%);border:1px solid #2e3150;border-radius:8px;padding:8px 10px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.25);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-weight:700;color:#c4b5fd;font-size:13px;display:inline-flex;align-items:center;gap:5px;">🧩 模板与素材分配</span>
+                <span style="font-size:10px;color:#94a3b8;background:rgba(255,255,255,0.04);padding:1px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.06);">
+                    ${numberedGroups.length} 组 · ${_bulkState.templates.length} 模板 · ${_bulkState.backgroundFolders.length} 背景 · ${_bulkState.musicFiles.length} 配乐
+                </span>
             </div>
-            <div style="display:grid;grid-template-columns:1fr;gap:3px;">`;
-        fields.forEach(f => {
-            const bound = tpl.bindings[f.key];
-            // 计算"不绑定"时的默认值提示
-            let unboundLabel = '(不绑定)';
-            if (f.key === '__bg__') {
-                const bg = (task.bgPath || task.videoPath || '').split(/[/\\]/).pop();
-                unboundLabel = bg ? `✅ 模板原始: ${bg.slice(0, 20)}` : '(不绑定 · 无背景)';
-            } else if (f.key === '__audio__') {
-                const au = (task.audioPath || '').split(/[/\\]/).pop();
-                unboundLabel = au ? `✅ 模板原始: ${au.slice(0, 20)}` : '(不绑定)';
-            } else if (f.key.startsWith('L') || ['title_text','body_text','footer_text'].includes(f.key)) {
-                unboundLabel = '(不绑定 · 用模板默认)';
-            }
-            html += `<div style="display:flex;align-items:center;gap:3px;font-size:10px;color:#aaa;">
-                <span style="white-space:nowrap;">${f.label}</span>
-                <select class="bc-bind-sel" data-ti="${ti}" data-fk="${f.key}" title="${_bcEsc(_bcBindingDebugLabel(tpl, f))}" style="flex:1;background:#0a0a14;border:1px solid #222;border-radius:3px;color:#ccc;font-size:10px;padding:1px;">
-                    <option value="-1">${_bcEsc(unboundLabel)}</option>
-                    ${cols.map((c,ci)=>{
-                        if (!_bcFieldAcceptsColumn(f,c)) return '';
-                        const usedBy = globalUsedFieldByCol.get(ci);
-                        const usedByOther = usedBy && !(usedBy.ti === ti && usedBy.fk === f.key) && bound !== ci;
-                        const usedLabel = usedByOther ? ` · 已绑定：${usedBy.templateLabel} / ${usedBy.fieldLabel}` : '';
-                        return `<option value="${ci}" ${bound===ci?'selected':''} ${usedByOther?'disabled':''}>${_bcEsc(_bcColumnKindOptionsLabel(c))} ${_bcEsc(c.name)}${_bcEsc(usedLabel)}</option>`;
-                    }).join('')}
-                </select></div>`;
-        });
-        html += '</div></div>';
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                <button id="bc-preview-all" class="bc-btn bc-btn-blue" style="height:25px;padding:0 12px;font-size:11.5px;font-weight:600;box-shadow:0 2px 6px rgba(59,130,246,0.35);" title="横向批量对比并全屏预览所有编号组的排版与素材">👁 批量预览全部</button>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:${_bulkState.filterUnassignedGroups ? '#c4b5fd' : '#cbd5e1'};font-size:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;" title="仅显示尚未分配背景素材的编号组">
+                    <input id="bc-filter-unassigned-groups" type="checkbox" ${_bulkState.filterUnassignedGroups ? 'checked' : ''} style="accent-color:#7c5cff;">仅未分配组${numberedGroups.length ? ` (${unassignedGroupCount})` : ''}
+                </label>
+                <button id="bc-toggle-all-sections" class="bc-btn bc-btn-default bc-btn-xs" title="一键折叠或展开下方全部四个模块">${allCollapsed ? '展开全部模块' : '折叠全部模块'}</button>
+                <button id="bc-manual-bindings" class="bc-btn bc-btn-default bc-btn-xs" title="切换视图模式">${assignments ? '原逐列绑定' : '启用编号组模式'}</button>
+                <button id="bc-clear-bindings" class="bc-btn bc-btn-danger bc-btn-xs" title="清空全部编号组与模板的列绑定">清空绑定</button>
+            </div>
+        </div>
+        <div style="font-size:10px;color:#717496;margin-top:4px;line-height:1.35;">
+            ${assignments ? '下方分别管理模版库、背景库和配乐库（支持独立折叠收起）；配置完成后在编号组卡片中检查或微调。' : '当前为原逐列绑定模式；可点击上方按钮启用编号组模式，或在下方直接对模板进行字段绑定。'}
+        </div>
+    </div>`;
+
+    // 🎨 2. 模块一：模版库（可折叠）
+    const unassignedTemplates = _bulkState.templates.filter((tpl, ti) => {
+        const assignedEntries = (assignments || []).filter(entry => entry.templateIndex === ti && numberedGroups.some(group => group.key === entry.key));
+        return assignedEntries.length === 0;
     });
+    const unassignedTplCount = unassignedTemplates.length;
+    const visibleTemplates = _bulkState.templates
+        .map((tpl, ti) => ({ tpl, ti }))
+        .filter(({ ti }) => {
+            if (!_bulkState.filterUnassignedTemplates) return true;
+            const assignedEntries = (assignments || []).filter(entry => entry.templateIndex === ti && numberedGroups.some(group => group.key === entry.key));
+            return assignedEntries.length === 0;
+        });
+
+    html += `<div id="bc-template-library" class="bc-library-box bc-tpl-library-box" style="background:rgba(124,92,255,0.03);border:1px solid rgba(124,92,255,0.22);border-radius:8px;padding:9px 10px;margin-bottom:10px;">
+        <div data-toggle-section="templates" style="display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap;" title="点击折叠 / 展开模版库">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span class="bc-toggle-arrow" style="color:#a78bfa;font-size:10px;width:12px;text-align:center;display:inline-block;">${isTplCollapsed ? '▶' : '▼'}</span>
+                <span style="font-weight:700;font-size:11.5px;color:#d8cfff;display:inline-flex;align-items:center;gap:4px;">🎨 模版库</span>
+                <span style="font-size:10px;color:#8a8ab0;">(${_bulkState.templates.length} 个模板)</span>
+                ${isTplCollapsed ? '<span style="font-size:9.5px;color:#717496;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.06);">已收起</span>' : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                <button id="bc-add-tpl" class="bc-btn bc-btn-purple bc-btn-xs" style="font-weight:600;">+ 添加模板</button>
+                <button id="bc-match-groups" class="bc-btn bc-btn-default bc-btn-xs" title="按顺序为每个编号组分配一个模板">顺序分配</button>
+                <button id="bc-random-groups" class="bc-btn bc-btn-purple bc-btn-xs" title="为每个编号组随机分配一个模板">🎲 随机分配${_bulkState.allowTemplateReuse ? '（可重复）' : '（不重复）'}</button>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:#9b9db8;font-size:10px;" title="允许将同一个模板重复分配给多个编号组"><input id="bc-allow-reuse" type="checkbox" ${_bulkState.allowTemplateReuse ? 'checked' : ''} style="accent-color:#7c5cff;">允许重复</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:${_bulkState.filterUnassignedTemplates ? '#c4b5fd' : '#9b9db8'};font-size:10px;" title="仅查看尚未分配给任何编号组的模板"><input id="bc-filter-unassigned-tpls" type="checkbox" ${_bulkState.filterUnassignedTemplates ? 'checked' : ''} style="accent-color:#7c5cff;">仅未分配${_bulkState.templates.length ? ` (${unassignedTplCount})` : ''}</label>
+                <button id="bc-clear-tpl-assignments" class="bc-btn bc-btn-default bc-btn-xs" title="清空全部编号组的模板分配">清空分配</button>
+                <button id="bc-clear-templates" class="bc-btn bc-btn-danger bc-btn-xs" title="清空模版库中的所有模板">清空库</button>
+                <button id="bc-rebind-tpl" class="bc-btn bc-btn-amber bc-btn-xs" title="按当前列名重新自动绑定全部模板字段">重绑</button>
+            </div>
+        </div>
+        ${!isTplCollapsed ? `
+            <div style="color:#8e92b2;font-size:10px;margin:6px 0;">为各编号组配对套用模板；可直接指定分配给哪个组或点击取消分配。</div>
+            ${_bulkState.templates.length === 0 ? `
+                <div style="padding:10px;text-align:center;color:#717496;font-size:10.5px;background:rgba(255,255,255,0.02);border:1px dashed #33334a;border-radius:6px;">
+                    暂无模板，点击右上方「+ 添加模板」导入模板工程
+                </div>
+            ` : (_bulkState.templates.length > 0 && visibleTemplates.length === 0 ? `
+                <div style="padding:14px 8px;text-align:center;color:#8a8ab0;font-size:11px;background:rgba(255,255,255,0.02);border:1px dashed #33334a;border-radius:6px;margin-top:6px;">🎉 全部模板均已分配到编号组</div>
+            ` : `
+                ${visibleTemplates.map(({ tpl, ti }) => {
+                    const assignedEntries = (assignments || []).filter(entry => entry.templateIndex === ti && numberedGroups.some(group => group.key === entry.key));
+                    const assignedKeys = assignedEntries.map(entry => entry.key);
+                    const count = assignedKeys.length;
+                    const task = tpl.task || {};
+                    const bgName = (task.bgPath || task.videoPath || '').split(/[/\\]/).pop() || '无背景';
+                    const overlaysCount = task.overlays?.length || 0;
+                    const cycleBadge = tpl.bgCycle && tpl.bgCycle.length > 0
+                        ? `<span class="bc-tpl-bgcycle" data-ti="${ti}" style="cursor:pointer;font-size:9px;background:rgba(16,185,129,0.2);color:#10b981;border:1px solid rgba(16,185,129,0.3);padding:1px 4px;border-radius:4px;" title="已自动读取当前预设的 ${tpl.bgCycle.length} 个循环素材，点击查看">🔄 自动循环(${tpl.bgCycle.length})</span>`
+                        : `<span class="bc-tpl-bgcycle" data-ti="${ti}" style="cursor:pointer;font-size:9px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#777;padding:1px 4px;border-radius:4px;" title="没有从该模板工程读取到多个背景素材，点击可手动补充">单背景</span>`;
+                    const materialFolderName = tpl.materialFolder?.path
+                        ? _bcFileName(tpl.materialFolder.path)
+                        : '未绑定文件夹';
+                    const materialFolderCount = tpl.materialFolder?.files?.length || 0;
+                    const freeGroups = numberedGroups.filter(g => {
+                        const entry = (assignments || []).find(e => e.key === g.key);
+                        return !entry || entry.templateIndex == null || entry.templateIndex < 0;
+                    });
+                    const assignControlHtml = _bcRenderItemAssignControls({
+                        kind: 'template',
+                        itemVal: ti,
+                        assignedKeys,
+                        freeGroups,
+                        allGroups: numberedGroups,
+                    });
+                    const fields = _bcFieldsFromTask(task);
+                    return `<div class="bc-tpl-card-row ${count > 0 ? 'is-assigned' : ''}" style="display:flex;flex-direction:row;align-items:stretch;gap:10px;padding:8px;margin-top:6px;background:${count > 0 ? 'rgba(124,92,255,0.07)' : 'rgba(255,255,255,0.02)'};border:1px solid ${count > 0 ? 'rgba(124,92,255,0.35)' : 'rgba(124,92,255,0.14)'};border-radius:6px;transition:border-color 0.15s, background 0.15s;" title="${_bcEsc(tpl.label)}">
+                        <div class="bc-tpl-thumb" style="width:48px;height:66px;flex:0 0 48px;border-radius:5px;overflow:hidden;background:#0c0c16;border:1px solid #36364e;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;">
+                            <div id="bc-bind-thumb-loader-${ti}" style="font-size:10px;color:#666;text-align:center;">...</div>
+                            <img id="bc-bind-thumb-${ti}" src="" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;top:0;left:0;" />
+                        </div>
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                                <div style="font-weight:600;color:#eee;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${_bcEsc(tpl.label)}">
+                                    <span style="color:#a78bfa;margin-right:4px;">${ti + 1}.</span>${_bcEsc(tpl.label)}
+                                </div>
+                                <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
+                                    <button class="bc-tpl-edit-overlays bc-btn bc-btn-purple bc-btn-xs" data-ti="${ti}" title="可视化编辑该模板的覆层样式与排版">✏️ 覆层</button>
+                                    <button class="bc-tpl-save-preset bc-btn bc-btn-amber bc-btn-xs" data-ti="${ti}" title="将此模板覆层样式存入全局预设库">💾 存为预设</button>
+                                    <button class="bc-tpl-rename bc-btn bc-btn-default bc-btn-xs" data-ti="${ti}" title="修改模板显示名称">重命名</button>
+                                    <button class="bc-tpl-del" data-ti="${ti}" style="padding:2px 6px;font-size:10px;cursor:pointer;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.25);border-radius:4px;color:#f88;" title="移出模版库">移出库</button>
+                                </div>
+                            </div>
+                            <div style="color:#8a8ab0;font-size:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                <span>${overlaysCount} 个覆层</span>
+                                <span>·</span>
+                                <span title="${_bcEsc(task.bgPath || task.videoPath || '')}">bg: ${_bcEsc(bgName)}</span>
+                                ${cycleBadge}
+                                <span>·</span>
+                                <span>已选 <span style="${count > 0 ? 'color:#a78bfa;font-weight:600;' : ''}">${count}</span> 次</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:3px;margin-top:2px;">
+                                <button class="bc-tpl-folder-pick bc-btn bc-btn-blue bc-btn-xs" data-ti="${ti}" title="${_bcEsc(tpl.materialFolder?.path || '选择固定素材文件夹')}">📁 ${_bcEsc(materialFolderName)}</button>
+                                <select class="bc-tpl-folder-mode bc-select" data-ti="${ti}" title="文件夹素材使用方式" style="height:20px;font-size:9.5px;padding:0 3px;">
+                                    <option value="rows" ${tpl.materialFolder?.mode !== 'concat' ? 'selected' : ''}>一个素材一行</option>
+                                    <option value="concat" ${tpl.materialFolder?.mode === 'concat' ? 'selected' : ''}>顺序拼接</option>
+                                </select>
+                                <button class="bc-tpl-folder-refresh bc-btn bc-btn-emerald bc-btn-xs" data-ti="${ti}">刷新${materialFolderCount ? `(${materialFolderCount})` : ''}</button>
+                            </div>
+                            ${assignments ? `
+                            <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;">
+                                <span style="color:#a78bfa;font-weight:600;flex-shrink:0;">分配组:</span>
+                                ${assignControlHtml}
+                            </div>
+                            ` : ''}
+                            ${!assignments ? `
+                            <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                                <label style="display:flex;gap:6px;align-items:center;color:#c4b5fd;font-size:10px;margin:0;">编号组快速绑定
+                                    <select class="bc-tpl-group bc-select" data-ti="${ti}" style="height:22px;font-size:10px;">
+                                        <option value="">选择编号组（自动绑定整组字段）</option>
+                                        ${numberedGroups.map(group => `<option value="${_bcEsc(group.key)}" ${templateGroupKeys[ti] === group.key ? 'selected' : ''}>${_bcEsc(group.key)}</option>`).join('')}
+                                    </select>
+                                </label>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr;gap:3px;margin-top:4px;">
+                                ${fields.map(f => {
+                                    const bound = tpl.bindings[f.key];
+                                    let unboundLabel = '(不绑定)';
+                                    if (f.key === '__bg__') {
+                                        const bg = (task.bgPath || task.videoPath || '').split(/[/\\]/).pop();
+                                        unboundLabel = bg ? `✅ 模板原始: ${bg.slice(0, 20)}` : '(不绑定 · 无背景)';
+                                    } else if (f.key === '__audio__') {
+                                        const au = (task.audioPath || '').split(/[/\\]/).pop();
+                                        unboundLabel = au ? `✅ 模板原始: ${au.slice(0, 20)}` : '(不绑定)';
+                                    } else if (f.key.startsWith('L') || ['title_text','body_text','footer_text'].includes(f.key)) {
+                                        unboundLabel = '(不绑定 · 用模板默认)';
+                                    }
+                                    return `<div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,0.02);margin-bottom:2px;">
+                                        <span style="white-space:nowrap;width:115px;min-width:115px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;color:#cbd5e1;font-weight:500;" title="${_bcEsc(f.label)}">${_bcEsc(f.label)}</span>
+                                        <select class="bc-bind-sel bc-select" data-ti="${ti}" data-fk="${f.key}" title="${_bcEsc(_bcBindingDebugLabel(tpl, f))}" style="flex:1;min-width:0;height:24px;font-size:10.5px;padding:0 4px;">
+                                            <option value="-1">${_bcEsc(unboundLabel)}</option>
+                                            ${cols.map((c, ci) => {
+                                                if (!_bcFieldAcceptsColumn(f, c)) return '';
+                                                const usedBy = globalUsedFieldByCol.get(ci);
+                                                const usedByOther = usedBy && !(usedBy.ti === ti && usedBy.fk === f.key) && bound !== ci;
+                                                const usedLabel = usedByOther ? ` · 已绑定：${usedBy.templateLabel} / ${usedBy.fieldLabel}` : '';
+                                                return `<option value="${ci}" ${bound === ci ? 'selected' : ''} ${usedByOther ? 'disabled' : ''}>${_bcEsc(_bcColumnKindOptionsLabel(c))} ${_bcEsc(c.name)}${_bcEsc(usedLabel)}</option>`;
+                                            }).join('')}
+                                        </select>
+                                    </div>`;
+                                }).join('')}
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>`;
+                }).join('')}
+            `)}
+        ` : ''}
+    </div>`;
+    const unassignedBgFolders = _bulkState.backgroundFolders.filter(folder => {
+        const assignedEntries = (assignments || []).filter(entry => entry.backgroundFolder === folder.path && numberedGroups.some(group => group.key === entry.key));
+        return assignedEntries.length === 0;
+    });
+    const unassignedBgCount = unassignedBgFolders.length;
+    const visibleFolders = _bulkState.backgroundFolders
+        .map((folder, fi) => ({ folder, fi }))
+        .filter(({ folder }) => {
+            if (!_bulkState.filterUnassignedBackgrounds) return true;
+            const assignedEntries = (assignments || []).filter(entry => entry.backgroundFolder === folder.path && numberedGroups.some(group => group.key === entry.key));
+            return assignedEntries.length === 0;
+        });
+
+    // 📁 3. 模块二：背景库（可折叠）
+    html += `<div id="bc-background-library" class="bc-library-box bc-bg-library-box" style="background:rgba(124,92,255,0.02);border:1px solid rgba(124,92,255,0.2);border-radius:8px;padding:9px 10px;margin-bottom:10px;">
+        <div data-toggle-section="backgrounds" style="display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap;" title="点击折叠 / 展开背景库">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span class="bc-toggle-arrow" style="color:#a78bfa;font-size:10px;width:12px;text-align:center;display:inline-block;">${isBgCollapsed ? '▶' : '▼'}</span>
+                <span style="font-weight:700;font-size:11.5px;color:#d8cfff;display:inline-flex;align-items:center;gap:4px;">📁 背景库</span>
+                <span style="font-size:10px;color:#8a8ab0;">(${_bulkState.backgroundFolders.length} 个背景)</span>
+                ${isBgCollapsed ? '<span style="font-size:9.5px;color:#717496;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.06);">已收起</span>' : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                <button id="bc-add-background-folders" class="bc-btn bc-btn-purple bc-btn-xs">+ 添加文件夹</button>
+                <button id="bc-seq-backgrounds" class="bc-btn bc-btn-default bc-btn-xs" title="按顺序为每个编号组分配背景素材">顺序分配</button>
+                <button id="bc-random-backgrounds" class="bc-btn bc-btn-purple bc-btn-xs">🎲 ${_bulkState.allowBackgroundReuse ? '随机分配（可重复）' : '随机分配（不重复）'}</button>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:#9b9db8;font-size:10px;"><input id="bc-allow-bg-reuse" type="checkbox" ${_bulkState.allowBackgroundReuse ? 'checked' : ''} style="accent-color:#7c5cff;">允许重复</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:${_bulkState.filterUnassignedBackgrounds ? '#c4b5fd' : '#9b9db8'};font-size:10px;" title="仅查看尚未分配给任何编号组的背景素材"><input id="bc-filter-unassigned-bgs" type="checkbox" ${_bulkState.filterUnassignedBackgrounds ? 'checked' : ''} style="accent-color:#7c5cff;">仅未分配背景${_bulkState.backgroundFolders.length ? ` (${unassignedBgCount})` : ''}</label>
+                <button id="bc-clear-bg-assignments" class="bc-btn bc-btn-default bc-btn-xs" title="清空全部编号组的背景素材分配">清空分配</button>
+                <button id="bc-clear-backgrounds" class="bc-btn bc-btn-danger bc-btn-xs" title="清空全部背景素材">清空库</button>
+            </div>
+        </div>
+        ${!isBgCollapsed ? `
+            <div style="color:#8e92b2;font-size:10px;margin:6px 0;">拖入多个文件夹到此处，每夹为一组背景。可重复分配给编号组；只读取文件夹内的视频和图片。</div>
+            ${_bulkState.backgroundFolders.length > 0 && visibleFolders.length === 0 ? '<div style="padding:14px 8px;text-align:center;color:#8a8ab0;font-size:11px;background:rgba(255,255,255,0.02);border:1px dashed #33334a;border-radius:6px;margin-top:6px;">🎉 全部背景均已分配到编号组</div>' : ''}
+            ${visibleFolders.map(({ folder, fi }) => {
+                const assignedEntries = (assignments || []).filter(entry => entry.backgroundFolder === folder.path && numberedGroups.some(group => group.key === entry.key));
+                const assignedKeys = assignedEntries.map(entry => entry.key);
+                const count = assignedKeys.length;
+                const files = folder.files || [];
+                const folderName = folder.name || _bcFileName(folder.path);
+                const firstFile = files[0];
+                const kind = firstFile ? _bcMediaKind(firstFile) : '';
+                const url = firstFile ? _bcFileUrl(firstFile) : '';
+                let thumbInner = '';
+                if (firstFile) {
+                    if (kind === 'image') {
+                        thumbInner = `<img src="${_bcEsc(url)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;" alt="">`;
+                    } else if (kind === 'video') {
+                        thumbInner = `<video src="${_bcEsc(url)}#t=0.1" muted preload="metadata" playsinline style="width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;"></video>`;
+                    } else {
+                        thumbInner = `<span style="font-size:16px;pointer-events:none;">${_bcMediaIconForKind(kind)}</span>`;
+                    }
+                } else {
+                    thumbInner = `<span style="font-size:14px;opacity:0.35;pointer-events:none;">📁</span>`;
+                }
+
+                const freeGroups = numberedGroups.filter(g => {
+                    const entry = (assignments || []).find(e => e.key === g.key);
+                    return !entry || !entry.backgroundFolder;
+                });
+                const assignControlHtml = _bcRenderItemAssignControls({
+                    kind: 'folder',
+                    itemVal: folder.path,
+                    assignedKeys,
+                    freeGroups,
+                    allGroups: numberedGroups,
+                });
+
+                return `<div class="bc-bg-folder-row ${count > 0 ? 'is-assigned' : ''}" style="display:flex;flex-direction:row;align-items:stretch;gap:10px;padding:8px;margin-top:6px;background:${count > 0 ? 'rgba(124,92,255,0.07)' : 'rgba(255,255,255,0.02)'};border:1px solid ${count > 0 ? 'rgba(124,92,255,0.35)' : 'rgba(124,92,255,0.14)'};border-radius:6px;transition:border-color 0.15s, background 0.15s;" title="${_bcEsc(folder.path)}">
+                    <div class="bc-bg-folder-thumb" data-fi="${fi}" title="点击浏览此背景全部素材${firstFile ? `（首个: ${_bcEsc(_bcFileName(firstFile))}）` : ''}">
+                        ${thumbInner}
+                        ${firstFile && (kind === 'video' || kind === 'image') ? `<span style="position:absolute;bottom:2px;right:2px;font-size:9px;background:rgba(0,0,0,0.78);padding:1px 3px;border-radius:3px;line-height:1.1;color:#ddd;pointer-events:none;">${kind === 'video' ? '🎬' : '🖼'}</span>` : ''}
+                    </div>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                            <div style="font-weight:600;color:#eee;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${_bcEsc(folderName)}">${_bcEsc(folderName)}</div>
+                            <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
+                                <button class="bc-background-refresh" data-fi="${fi}" style="padding:2px 6px;font-size:10px;cursor:pointer;background:#20202e;border:1px solid #3c3c52;border-radius:4px;color:#aaa;" title="重新扫描此文件夹">刷新</button>
+                                <button class="bc-background-remove" data-fi="${fi}" style="padding:2px 6px;font-size:10px;cursor:pointer;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.25);border-radius:4px;color:#f88;" title="移出背景库">移出库</button>
+                            </div>
+                        </div>
+                        <div style="color:#8a8ab0;font-size:10px;display:flex;align-items:center;gap:6px;">
+                            <span>${files.length} 个素材</span>
+                            <span>·</span>
+                            <span>已选 <span style="${count > 0 ? 'color:#a78bfa;font-weight:600;' : ''}">${count}</span> 次</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;">
+                            <span style="color:#a78bfa;font-weight:600;flex-shrink:0;">分配组:</span>
+                            ${assignControlHtml}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')}
+        ` : ''}
+    </div>`;
+
+    const unassignedMusic = _bulkState.musicFiles.filter(music => {
+        const assignedEntries = (assignments || []).filter(entry => entry.musicPath === music.path && numberedGroups.some(group => group.key === entry.key));
+        return assignedEntries.length === 0;
+    });
+    const unassignedMusicCount = unassignedMusic.length;
+    const visibleMusic = _bulkState.musicFiles
+        .map((music, mi) => ({ music, mi }))
+        .filter(({ music }) => {
+            if (!_bulkState.filterUnassignedMusic) return true;
+            const assignedEntries = (assignments || []).filter(entry => entry.musicPath === music.path && numberedGroups.some(group => group.key === entry.key));
+            return assignedEntries.length === 0;
+        });
+
+    // 🎵 4. 模块三：配乐库（可折叠）
+    html += `<div id="bc-music-library" class="bc-library-box bc-music-library-box" style="background:rgba(16,185,129,0.02);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:9px 10px;margin-bottom:10px;">
+        <div data-toggle-section="music" style="display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap;" title="点击折叠 / 展开配乐库">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span class="bc-toggle-arrow" style="color:#34d399;font-size:10px;width:12px;text-align:center;display:inline-block;">${isMusicCollapsed ? '▶' : '▼'}</span>
+                <span style="font-weight:700;font-size:11.5px;color:#a7f3d0;display:inline-flex;align-items:center;gap:4px;">🎵 配乐库</span>
+                <span style="font-size:10px;color:#7ab89b;">(${_bulkState.musicFiles.length} 首配乐)</span>
+                ${isMusicCollapsed ? '<span style="font-size:9.5px;color:#717496;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.06);">已收起</span>' : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                <button id="bc-add-music" class="bc-btn bc-btn-emerald bc-btn-xs">+ 添加配乐</button>
+                <button id="bc-seq-music" class="bc-btn bc-btn-default bc-btn-xs" title="按顺序为每个编号组分配配乐">顺序分配</button>
+                <button id="bc-random-music" class="bc-btn bc-btn-emerald bc-btn-xs">🎲 ${_bulkState.allowMusicReuse ? '随机分配（可重复）' : '随机分配（不重复）'}</button>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:#7ab89b;font-size:10px;"><input id="bc-allow-music-reuse" type="checkbox" ${_bulkState.allowMusicReuse ? 'checked' : ''} style="accent-color:#10b981;">允许重复</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:${_bulkState.filterUnassignedMusic ? '#a7f3d0' : '#7ab89b'};font-size:10px;" title="仅查看尚未分配给任何编号组的配乐"><input id="bc-filter-unassigned-music" type="checkbox" ${_bulkState.filterUnassignedMusic ? 'checked' : ''} style="accent-color:#10b981;">仅未分配${_bulkState.musicFiles.length ? ` (${unassignedMusicCount})` : ''}</label>
+                <button id="bc-clear-music-assignments" class="bc-btn bc-btn-default bc-btn-xs" title="清空全部编号组的配乐分配">清空分配</button>
+                <button id="bc-clear-music" class="bc-btn bc-btn-danger bc-btn-xs" title="清空全部配乐文件">清空库</button>
+            </div>
+        </div>
+        ${!isMusicCollapsed ? `
+            <div style="color:#7ab89b;font-size:10px;margin:6px 0;">可直接拖入多首音频，或点击添加配乐；点击试听按钮可实时播放或停止。</div>
+            ${_bulkState.musicFiles.length > 0 && visibleMusic.length === 0 ? '<div style="padding:14px 8px;text-align:center;color:#8a8ab0;font-size:11px;background:rgba(255,255,255,0.02);border:1px dashed #33334a;border-radius:6px;margin-top:6px;">🎉 全部配乐均已分配到编号组</div>' : ''}
+            ${visibleMusic.map(({ music, mi }) => {
+                const assignedEntries = (assignments || []).filter(entry => entry.musicPath === music.path && numberedGroups.some(group => group.key === entry.key));
+                const assignedKeys = assignedEntries.map(entry => entry.key);
+                const count = assignedKeys.length;
+                const isPlaying = _bcCurrentPlayingMusic === music.path;
+                const freeGroups = numberedGroups.filter(g => {
+                    const entry = (assignments || []).find(e => e.key === g.key);
+                    return !entry || !entry.musicPath;
+                });
+                const assignControlHtml = _bcRenderItemAssignControls({
+                    kind: 'music',
+                    itemVal: music.path,
+                    assignedKeys,
+                    freeGroups,
+                    allGroups: numberedGroups,
+                });
+                return `<div class="bc-music-row${count > 0 ? ' is-assigned' : ''}" style="display:flex;flex-direction:row;align-items:stretch;gap:10px;padding:8px;margin-top:6px;background:${count > 0 ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.02)'};border:1px solid ${count > 0 ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.14)'};border-radius:6px;transition:border-color 0.15s, background 0.15s;" title="${_bcEsc(music.path || music.name)}">
+                    <div style="width:48px;height:48px;flex:0 0 48px;border-radius:5px;background:#0c1612;border:1px solid #224e3c;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;flex-shrink:0;gap:2px;">
+                        <span style="font-size:13px;pointer-events:none;">🎵</span>
+                        <button class="bc-music-play" data-path="${_bcEsc(music.path)}" style="width:22px;height:20px;line-height:18px;font-size:10px;padding:0;background:${isPlaying ? '#10b981' : 'rgba(255,255,255,0.06)'};color:${isPlaying ? '#000' : '#a7f3d0'};border:1px solid #10b981;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="${isPlaying ? '暂停试听' : '试听播放'}">${isPlaying ? '⏹' : '▶'}</button>
+                    </div>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                            <div style="font-weight:600;color:#e2e8f0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${_bcEsc(music.name)}">${_bcEsc(music.name)}</div>
+                            <button class="bc-music-remove" data-mi="${mi}" style="padding:2px 6px;font-size:10px;cursor:pointer;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.25);border-radius:4px;color:#f88;" title="从配乐库移除">移出库</button>
+                        </div>
+                        <div style="color:#7ab89b;font-size:10px;">已选 <span style="${count > 0 ? 'color:#34d399;font-weight:600;' : ''}">${count}</span> 次</div>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;">
+                            <span style="color:#34d399;font-weight:600;flex-shrink:0;">分配组:</span>
+                            ${assignControlHtml}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')}
+        ` : ''}
+    </div>`;
+    const visibleGroups = numberedGroups.filter(group => {
+        if (!_bulkState.filterUnassignedGroups) return true;
+        const entry = assignments?.find(item => item.key === group.key);
+        return !entry || !entry.backgroundFolder;
+    });
+
+    // 📋 5. 模块四：编号组详细配置与微调（可折叠）
+    html += `<div id="bc-groups-section" class="bc-library-box" style="background:rgba(255,255,255,0.015);border:1px solid #272942;border-radius:8px;padding:9px 10px;margin-bottom:10px;">
+        <div data-toggle-section="groups" style="display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap;" title="点击折叠 / 展开编号组详细配置">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span class="bc-toggle-arrow" style="color:#a78bfa;font-size:10px;width:12px;text-align:center;display:inline-block;">${isGroupsCollapsed ? '▶' : '▼'}</span>
+                <span style="font-weight:700;font-size:12px;color:#c4b5fd;display:inline-flex;align-items:center;gap:5px;">📋 编号组详细配置与微调</span>
+                <span style="font-size:10px;color:#8a8ab0;">(${visibleGroups.length} / ${numberedGroups.length} 组)</span>
+                ${isGroupsCollapsed ? '<span style="font-size:9.5px;color:#717496;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.06);">已收起</span>' : ''}
+            </div>
+            <div style="font-size:10px;color:#717496;">
+                ${isGroupsCollapsed ? '展开明细 ▶' : '收起明细 ▼'}
+            </div>
+        </div>
+        ${!isGroupsCollapsed ? `
+            <div style="font-size:10px;color:#8e92b2;margin:6px 0 8px 0;">${assignments ? '每个编号组独立生成一条任务；点击组内「👁 预览」可查看排版并实时修改覆层标题与正文。' : '当前使用原逐列绑定；点击上方模板卡片或启用编号组分配。'}</div>
+            ${numberedGroups.length > 0 && visibleGroups.length === 0 ? '<div style="padding:14px 8px;text-align:center;color:#8a8ab0;font-size:11px;background:rgba(255,255,255,0.02);border:1px dashed #33334a;border-radius:6px;margin-bottom:8px;">🎉 全部编号组均已分配背景素材</div>' : ''}
+            ${(() => {
+                let gHtml = '';
+                visibleGroups.forEach(group => {
+                    const entry = assignments?.find(item => item.key === group.key);
+                    const assigned = entry ? _bcAssignedTemplate(entry, group) : null;
+                    gHtml += `<div class="bc-group-card">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span class="bc-group-badge">${_bcEsc(group.key)}</span>
+                <span style="color:#6b7280;font-size:11px;">→</span>
+                <select class="bc-group-template" data-group="${_bcEsc(group.key)}" style="flex:1;min-width:0;">
+                    <option value="-1">未分配（不生成）</option>
+                    ${_bulkState.templates.map((tpl, ti) => `<option value="${ti}" ${entry?.templateIndex === ti ? 'selected' : ''}>${ti + 1}. ${_bcEsc(tpl.label)} · 已选 ${usage[ti]} 次</option>`).join('')}
+                </select>
+            </div>
+            <div class="bc-group-grid">
+                <div class="bc-group-field-item">
+                    <label>📁 背景</label>
+                    <select class="bc-group-background" data-group="${_bcEsc(group.key)}" style="width:100%;">
+                        <option value="">沿用模板 / 字段绑定背景</option>
+                        ${_bulkState.backgroundFolders.map(folder => `<option value="${_bcEsc(folder.path)}" ${entry?.backgroundFolder === folder.path ? 'selected' : ''}>${_bcEsc(folder.name)}（${folder.files.length} 个素材）</option>`).join('')}
+                    </select>
+                </div>
+                <div class="bc-group-field-item">
+                    <label>🔁 背景抽取方式</label>
+                    <select class="bc-group-background-mode" data-group="${_bcEsc(group.key)}" style="width:100%;">
+                        <option value="cycle" ${!entry?.backgroundMode || entry.backgroundMode === 'cycle' ? 'selected' : ''}>按任务顺序循环</option>
+                        <option value="random" ${entry?.backgroundMode === 'random' ? 'selected' : ''}>每条任务随机取一个</option>
+                        <option value="concat" ${entry?.backgroundMode === 'concat' ? 'selected' : ''}>全部顺序拼接</option>
+                    </select>
+                </div>
+                <div class="bc-group-field-item">
+                    <label>🎶 配乐模式</label>
+                    <select class="bc-group-music-mode" data-group="${_bcEsc(group.key)}" style="width:100%;">
+                        <option value="suite" ${!entry?.musicMode || entry.musicMode === 'suite' ? 'selected' : ''}>整套共用一首</option>
+                        <option value="cycle" ${entry?.musicMode === 'cycle' ? 'selected' : ''}>每条任务轮流配乐（配乐库循环）</option>
+                    </select>
+                </div>
+                <div class="bc-group-field-item">
+                    <label>🎵 整套配乐</label>
+                    <select class="bc-group-music" data-group="${_bcEsc(group.key)}" style="width:100%;" ${entry?.musicMode === 'cycle' ? 'disabled' : ''}>
+                        <option value="">沿用模板 / 不指定配乐</option>
+                        ${_bulkState.musicFiles.map(music => `<option value="${_bcEsc(music.path)}" ${entry?.musicPath === music.path ? 'selected' : ''}>${_bcEsc(music.name)}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            ${assigned ? `
+            <div style="margin-top:7px;">
+                <button class="bc-preview-group" data-group="${_bcEsc(group.key)}">👁 预览 / 换模板、背景与配乐</button>
+                <details class="bc-group-details">
+                    <summary class="bc-group-summary">⚙️ 自定义字段匹配</summary>
+                    <div style="display:flex;flex-direction:column;gap:4px;margin-top:5px;">
+                    ${_bcFieldsFromTask(assigned.task).map(field => {
+                        const boundColIndex = assigned.bindings[field.key];
+                        const boundColName = boundColIndex != null && boundColIndex >= 0 ? cols[boundColIndex]?.name : '';
+                        return `<div style="display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);">
+                            <span style="color:#cbd5e1;width:115px;min-width:115px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:500;" title="${_bcEsc(field.label)}">${_bcEsc(field.label)}</span>
+                            <select class="bc-group-field" data-group="${_bcEsc(group.key)}" data-field="${_bcEsc(field.key)}" style="min-width:0;flex:1;height:24px;font-size:10.5px;" title="${_bcEsc(boundColName ? `${field.label} → ${boundColName}` : `${field.label}：不绑定`)}">
+                                <option value="-1">不绑定 · 用模板默认</option>
+                                ${cols.map((col, ci) => _bcFieldAcceptsColumn(field, col) ? `<option value="${ci}" ${boundColIndex === ci ? 'selected' : ''}>${_bcEsc(col.name)}</option>` : '').join('')}
+                            </select>
+                        </div>`;
+                    }).join('')}
+                    </div>
+                </details>
+            </div>` : ''}
+        </div>`;
+                });
+                return gHtml;
+            })()}
+        ` : ''}
+    </div>`;
 
     // Stats
     const rc = _bulkState.rows.filter(r=>r.some(c=>(c||'').trim())).length;
-    const tc = _bulkState.templates.length || 1;
-    html += `<div style="margin-top:8px;padding:6px;background:rgba(124,92,255,0.1);border-radius:6px;font-size:11px;color:#b8a0ff;text-align:center;">
-        ${rc} 行 × ${_bulkState.templates.length} 模板 = <strong>${rc*tc} 个任务</strong></div>`;
+    const tc = assignments ? usage.reduce((sum, count) => sum + count, 0) : _bulkState.templates.length;
+    html += `<div style="margin-top:8px;padding:8px;background:rgba(124,92,255,0.08);border:1px solid rgba(124,92,255,0.2);border-radius:6px;font-size:11px;color:#c4b5fd;text-align:center;">
+        ${rc} 行 × ${tc} ${assignments ? '个已分配编号组' : '模板'} = <strong style="color:#fff;font-size:12px;">最多 ${rc*tc} 个任务</strong></div>`;
     el.innerHTML = html;
+    if (prevScroll != null) el.scrollTop = prevScroll;
 
     // Asynchronously render thumbnails
     _bulkState.templates.forEach((tpl, ti) => {
@@ -1323,6 +3260,7 @@ function _bcAppendTemplates(tasksList, projName, projectCycle = null, projectSou
     
     if (typeof _bcRenderBindings === 'function') _bcRenderBindings();
     if (typeof _bcUpdateStats === 'function') _bcUpdateStats();
+    if (typeof _bcScheduleDraftSave === 'function') _bcScheduleDraftSave();
 }
 
 function _bcShowProjectTaskPicker(projName, tasks, projectCycle = null, projectSource = null) {
@@ -1378,6 +3316,7 @@ function _bcShowProjectTaskPicker(projName, tasks, projectCycle = null, projectS
         
         if (typeof _bcRenderBindings === 'function') _bcRenderBindings();
         if (typeof _bcUpdateStats === 'function') _bcUpdateStats();
+        if (typeof _bcScheduleDraftSave === 'function') _bcScheduleDraftSave();
     };
 
     // Build cards
@@ -1488,6 +3427,7 @@ function _bcShowProjectTaskPicker(projName, tasks, projectCycle = null, projectS
         });
         modal.remove();
         _bcRenderBindings();
+        if (typeof _bcScheduleDraftSave === 'function') _bcScheduleDraftSave();
     };
 }
 
@@ -1563,6 +3503,7 @@ function _bcAddPresetAsTemplate(name, data) {
         bindings: _bcAutoBind(task, _bulkState.templates.length),
     });
     _bcRenderBindings();
+    if (typeof _bcScheduleDraftSave === 'function') _bcScheduleDraftSave();
 }
 
 // ── Pick from current tasks ──
@@ -1615,6 +3556,7 @@ function _bcPickFromCurrentTasks() {
         });
         modal.remove();
         _bcRenderBindings();
+        if (typeof _bcScheduleDraftSave === 'function') _bcScheduleDraftSave();
     };
 }
 
@@ -1655,9 +3597,8 @@ function _bcGenerateTasks() {
 
     const total = rows.length * _bulkState.templates.length;
 
-    // 明确的生成方式，避免每次依赖难理解的确定/取消弹窗。
-    const outputMode = document.getElementById('bc-output-mode')?.value || 'separate';
-    const separateTabs = _bulkState.templates.length > 1 && outputMode === 'separate';
+    // 明确的生成方式：group_apply (生成任务组并合并应用到外面分组显示)、separate (仅分标签页保存)、current (全部平铺放入当前标签)
+    const outputMode = document.getElementById('bc-output-mode')?.value || 'group_apply';
 
     _bcWarnAllDuplicateTextBindings();
 
@@ -1681,25 +3622,61 @@ function _bcGenerateTasks() {
         console.warn('[BulkCreate] ⚠️ 有多个模板使用了完全相同的列绑定！这将导致各标签页文案一致。');
     }
 
-    // ═══ 统一生成循环：row × template ═══
-    // 不管分不分标签页，生成逻辑完全一致
-    // 按模板分组收集任务
-    const tasksByTemplate = _bulkState.templates.map(() => []);
-    let globalTaskNum = 0;
+    // ═══ 统一生成循环：row × unit (编号组或模板) ═══
+    const groups = _bcNumberedColumnGroups();
+    const isGroupMode = !!(_bulkState.groupAssignments && _bulkState.groupAssignments.length > 0);
+    let generationUnits = [];
+    if (isGroupMode) {
+        generationUnits = _bulkState.groupAssignments.map(entry => {
+            const group = groups.find(g => g.key === entry.key);
+            const tpl = _bcAssignedTemplate(entry, group);
+            if (!tpl) return null;
+            return {
+                key: entry.key,
+                // 任务组按文案编号识别；覆层模板仍保存在每个任务的配置中。
+                name: entry.key,
+                tpl,
+                ti: entry.templateIndex,
+                tasks: [],
+            };
+        }).filter(Boolean);
+    } else {
+        generationUnits = _bulkState.templates.map((tpl, ti) => ({
+            key: `tpl_${ti + 1}`,
+            name: tpl.label || `模板${ti + 1}`,
+            tpl,
+            ti,
+            tasks: [],
+        }));
+    }
 
+    const missingFolder = generationUnits.find(({ tpl }) => tpl.assignedBackgroundFolder
+        && !_bulkState.backgroundFolders.find(folder => folder.path === tpl.assignedBackgroundFolder)?.files?.length);
+    if (missingFolder) { alert('所选背景分类为空或已移除，请刷新文件夹或重新分配背景分类。'); return 0; }
+
+    const backgroundIndices = new Map();
+    const tasksByTemplate = _bulkState.templates.map(() => []);
     rows.forEach((row, ri) => {
-        _bulkState.templates.forEach((tpl, ti) => {
+        generationUnits.forEach(unit => {
+            const { tpl, ti } = unit;
             if (!_bcRowHasBoundData(tpl, row)) return;
-            globalTaskNum++;
-            const presetRowIdx = tasksByTemplate[ti].length;
-            const task = _bcBuildTask(tpl, row, presetRowIdx, globalTaskNum, cols);
-            tasksByTemplate[ti].push(task);
+            const presetRowIdx = unit.tasks.length;
+            // 编号组内独立计数，避免第 9 组显示 009、025、041 这类全局跳号。
+            const task = _bcBuildTask(tpl, row, presetRowIdx, presetRowIdx + 1, cols, isGroupMode ? unit.key : '');
+            const backgroundIndex = backgroundIndices.get(tpl) || 0;
+            _bcApplyAssignedBackground(task, tpl, backgroundIndex);
+            _bcApplyAssignedMusic(task, tpl, presetRowIdx);
+            backgroundIndices.set(tpl, backgroundIndex + 1);
+            unit.tasks.push(task);
+            if (tasksByTemplate[ti]) tasksByTemplate[ti].push(task);
         });
     });
 
-    const created = tasksByTemplate.reduce((s, arr) => s + arr.length, 0);
+    const activeUnits = generationUnits.filter(u => u.tasks.length > 0);
+    const created = activeUnits.reduce((s, u) => s + u.tasks.length, 0);
     if (created === 0) return 0;
-    const srtErrors = tasksByTemplate.flat().filter(task => task?._bulkCreateSrtError);
+
+    const srtErrors = activeUnits.flatMap(u => u.tasks).filter(task => task?._bulkCreateSrtError);
     if (srtErrors.length > 0) {
         const preview = srtErrors.slice(0, 5).map(task => `${task.fileName}: ${task._bulkCreateSrtError}`).join('\n');
         const remaining = srtErrors.length > 5 ? `\n另有 ${srtErrors.length - 5} 条` : '';
@@ -1707,19 +3684,19 @@ function _bcGenerateTasks() {
     }
 
     // ═══ 输出：根据模式放到不同容器 ═══
-    if (separateTabs && typeof _batchTableState !== 'undefined') {
-        // 分标签页模式：每个模板的任务放到独立标签
-        if (typeof _syncTasksToActiveTab === 'function') _syncTasksToActiveTab();
+    if (outputMode === 'group_apply' && typeof _batchTableState !== 'undefined') {
+        // ★ 生成任务组并合并应用到外部分组显示（推荐模式）
+        if (typeof _syncTasksToActiveTab === 'function' && typeof _isBatchGroupedProjection === 'function' && !_isBatchGroupedProjection(state.tasks)) {
+            _syncTasksToActiveTab();
+        }
 
         const newTabs = [];
-        _bulkState.templates.forEach((tpl, ti) => {
-            const tasks = tasksByTemplate[ti];
-            if (tasks.length === 0) return;
+        activeUnits.forEach(unit => {
             const tabId = 'tab_' + _batchTableState.nextTabId++;
-            const tabName = `批量-${tpl.label}`;
+            const tabName = `批量-${unit.name}`;
             const clonedTasks = typeof _cloneBatchTasks === 'function'
-                ? _cloneBatchTasks(tasks)
-                : JSON.parse(JSON.stringify(tasks));
+                ? _cloneBatchTasks(unit.tasks)
+                : JSON.parse(JSON.stringify(unit.tasks));
             const newTab = {
                 id: tabId,
                 name: tabName,
@@ -1731,7 +3708,61 @@ function _bcGenerateTasks() {
             newTabs.push(newTab);
         });
 
-        // Switch to the first generated tab
+        // 建立按任务组投影到外部队列：使外部列表直接按任务组分组折叠显示
+        // 若生成前主队列中已有非投影任务，自动保留在最顶部作为「已有任务」，避免旧任务被清空覆盖
+        const existingNonBatchTasks = (Array.isArray(state.tasks) ? state.tasks : []).filter(t => !t._batchProjection);
+        const mergedTasks = existingNonBatchTasks.length > 0 ? [...existingNonBatchTasks] : [];
+        const appliedTabIds = [];
+        newTabs.forEach((tab, tabOrder) => {
+            appliedTabIds.push(tab.id);
+            (tab.tasks || []).forEach((t, taskOrder) => {
+                const cloned = typeof _cloneBatchTasks === 'function'
+                    ? _cloneBatchTasks([t])[0]
+                    : JSON.parse(JSON.stringify(t));
+                if (cloned) {
+                    if (typeof _ensureTaskId === 'function') _ensureTaskId(cloned);
+                    cloned._batchProjection = true;
+                    cloned._batchTabId = tab.id;
+                    cloned._batchTabName = tab.name;
+                    cloned._batchTabOrder = tabOrder;
+                    cloned._batchTaskOrder = taskOrder;
+                    mergedTasks.push(cloned);
+                }
+            });
+        });
+
+        _batchTableState.appliedTabIds = appliedTabIds;
+        state.tasks = mergedTasks;
+        state.selectedIdx = -1;
+        if (newTabs[0]) {
+            _batchTableState.activeTabId = newTabs[0].id;
+        }
+
+        console.log(`[BulkCreate] ✅ 已生成 ${newTabs.length} 个任务组，共 ${mergedTasks.length} 条任务，已合并应用到外部队列`);
+    } else if (outputMode === 'separate' && typeof _batchTableState !== 'undefined') {
+        // 分标签页模式：仅存入独立标签，外部默认切换至第1个标签
+        if (typeof _syncTasksToActiveTab === 'function' && typeof _isBatchGroupedProjection === 'function' && !_isBatchGroupedProjection(state.tasks)) {
+            _syncTasksToActiveTab();
+        }
+
+        const newTabs = [];
+        activeUnits.forEach(unit => {
+            const tabId = 'tab_' + _batchTableState.nextTabId++;
+            const tabName = `批量-${unit.name}`;
+            const clonedTasks = typeof _cloneBatchTasks === 'function'
+                ? _cloneBatchTasks(unit.tasks)
+                : JSON.parse(JSON.stringify(unit.tasks));
+            const newTab = {
+                id: tabId,
+                name: tabName,
+                materialDir: '',
+                lastRefreshTime: null,
+                tasks: clonedTasks,
+            };
+            _batchTableState.tabs.push(newTab);
+            newTabs.push(newTab);
+        });
+
         const firstNewTab = newTabs[0];
         if (firstNewTab) {
             if (typeof _switchToTab === 'function') {
@@ -1744,34 +3775,27 @@ function _bcGenerateTasks() {
                 state.selectedIdx = -1;
             }
         }
-
-        // ═══ 验证：检查每个标签页存储的数据是否独立 ═══
-        console.log('═══ [BulkCreate] 分标签页验证 ═══');
-        newTabs.forEach((tab, i) => {
-            const t0 = tab.tasks[0];
-            const ov = t0 && t0.overlays && t0.overlays[0];
-            console.log(`  标签[${i}]「${tab.name}」(${tab.tasks.length}条): title="${(ov?.title_text||'').slice(0,30)}", body="${(ov?.body_text||'').slice(0,30)}"`);
-        });
-        console.log(`  当前 state.tasks[0]: title="${(state.tasks[0]?.overlays?.[0]?.title_text||'').slice(0,30)}"`);
-        console.log('═══ 验证结束 ═══');
     } else {
-        // 单标签模式：全部放入当前标签
+        // 单标签模式或无 _batchTableState 环境
         state.tasks.length = 0;
-        const allTasks = tasksByTemplate.flat();
+        const allTasks = typeof _batchTableState === 'undefined'
+            ? tasksByTemplate.flat()
+            : activeUnits.flatMap(u => u.tasks);
         allTasks.forEach(task => state.tasks.push(task));
     }
 
     return created;
 }
 
-function _bcBuildTask(tpl, row, rowIdx, taskNum, cols) {
+function _bcBuildTask(tpl, row, rowIdx, taskNum, cols, groupKey = '') {
     const task = JSON.parse(JSON.stringify(tpl.task));
     const derivation = window.ReelsTaskDerivation;
     if (!derivation) throw new Error('任务派生模块未加载，请完全重启 VideoKit 后重试');
     // 新任务只继承模板的样式、素材设置与覆层结构。字幕片段、来源文案、
     // 对齐状态和所有实例 ID 都必须重新建立，不能携带模板任务的运行数据。
     derivation.prepareDerivedTask(task);
-    const prefix = _bulkState.templates.length > 1 ? `${tpl.label}_` : 'bulk_';
+    // 编号组模式用列组名命名；其他模式保留原来的模板名称规则。
+    const prefix = groupKey ? `${groupKey}_` : (_bulkState.templates.length > 1 ? `${tpl.label}_` : 'bulk_');
     task.baseName = `${prefix}${String(taskNum).padStart(3, '0')}`;
     task.fileName = task.baseName + '.mp4';
     task.status = ''; task.bgSrcUrl = null; task.srcUrl = null;
@@ -1856,8 +3880,12 @@ function _bcBuildTask(tpl, row, rowIdx, taskNum, cols) {
         task.bgSrcUrl = null;
         task.srcUrl = null;
     }
+    if (row._versionTag) {
+        task.versionTag = row._versionTag;
+    }
     return task;
 }
+window._bcBuildTask = _bcBuildTask;
 
 // ── Preset save/load ──
 const BC_PRESETS_KEY = 'reels_bulk_create_presets';
@@ -1871,9 +3899,13 @@ async function _bcSavePreset() {
     if (!name || !name.trim()) return;
     const presets = _bcGetSavedPresets();
     presets[name.trim()] = {
+        backgroundFolders: _bulkState.backgroundFolders,
+        musicFiles: _bulkState.musicFiles,
+        groupAssignments: _bulkState.groupAssignments,
+        allowTemplateReuse: _bulkState.allowTemplateReuse,
         columns: JSON.parse(JSON.stringify(_bulkState.columns)),
         templates: _bulkState.templates.map(t => ({
-            task: t.task,
+            task: _bcSanitizeTaskForDraft(t.task || {}),
             label: t.label,
             bindings: { ...t.bindings },
             bgCycle: t.bgCycle || null,
@@ -1925,6 +3957,10 @@ function _bcLoadPreset() {
             const p = presets[name];
             if (!p) return;
             _bulkState.columns = JSON.parse(JSON.stringify(p.columns || []));
+            _bulkState.backgroundFolders = p.backgroundFolders || [];
+            _bulkState.musicFiles = p.musicFiles || [];
+            _bulkState.groupAssignments = p.groupAssignments || null;
+            _bulkState.allowTemplateReuse = !!p.allowTemplateReuse;
             _bulkState.templates = (p.templates || []).map(t => ({ task: t.task, label: t.label, bindings: { ...t.bindings }, bgCycle: t.bgCycle || null, source: t.source || null, materialFolder: t.materialFolder || null }));
             // Keep existing rows but pad/trim to match new column count
             _bulkState.rows.forEach(r => {
@@ -1936,6 +3972,7 @@ function _bcLoadPreset() {
             }
             modal.remove();
             _bcRenderTable(); _bcRenderBindings();
+            _bcScheduleDraftSave();
             return;
         }
         if (t.classList.contains('bc-preset-del')) {
@@ -2050,6 +4087,10 @@ function _bcImportPreset() {
                 // Legacy single-preset format: load directly into current state
                 if (!data.columns) { alert('不是有效的大量制作模版文件'); return; }
                 _bulkState.columns = data.columns;
+                _bulkState.backgroundFolders = data.backgroundFolders || [];
+                _bulkState.musicFiles = data.musicFiles || [];
+                _bulkState.groupAssignments = data.groupAssignments || null;
+                _bulkState.allowTemplateReuse = !!data.allowTemplateReuse;
                 _bulkState.templates = (data.templates || []).map(t => ({ task: t.task, label: t.label, bindings: { ...t.bindings }, bgCycle: t.bgCycle || null, source: t.source || null, materialFolder: t.materialFolder || null }));
                 _bulkState.rows.forEach(r => {
                     while (r.length < _bulkState.columns.length) r.push('');
@@ -2205,56 +4246,505 @@ function _showBulkCreateModal() {
             .bc-media-col-header {
                 cursor: copy;
             }
+            .bc-bg-folder-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                margin-top: 5px;
+                background: rgba(255,255,255,0.02);
+                border: 1px solid rgba(124,92,255,0.18);
+                border-radius: 6px;
+                transition: border-color 0.15s, background 0.15s;
+            }
+            .bc-bg-folder-row:hover {
+                border-color: rgba(124,92,255,0.45);
+                background: rgba(255,255,255,0.05);
+            }
+            .bc-bg-folder-thumb {
+                width: 48px;
+                height: 66px;
+                flex: 0 0 48px;
+                border-radius: 5px;
+                overflow: hidden;
+                background: #0c0c16;
+                border: 1px solid #36364e;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                cursor: pointer;
+                transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+            .bc-bg-folder-thumb:hover {
+                border-color: #a78bfa;
+                box-shadow: 0 0 8px rgba(124,92,255,0.45);
+                transform: scale(1.04);
+            }
+            .bc-music-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 5px 8px;
+                margin-top: 5px;
+                background: rgba(255,255,255,0.02);
+                border: 1px solid rgba(52,211,153,0.18);
+                border-radius: 6px;
+                transition: border-color 0.15s, background 0.15s;
+            }
+            .bc-music-row:hover {
+                border-color: rgba(52,211,153,0.45);
+                background: rgba(255,255,255,0.05);
+            }
+
+            /* Custom sleek scrollbars */
+            #bc-table-body::-webkit-scrollbar,
+            #bc-bind-panel::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            #bc-table-body::-webkit-scrollbar-track,
+            #bc-bind-panel::-webkit-scrollbar-track {
+                background: #0b0c16;
+            }
+            #bc-table-body::-webkit-scrollbar-thumb,
+            #bc-bind-panel::-webkit-scrollbar-thumb {
+                background: #25273c;
+                border-radius: 3px;
+            }
+            #bc-table-body::-webkit-scrollbar-thumb:hover,
+            #bc-bind-panel::-webkit-scrollbar-thumb:hover {
+                background: #3e4268;
+            }
+
+            /* Buttons */
+            .bc-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+                height: 24px;
+                padding: 0 8px;
+                font-size: 11px;
+                font-weight: 500;
+                border-radius: 5px;
+                border: 1px solid transparent;
+                cursor: pointer;
+                transition: all 0.15s ease;
+                user-select: none;
+                white-space: nowrap;
+                box-sizing: border-box;
+            }
+            .bc-btn:hover {
+                filter: brightness(1.12);
+            }
+            .bc-btn:active {
+                transform: translateY(1px);
+            }
+            .bc-btn-default {
+                background: rgba(255,255,255,0.06);
+                border-color: rgba(255,255,255,0.12);
+                color: #cbd5e1;
+            }
+            .bc-btn-default:hover {
+                background: rgba(255,255,255,0.12);
+                border-color: rgba(255,255,255,0.24);
+                color: #fff;
+            }
+            .bc-btn-purple {
+                background: rgba(124,92,255,0.15);
+                border-color: rgba(124,92,255,0.38);
+                color: #c4b5fd;
+            }
+            .bc-btn-purple:hover {
+                background: rgba(124,92,255,0.28);
+                border-color: rgba(124,92,255,0.65);
+                color: #fff;
+            }
+            .bc-btn-emerald {
+                background: rgba(16,185,129,0.14);
+                border-color: rgba(16,185,129,0.35);
+                color: #6ee7b7;
+            }
+            .bc-btn-emerald:hover {
+                background: rgba(16,185,129,0.26);
+                border-color: rgba(16,185,129,0.65);
+                color: #fff;
+            }
+            .bc-btn-blue {
+                background: rgba(59,130,246,0.14);
+                border-color: rgba(59,130,246,0.35);
+                color: #93c5fd;
+            }
+            .bc-btn-blue:hover {
+                background: rgba(59,130,246,0.26);
+                border-color: rgba(59,130,246,0.65);
+                color: #fff;
+            }
+            .bc-btn-amber {
+                background: rgba(245,158,11,0.14);
+                border-color: rgba(245,158,11,0.35);
+                color: #fcd34d;
+            }
+            .bc-btn-amber:hover {
+                background: rgba(245,158,11,0.26);
+                border-color: rgba(245,158,11,0.65);
+                color: #fff;
+            }
+            .bc-btn-danger {
+                background: rgba(244,63,94,0.12);
+                border-color: rgba(244,63,94,0.32);
+                color: #fda4af;
+            }
+            .bc-btn-danger:hover {
+                background: rgba(244,63,94,0.25);
+                border-color: rgba(244,63,94,0.65);
+                color: #ffe4e6;
+            }
+            .bc-btn-primary {
+                background: linear-gradient(135deg, #7c5cff 0%, #9333ea 100%);
+                border: none;
+                color: #fff;
+                font-weight: 600;
+                box-shadow: 0 2px 8px rgba(124,92,255,0.35);
+            }
+            .bc-btn-primary:hover {
+                box-shadow: 0 4px 14px rgba(124,92,255,0.55);
+            }
+            .bc-btn-sm {
+                height: 22px;
+                padding: 0 6px;
+                font-size: 10px;
+                border-radius: 4px;
+            }
+            .bc-btn-xs {
+                height: 20px;
+                padding: 0 5px;
+                font-size: 10px;
+                border-radius: 3px;
+            }
+
+            /* Unified Form Controls */
+            .bc-input,
+            #bc-header-prefix,
+            #bc-header-before,
+            #bc-header-start,
+            #bc-header-after,
+            #bc-header-names {
+                background: #141525;
+                border: 1px solid #2e3048;
+                color: #e2e8f0;
+                border-radius: 4px;
+                height: 24px;
+                padding: 0 6px;
+                font-size: 11px;
+                box-sizing: border-box;
+                transition: all 0.15s ease;
+            }
+            .bc-input:focus,
+            #bc-header-prefix:focus,
+            #bc-header-before:focus,
+            #bc-header-start:focus,
+            #bc-header-after:focus,
+            #bc-header-names:focus {
+                border-color: #7c5cff;
+                outline: none;
+                box-shadow: 0 0 0 2px rgba(124,92,255,0.22);
+                background: #181a30;
+            }
+
+            .bc-select,
+            .bc-group-template,
+            .bc-group-background,
+            .bc-group-background-mode,
+            .bc-group-music-mode,
+            .bc-group-music,
+            .bc-group-field,
+            .bc-folder-assign-group,
+            .bc-tpl-group,
+            .bc-bind-sel {
+                background: #141525;
+                border: 1px solid #2e3048;
+                color: #e2e8f0;
+                border-radius: 4px;
+                height: 24px;
+                padding: 0 6px;
+                font-size: 11px;
+                box-sizing: border-box;
+                transition: all 0.15s ease;
+                cursor: pointer;
+            }
+            .bc-select:focus,
+            .bc-group-template:focus,
+            .bc-group-background:focus,
+            .bc-group-background-mode:focus,
+            .bc-group-music-mode:focus,
+            .bc-group-music:focus,
+            .bc-group-field:focus,
+            .bc-folder-assign-group:focus,
+            .bc-tpl-group:focus,
+            .bc-bind-sel:focus {
+                border-color: #7c5cff;
+                outline: none;
+                box-shadow: 0 0 0 2px rgba(124,92,255,0.22);
+                background: #181a30;
+            }
+            .bc-select option,
+            .bc-group-template option,
+            .bc-group-background option,
+            .bc-group-background-mode option,
+            .bc-group-music-mode option,
+            .bc-group-music option,
+            .bc-group-field option,
+            .bc-folder-assign-group option,
+            .bc-tpl-group option,
+            .bc-bind-sel option {
+                background: #161726;
+                color: #e2e8f0;
+            }
+
+            /* Folder row unassign buttons & action buttons */
+            .bc-folder-unassign,
+            .bc-folder-unassign-all,
+            .bc-background-remove,
+            .bc-music-remove {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 6px;
+                height: 22px;
+                font-size: 10px;
+                cursor: pointer;
+                background: rgba(244,63,94,0.12);
+                border: 1px solid rgba(244,63,94,0.3);
+                border-radius: 4px;
+                color: #fda4af;
+                flex-shrink: 0;
+                transition: all 0.15s ease;
+            }
+            .bc-folder-unassign:hover,
+            .bc-folder-unassign-all:hover,
+            .bc-background-remove:hover,
+            .bc-music-remove:hover {
+                background: rgba(244,63,94,0.25);
+                border-color: rgba(244,63,94,0.6);
+                color: #fff;
+            }
+
+            .bc-background-refresh {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 6px;
+                height: 22px;
+                font-size: 10px;
+                cursor: pointer;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.15);
+                border-radius: 4px;
+                color: #cbd5e1;
+                flex-shrink: 0;
+                transition: all 0.15s ease;
+            }
+            .bc-background-refresh:hover {
+                background: rgba(255,255,255,0.12);
+                border-color: rgba(255,255,255,0.25);
+                color: #fff;
+            }
+
+            .bc-preview-group {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+                width: 100%;
+                height: 24px;
+                padding: 0 8px;
+                font-size: 10.5px;
+                font-weight: 500;
+                border-radius: 4px;
+                cursor: pointer;
+                background: rgba(124,92,255,0.14);
+                border: 1px solid rgba(124,92,255,0.35);
+                color: #c4b5fd;
+                transition: all 0.15s ease;
+            }
+            .bc-library-box {
+                background: rgba(255,255,255,0.02);
+                border: 1px solid #272942;
+                border-radius: 8px;
+                padding: 9px 10px;
+                margin-bottom: 10px;
+                transition: border-color 0.15s ease;
+            }
+            .bc-library-box:hover {
+                border-color: #3e4268;
+            }
+            .bc-toggle-arrow {
+                display: inline-block;
+                transition: transform 0.18s ease, color 0.15s ease;
+                user-select: none;
+            }
+            [data-toggle-section]:hover .bc-toggle-arrow {
+                transform: scale(1.22);
+            }
+
+            /* Group card layout */
+            .bc-group-card {
+                background: #141524;
+                border: 1px solid #272942;
+                border-radius: 7px;
+                padding: 8px 10px;
+                margin-bottom: 7px;
+                transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+            .bc-group-card:hover {
+                border-color: #3f4268;
+                box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+            }
+            .bc-group-badge {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 2px 7px;
+                background: rgba(124,92,255,0.18);
+                border: 1px solid rgba(124,92,255,0.4);
+                border-radius: 4px;
+                color: #d8cfff;
+                font-family: monospace;
+                font-weight: 700;
+                font-size: 11px;
+                letter-spacing: 0.3px;
+                flex-shrink: 0;
+            }
+            .bc-group-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px 8px;
+                margin-top: 6px;
+            }
+            .bc-group-field-item {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                min-width: 0;
+            }
+            .bc-group-field-item label {
+                font-size: 10px;
+                color: #8b8ea8;
+                font-weight: 500;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .bc-group-details {
+                margin-top: 6px;
+                padding-top: 4px;
+                border-top: 1px dashed rgba(255,255,255,0.06);
+            }
+            .bc-group-summary {
+                cursor: pointer;
+                font-size: 10px;
+                color: #8b8ea8;
+                user-select: none;
+                transition: color 0.15s;
+            }
+            .bc-group-summary:hover {
+                color: #c4b5fd;
+            }
         `;
     ov.innerHTML = `
-        <div style="padding:10px 18px;border-bottom:1px solid #2a2a3a;flex-shrink:0;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="padding:10px 18px;border-bottom:1px solid #23243a;background:#11121e;flex-shrink:0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px;">
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span style="font-size:18px;">🧩</span>
-                    <span style="font-size:15px;font-weight:700;color:#fff;">大量制作</span>
-                    <span style="font-size:11px;color:#666;">工程模板 × 数据表格 = 批量任务</span>
+                    <span style="font-size:15px;font-weight:700;color:#fff;letter-spacing:0.5px;">大量制作</span>
+                    <span style="font-size:11px;color:#717496;background:rgba(255,255,255,0.04);padding:2px 8px;border-radius:4px;">工程模板 × 数据表格 = 批量任务</span>
                 </div>
-                <div style="display:flex;gap:6px;">
-                    <select id="bc-output-mode" title="大量制作生成方式" style="padding:4px 8px;background:#202033;color:#ddd;border:1px solid #444;border-radius:5px;font-size:11px;">
-                        <option value="separate" selected>每个模板独立标签（推荐）</option>
-                        <option value="current">全部放入当前标签</option>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <select id="bc-output-mode" class="bc-select" title="大量制作生成方式" style="height:28px;font-size:11px;">
+                        <option value="group_apply" selected>📦 生成任务组并应用到外部分组显示（推荐）</option>
+                        <option value="separate">📑 仅多标签页保存（保留在批量表格中）</option>
+                        <option value="current">📄 全部平铺放入当前标签页</option>
                     </select>
-                    <button id="bc-generate" style="padding:5px 18px;background:linear-gradient(135deg,#7c5cff,#a855f7);border:none;border-radius:5px;color:#fff;cursor:pointer;font-size:12px;font-weight:600;">🚀 生成任务</button>
-                    <button id="bc-close" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #333;border-radius:5px;color:#888;cursor:pointer;font-size:11px;">关闭</button>
+                    <button id="bc-generate" class="bc-btn bc-btn-primary" style="height:28px;padding:0 18px;font-size:12px;">🚀 生成任务</button>
+                    <button id="bc-close" class="bc-btn bc-btn-default" style="height:28px;padding:0 12px;font-size:11px;">关闭</button>
                 </div>
             </div>
-            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-                <span style="color:#888;font-size:10px;margin-right:2px;">数据:</span>
-                <select id="bc-quick-columns" title="一键建立常用表格列" style="padding:2px 7px;background:#202033;color:#b9aaff;border:1px solid rgba(124,92,255,.45);border-radius:4px;font-size:10px;">
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                <span style="color:#717496;font-size:10px;font-weight:600;margin-right:2px;">数据:</span>
+                <select id="bc-quick-columns" class="bc-select" title="一键建立常用表格列" style="height:24px;font-size:10.5px;color:#c4b5fd;border-color:rgba(124,92,255,0.45);">
                     <option value="" ${_bcCurrentQuickColumnPresetId() ? '' : 'selected'}>⚡ 快捷列模板</option>
                     <option value="default" ${_bcCurrentQuickColumnPresetId() === 'default' ? 'selected' : ''}>⚙️ 默认配置</option>
                     <option value="overlay" ${_bcCurrentQuickColumnPresetId() === 'overlay' ? 'selected' : ''}>🧱 覆层模板表</option>
                     <option value="voice_workflow" ${_bcCurrentQuickColumnPresetId() === 'voice_workflow' ? 'selected' : ''}>🎙️ 人声工作流表</option>
                 </select>
-                <input id="bc-quick-group-count" type="number" min="1" max="500" value="1" title="一次建立多少组相同结构的列，最多500组" style="width:52px;padding:2px 4px;background:#202033;color:#ddd;border:1px solid #444;border-radius:4px;font-size:10px;">
-                <button id="bc-build-column-groups" title="按左侧选择的快捷列模板批量建立多组列" style="padding:2px 8px;background:rgba(124,92,255,.13);border:1px solid rgba(124,92,255,.35);border-radius:4px;color:#b9aaff;cursor:pointer;font-size:10px;">批量建组</button>
-                <button id="bc-paste-tsv" style="padding:2px 8px;background:rgba(255,255,255,0.08);border:1px solid #333;border-radius:4px;color:#ccc;cursor:pointer;font-size:10px;">📋 粘贴TSV</button>
-                <button id="bc-copy-table" style="padding:2px 8px;background:rgba(76,158,255,.1);border:1px solid rgba(76,158,255,.28);border-radius:4px;color:#8fc7ff;cursor:pointer;font-size:10px;">📄 复制整表</button>
-                <button id="bc-add-row" style="padding:2px 8px;background:rgba(255,255,255,0.08);border:1px solid #333;border-radius:4px;color:#ccc;cursor:pointer;font-size:10px;">+ 添加行</button>
-                <button id="bc-clear" style="padding:2px 8px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:4px;color:#f88;cursor:pointer;font-size:10px;">清空</button>
-                <span style="color:rgba(255,255,255,0.1);margin:0 4px;">|</span>
-                <span style="color:#888;font-size:10px;margin-right:2px;">模版:</span>
-                <button id="bc-save-preset" style="padding:2px 8px;background:rgba(46,213,115,0.08);border:1px solid rgba(46,213,115,0.2);border-radius:4px;color:#6fcf97;cursor:pointer;font-size:10px;">💾 保存</button>
-                <button id="bc-load-preset" style="padding:2px 8px;background:rgba(255,200,50,0.08);border:1px solid rgba(255,200,50,0.2);border-radius:4px;color:#ffc832;cursor:pointer;font-size:10px;">📂 加载</button>
-                <button id="bc-reload-source" style="padding:2px 8px;background:rgba(76,158,255,0.1);border:1px solid rgba(76,158,255,0.25);border-radius:4px;color:#8fc7ff;cursor:pointer;font-size:10px;" title="重新读取已添加模板对应的最新模板工程，保留当前列绑定">🔄 刷新工程</button>
-                <button id="bc-export-preset" style="padding:2px 8px;background:rgba(255,255,255,0.05);border:1px solid #333;border-radius:4px;color:#aaa;cursor:pointer;font-size:10px;">⬆ 导出</button>
-                <button id="bc-import-preset" style="padding:2px 8px;background:rgba(255,255,255,0.05);border:1px solid #333;border-radius:4px;color:#aaa;cursor:pointer;font-size:10px;">⬇ 导入</button>
-                <span id="bc-folder-drop" style="margin-left:8px;padding:3px 10px;border:1px dashed rgba(124,92,255,.65);border-radius:5px;color:#b9aaff;font-size:10px;">📁 可拖入多个文件夹：每夹一标签、每文件一任务</span>
+                <input id="bc-quick-group-count" class="bc-input" type="number" min="1" max="500" value="1" title="一次建立多少组相同结构的列，最多500组" style="width:50px;height:24px;text-align:center;">
+                <button id="bc-build-column-groups" class="bc-btn bc-btn-purple bc-btn-sm" title="按左侧选择的快捷列模板批量建立多组列">批量建组</button>
+                <button id="bc-paste-tsv" class="bc-btn bc-btn-default bc-btn-sm">📋 粘贴TSV</button>
+                <button id="bc-copy-table" class="bc-btn bc-btn-blue bc-btn-sm">📄 复制整表</button>
+                <button id="bc-duplicate-rows" class="bc-btn bc-btn-purple bc-btn-sm" title="复制选中的行生成新版本副本">📋 复制副本行</button>
+                <button id="bc-add-row" class="bc-btn bc-btn-default bc-btn-sm">+ 添加行</button>
+                <button id="bc-clear" class="bc-btn bc-btn-danger bc-btn-sm">清空</button>
+                <span style="color:rgba(255,255,255,0.15);margin:0 4px;">|</span>
+                <span style="color:#717496;font-size:10px;font-weight:600;margin-right:2px;">模版:</span>
+                <button id="bc-save-preset" class="bc-btn bc-btn-emerald bc-btn-sm">💾 保存</button>
+                <button id="bc-load-preset" class="bc-btn bc-btn-amber bc-btn-sm">📂 加载</button>
+                <button id="bc-reload-source" class="bc-btn bc-btn-blue bc-btn-sm" title="重新读取已添加模板对应的最新模板工程，保留当前列绑定">🔄 刷新工程</button>
+                <button id="bc-export-preset" class="bc-btn bc-btn-default bc-btn-sm">⬆ 导出</button>
+                <button id="bc-import-preset" class="bc-btn bc-btn-default bc-btn-sm">⬇ 导入</button>
+                <span id="bc-folder-drop" style="margin-left:auto;display:inline-flex;align-items:center;height:24px;padding:0 10px;border:1px dashed rgba(124,92,255,.55);border-radius:5px;background:rgba(124,92,255,0.06);color:#c4b5fd;font-size:10.5px;">📁 可拖入多个文件夹：每夹一标签、每文件一任务</span>
             </div>
         </div>
-        <div style="display:flex;flex:1;overflow:hidden;">
-            <div style="flex:2;overflow:auto;padding:10px;border-right:1px solid #2a2a3a;outline:none;" id="bc-table-body" tabindex="0"></div>
-            <div style="flex:1;overflow:auto;padding:10px;min-width:300px;" id="bc-bind-panel"></div>
+        <div style="padding:7px 18px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #23243a;background:#0d0e19;font-size:11.5px;color:#cbd5e1;">
+            <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-weight:500;"><input id="bc-auto-headers" type="checkbox" checked style="accent-color:#7c5cff;cursor:pointer;"> 粘贴TSV时自动生成表头</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;">前缀 <input id="bc-header-prefix" class="bc-input" value="reels" placeholder="例如 FB" style="width:68px;text-align:center;"></label>
+            <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;">编号前连接符 <input id="bc-header-before" class="bc-input" value="-" placeholder="如 -" style="width:48px;text-align:center;"></label>
+            <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;">起始编号 <input id="bc-header-start" class="bc-input" type="number" step="1" value="1" style="width:54px;text-align:center;"></label>
+            <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;">编号后连接符 <input id="bc-header-after" class="bc-input" value="-" placeholder="如 -" style="width:48px;text-align:center;"></label>
+            <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;">循环列名 <input id="bc-header-names" class="bc-input" value="原始文案、标题、内容" placeholder="用逗号或顿号分隔" style="width:200px;"></label>
+            <span id="bc-header-preview" style="display:inline-flex;align-items:center;background:rgba(124,92,255,0.1);border:1px solid rgba(124,92,255,0.28);border-radius:4px;padding:2px 8px;font-size:10.5px;color:#c4b5fd;font-family:monospace;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+            <span style="color:#64748b;font-size:10.5px;margin-left:auto;">整表导入保留第一行文案；每组编号加1</span>
+        </div>
+        <div style="display:flex;flex:1;overflow:hidden;background:#0b0c15;">
+            <div style="flex:1.8;min-width:0;overflow:auto;padding:10px;border-right:1px solid #23243a;outline:none;" id="bc-table-body" tabindex="0"></div>
+            <div style="flex:1.2;min-width:360px;overflow:auto;padding:10px;" id="bc-bind-panel"></div>
         </div>`;
     document.body.appendChild(ov);
+    function readHeaderRule() {
+        const prefix = ov.querySelector('#bc-header-prefix').value.trim();
+        const before = ov.querySelector('#bc-header-before').value;
+        const after = ov.querySelector('#bc-header-after').value;
+        const startText = ov.querySelector('#bc-header-start').value.trim();
+        const start = Number(startText);
+        const names = ov.querySelector('#bc-header-names').value.split(/[,，、\n]+/).map(name => name.trim()).filter(Boolean);
+        if (!startText || !Number.isSafeInteger(start) || !names.length) return null;
+        return { prefix, before, after, start, names };
+    }
+    function headerName(rule, index) {
+        return `${rule.prefix}${rule.before || ''}${rule.start + Math.floor(index / rule.names.length)}${rule.after || ''}${rule.names[index % rule.names.length]}`;
+    }
+    function previewHeaders() {
+        const rule = readHeaderRule();
+        ov.querySelector('#bc-header-preview').textContent = rule
+            ? Array.from({ length: Math.min(rule.names.length * 2, 8) }, (_, index) => headerName(rule, index)).join(' ｜ ') + ' …'
+            : '请填写整数起始编号和循环列名';
+    }
+    ['#bc-header-prefix', '#bc-header-before', '#bc-header-start', '#bc-header-after', '#bc-header-names'].forEach(selector => {
+        ov.querySelector(selector).addEventListener('input', () => {
+            previewHeaders();
+            _bcRenderBindings();
+        });
+    });
+    previewHeaders();
     _bcRenderTable();
     _bcRenderBindings();
     const _bcCloseModal = () => {
+        if (_bcAudioPreview) {
+            _bcAudioPreview.pause();
+            _bcAudioPreview = null;
+            _bcCurrentPlayingMusic = null;
+        }
         _bcSaveDraftNow();
         if (_bcModalAbort) {
             _bcModalAbort.abort();
@@ -2290,9 +4780,17 @@ function _showBulkCreateModal() {
         if (hint) hint.style.background = '';
         const paths = files.map(f => typeof getFileNativePath === 'function'
             ? getFileNativePath(f) : (f.path || '')).filter(Boolean);
+        if (e.target.closest?.('#bc-music-library')) {
+            _bcImportMusicFiles(paths);
+            return;
+        }
         const dirs = paths.filter(p => typeof _isDirectoryPath === 'function' && _isDirectoryPath(p));
         if (!dirs.length) {
             if (typeof showToast === 'function') showToast('这里请拖入一个或多个文件夹', 'warning');
+            return;
+        }
+        if (e.target.closest?.('#bc-background-library')) {
+            await _bcImportBackgroundFolders(dirs);
             return;
         }
         if (typeof window.reelsImportFoldersAsTaskTabs !== 'function') {
@@ -2307,7 +4805,167 @@ function _showBulkCreateModal() {
     ov.addEventListener('click', e => {
         const t = e.target;
         if (t.id === 'bc-close') { _bcCloseModal(); return; }
+        if (t.id === 'bc-preview-all') { _bcPreviewAll(); return; }
+        if (t.id === 'bc-toggle-all-sections') {
+            const nextState = !['templates', 'backgrounds', 'music', 'groups'].every(k => _bulkState.collapsedSections?.[k]);
+            _bulkState.collapsedSections = {
+                templates: nextState,
+                backgrounds: nextState,
+                music: nextState,
+                groups: nextState,
+            };
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        const toggleHeader = t.closest?.('[data-toggle-section]');
+        if (toggleHeader) {
+            if (t.closest('button, input, select, label, .bc-btn, a')) return;
+            const sec = toggleHeader.dataset.toggleSection;
+            if (!_bulkState.collapsedSections) _bulkState.collapsedSections = {};
+            _bulkState.collapsedSections[sec] = !_bulkState.collapsedSections[sec];
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-random-backgrounds') { _bcRandomizeBackgroundGroups(); return; }
+        if (t.id === 'bc-random-music') { _bcRandomizeMusicGroups(); return; }
+        if (t.classList.contains('bc-preview-group')) { _bcPreviewGroup(t.dataset.group); return; }
+        if (t.id === 'bc-add-background-folders') {
+            if (!window.electronAPI?.showOpenDialog) { alert('请在桌面版中选择文件夹'); return; }
+            window.electronAPI.showOpenDialog({ title: '添加背景素材（每个文件夹为一组背景）', properties: ['openDirectory', 'multiSelections'] })
+                .then(result => _bcImportBackgroundFolders(result?.filePaths || [])).catch(error => alert(error.message));
+            return;
+        }
+        if (t.id === 'bc-add-music') {
+            if (!window.electronAPI?.showOpenDialog) { alert('请在桌面版中选择配乐文件'); return; }
+            window.electronAPI.showOpenDialog({
+                title: '添加配乐（可多选）', properties: ['openFile', 'multiSelections'],
+                filters: [{ name: '音频', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'wma'] }],
+            }).then(result => _bcImportMusicFiles(result?.filePaths || [])).catch(error => alert(error.message));
+            return;
+        }
+        if (t.id === 'bc-clear-tpl-assignments') { _bcClearTemplateAssignments(); return; }
+        if (t.id === 'bc-clear-templates') { _bcClearTemplateLibrary(); return; }
+        if (t.id === 'bc-seq-backgrounds') { _bcAssignBackgroundGroups(false); return; }
+        if (t.id === 'bc-clear-bg-assignments') { _bcClearBackgroundAssignments(); return; }
+        if (t.id === 'bc-seq-music') { _bcAssignMusicGroups(false); return; }
+        if (t.id === 'bc-clear-music-assignments') { _bcClearMusicAssignments(); return; }
+
+        const playBtn = t.closest?.('.bc-music-play');
+        if (playBtn) {
+            const audioPath = playBtn.dataset.path;
+            if (audioPath) _bcToggleMusicPreview(audioPath);
+            return;
+        }
+
+        const unassignTplBtn = t.closest?.('.bc-template-unassign');
+        if (unassignTplBtn) {
+            const groupKey = unassignTplBtn.dataset.group;
+            if (groupKey) _bcUnassignTemplateFromGroup(groupKey);
+            return;
+        }
+        const unassignAllTplBtn = t.closest?.('.bc-template-unassign-all');
+        if (unassignAllTplBtn) {
+            const ti = Number(unassignAllTplBtn.dataset.template);
+            if (!isNaN(ti)) _bcUnassignAllGroupsForTemplate(ti);
+            return;
+        }
+
+        const unassignMusicBtn = t.closest?.('.bc-music-unassign');
+        if (unassignMusicBtn) {
+            const groupKey = unassignMusicBtn.dataset.group;
+            if (groupKey) _bcUnassignMusicFromGroup(groupKey);
+            return;
+        }
+        const unassignAllMusicBtn = t.closest?.('.bc-music-unassign-all');
+        if (unassignAllMusicBtn) {
+            const musicPath = unassignAllMusicBtn.dataset.music;
+            if (musicPath) _bcUnassignAllMusicForPath(musicPath);
+            return;
+        }
+
+        if (t.id === 'bc-clear-backgrounds') {
+            if (!_bulkState.backgroundFolders?.length) {
+                if (typeof showToast === 'function') showToast('背景库已经是空的', 'info');
+                else alert('背景库已经是空的');
+                return;
+            }
+            if (confirm('确定清空背景库中的所有素材？')) {
+                _bcClearBackgroundFolders();
+            }
+            return;
+        }
+        if (t.id === 'bc-clear-music') {
+            if (!_bulkState.musicFiles?.length) {
+                if (typeof showToast === 'function') showToast('配乐库已经是空的', 'info');
+                else alert('配乐库已经是空的');
+                return;
+            }
+            if (confirm('确定清空所有配乐文件？')) {
+                _bcClearMusicFiles();
+            }
+            return;
+        }
+        if (t.classList.contains('bc-music-remove')) {
+            const [music] = _bulkState.musicFiles.splice(Number(t.dataset.mi), 1);
+            (_bulkState.groupAssignments || []).forEach(entry => {
+                if (entry.musicPath === music?.path) entry.musicPath = '';
+            });
+            _bcRenderBindings(); _bcScheduleDraftSave(); return;
+        }
+        if (t.classList.contains('bc-background-refresh')) {
+            const folder = _bulkState.backgroundFolders[Number(t.dataset.fi)];
+            if (folder) _bcImportBackgroundFolders([folder.path]);
+            return;
+        }
+        const thumbBtn = t.closest?.('.bc-bg-folder-thumb');
+        if (thumbBtn) {
+            const folder = _bulkState.backgroundFolders[Number(thumbBtn.dataset.fi)];
+            if (folder) _bcVisualPicker('folder', folder.path, null);
+            return;
+        }
+        const unassignBtn = t.closest?.('.bc-folder-unassign');
+        if (unassignBtn) {
+            const groupKey = unassignBtn.dataset.group;
+            if (groupKey) _bcUnassignFolderFromGroup(groupKey);
+            return;
+        }
+        const unassignAllBtn = t.closest?.('.bc-folder-unassign-all');
+        if (unassignAllBtn) {
+            const folderPath = unassignAllBtn.dataset.folder;
+            if (folderPath) _bcUnassignAllFoldersForPath(folderPath);
+            return;
+        }
+        if (t.classList.contains('bc-background-remove')) {
+            const [folder] = _bulkState.backgroundFolders.splice(Number(t.dataset.fi), 1);
+            (_bulkState.groupAssignments || []).forEach(entry => {
+                if (entry.backgroundFolder === folder?.path) entry.backgroundFolder = '';
+            });
+            _bcRenderBindings(); _bcScheduleDraftSave(); return;
+        }
         if (t.id === 'bc-add-row') { _bulkState.rows.push(new Array(_bulkState.columns.length).fill('')); _bcRenderTable(); return; }
+        if (t.id === 'bc-duplicate-rows') {
+            const bounds = _bcSelectionBounds();
+            let indices = [];
+            if (bounds) {
+                for (let r = bounds.minR; r <= bounds.maxR; r++) {
+                    if (r >= 0 && r < _bulkState.rows.length) indices.push(r);
+                }
+            }
+            if (!indices.length) {
+                if (_bulkState.rows.length === 1) {
+                    indices = [0];
+                } else if (_bulkState.rows.length > 1) {
+                    alert('请先在表格中点击选中要复制的行或单元格');
+                    return;
+                } else {
+                    return;
+                }
+            }
+            _bcPromptRowDuplication(indices);
+            return;
+        }
         if (t.id === 'bc-copy-table') { _bcCopyWholeTable(); return; }
         if (t.id === 'bc-build-column-groups') {
             const presetId = ov.querySelector('#bc-quick-columns')?.value || 'default';
@@ -2328,8 +4986,20 @@ function _showBulkCreateModal() {
             });
             return;
         }
-        if (t.id === 'bc-clear') { if(confirm('清空所有数据？')){ _bulkState.rows=[]; for(let i=0;i<20;i++) _bulkState.rows.push(new Array(_bulkState.columns.length).fill('')); _bcRenderTable(); } return; }
+        if (t.id === 'bc-clear') { if(confirm('清空所有数据？')){ _bulkState.rows=[]; for(let i=0;i<20;i++) _bulkState.rows.push(new Array(_bulkState.columns.length).fill('')); _bcRenderTable(); _bcScheduleDraftSave(); } return; }
         if (t.id === 'bc-add-tpl') { _bcPickTemplates(); return; }
+        if (t.id === 'bc-match-groups') { _bcAssignNumberedGroups(); return; }
+        if (t.id === 'bc-random-groups') { _bcAssignNumberedGroups(true); return; }
+        if (t.id === 'bc-manual-bindings') {
+            if (_bulkState.groupAssignments) {
+                _bulkState.groupAssignments = null;
+            } else {
+                _bcAssignNumberedGroups();
+            }
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
         if (t.id === 'bc-clear-bindings') { if (confirm('清空所有模板的列绑定？')) _bcClearAllTemplateBindings(); return; }
         if (t.id === 'bc-rebind-tpl') { if (confirm('按当前列名重新自动绑定所有模板字段？')) _bcAutoRebindAllTemplates(); return; }
         if (t.id === 'bc-save-preset') { _bcSavePreset(); return; }
@@ -2339,11 +5009,59 @@ function _showBulkCreateModal() {
         if (t.id === 'bc-import-preset') { _bcImportPreset(); return; }
         if (t.id === 'bc-generate') {
             const count = _bcGenerateTasks();
-            if (count > 0) { alert(`✅ 已生成 ${count} 个任务`); _bcCloseModal(); if(typeof _renderBatchTable==='function') _renderBatchTable(); if(typeof _renderTaskList==='function') _renderTaskList(); }
+            if (count > 0) {
+                // 大量制作是一次结构性操作。必须先保存“生成后”快照，
+                // 否则用户第一次撤销会直接回到生成前，整批任务组都会消失。
+                window.reelsSaveHistory?.();
+                alert(`✅ 已生成 ${count} 个任务`);
+                _bcCloseModal();
+                if(typeof _renderBatchTable==='function') _renderBatchTable();
+                if(typeof _renderTaskList==='function') _renderTaskList();
+            }
             return;
         }
-        if (t.classList.contains('bc-col-del')) { const ci=parseInt(t.dataset.ci); if(_bulkState.columns.length<=1)return; _bulkState.columns.splice(ci,1); _bulkState.rows.forEach(r=>r.splice(ci,1)); _bcRenderTable(); _bcRenderBindings(); return; }
-        if (t.classList.contains('bc-row-del')) { _bulkState.rows.splice(parseInt(t.dataset.ri),1); _bcRenderTable(); return; }
+        if (t.classList.contains('bc-tpl-edit-overlays')) {
+            const ti = parseInt(t.dataset.ti);
+            if (_bulkState.templates[ti]) _bcEditTemplateOverlays(ti);
+            return;
+        }
+        if (t.classList.contains('bc-tpl-save-preset')) {
+            const ti = parseInt(t.dataset.ti);
+            const tpl = _bulkState.templates[ti];
+            if (tpl) {
+                _bcPrompt('请输入覆层预设名称', `${tpl.label} 覆层预设`).then(name => {
+                    if (!name || !name.trim()) return;
+                    const customPresets = JSON.parse(localStorage.getItem('reels_custom_presets') || '[]');
+                    const p = {
+                        id: 'custom_' + Date.now(),
+                        name: name.trim(),
+                        desc: `由批量模板「${tpl.label}」导出`,
+                        overlays: JSON.parse(JSON.stringify(tpl.task?.overlays || tpl.overlays || []))
+                    };
+                    customPresets.push(p);
+                    localStorage.setItem('reels_custom_presets', JSON.stringify(customPresets));
+                    alert(`✅ 已保存为覆层预设「${p.name}」`);
+                });
+            }
+            return;
+        }
+        if (t.classList.contains('bc-tpl-rename')) {
+            const ti = parseInt(t.dataset.ti);
+            const tpl = _bulkState.templates[ti];
+            if (tpl) {
+                _bcPrompt('请输入新的模板名称', tpl.label || `模板 ${ti + 1}`).then(name => {
+                    if (!name || !name.trim()) return;
+                    tpl.label = name.trim();
+                    if (tpl.task) tpl.task.name = tpl.label;
+                    _bcRenderBindings();
+                    _bcScheduleDraftSave();
+                });
+            }
+            return;
+        }
+        if (t.classList.contains('bc-col-del')) { const ci=parseInt(t.dataset.ci); if(_bulkState.columns.length<=1)return; _bulkState.columns.splice(ci,1); _bulkState.rows.forEach(r=>r.splice(ci,1)); _bcRenderTable(); _bcRenderBindings(); _bcScheduleDraftSave(); return; }
+        if (t.classList.contains('bc-row-copy')) { const ri = parseInt(t.dataset.ri); if (!isNaN(ri) && _bulkState.rows[ri]) { _bcPromptRowDuplication([ri]); } return; }
+        if (t.classList.contains('bc-row-del')) { _bulkState.rows.splice(parseInt(t.dataset.ri),1); _bcRenderTable(); _bcScheduleDraftSave(); return; }
         if (t.classList.contains('bc-tpl-bgcycle')) {
             const ti = parseInt(t.dataset.ti);
             const tpl = _bulkState.templates[ti];
@@ -2369,7 +5087,17 @@ function _showBulkCreateModal() {
             if (tpl) _bcRefreshTemplateMaterialFolder(tpl, ti);
             return;
         }
-        if (t.classList.contains('bc-tpl-del')) { _bulkState.templates.splice(parseInt(t.dataset.ti),1); _bcRenderBindings(); return; }
+        if (t.classList.contains('bc-tpl-del')) {
+            const ti = Number(t.dataset.ti);
+            _bulkState.templates.splice(ti, 1);
+            (_bulkState.groupAssignments || []).forEach(entry => {
+                if (entry.templateIndex === ti) { entry.templateIndex = -1; entry.bindings = {}; }
+                else if (entry.templateIndex > ti) entry.templateIndex--;
+            });
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
         if (t.classList.contains('bc-col-insert')) {
             const ci = parseInt(t.dataset.ci);
             _bulkState.columns.splice(ci + 1, 0, { name: `列${_bulkState.columns.length+1}`, type: 'text' });
@@ -2378,7 +5106,7 @@ function _showBulkCreateModal() {
             _bulkState.templates.forEach(tpl => {
                 for (const [k, v] of Object.entries(tpl.bindings)) { if (v > ci) tpl.bindings[k] = v + 1; }
             });
-            _bcRenderTable(); _bcRenderBindings(); return;
+            _bcRenderTable(); _bcRenderBindings(); _bcScheduleDraftSave(); return;
         }
         if (t.classList.contains('bc-col-left')) {
             const ci = parseInt(t.dataset.ci); if (ci <= 0) return;
@@ -2391,7 +5119,7 @@ function _showBulkCreateModal() {
                     else if (v === ci - 1) tpl.bindings[k] = ci;
                 }
             });
-            _bcRenderTable(); _bcRenderBindings(); return;
+            _bcRenderTable(); _bcRenderBindings(); _bcScheduleDraftSave(); return;
         }
         if (t.classList.contains('bc-col-right')) {
             const ci = parseInt(t.dataset.ci); if (ci >= _bulkState.columns.length - 1) return;
@@ -2403,7 +5131,7 @@ function _showBulkCreateModal() {
                     else if (v === ci + 1) tpl.bindings[k] = ci;
                 }
             });
-            _bcRenderTable(); _bcRenderBindings(); return;
+            _bcRenderTable(); _bcRenderBindings(); _bcScheduleDraftSave(); return;
         }
     });
     ov.querySelector('#bc-quick-columns')?.addEventListener('change', e => {
@@ -2416,6 +5144,108 @@ function _showBulkCreateModal() {
     // ── Change events ──
     ov.addEventListener('change', e => {
         const t = e.target;
+        if (t.classList.contains('bc-folder-assign-group')) {
+            const folderPath = t.dataset.folder;
+            const oldGroupKey = t.dataset.currentGroup || '';
+            const newGroupKey = t.value || '';
+            _bcChangeFolderGroupAssignment(folderPath, oldGroupKey, newGroupKey);
+            return;
+        }
+        if (t.classList.contains('bc-group-background') || t.classList.contains('bc-group-background-mode') || t.classList.contains('bc-group-music') || t.classList.contains('bc-group-music-mode')) {
+            if (!_bulkState.groupAssignments) _bulkState.groupAssignments = [];
+            let entry = _bulkState.groupAssignments.find(item => item.key === t.dataset.group);
+            if (!entry) { entry = { key: t.dataset.group, templateIndex: -1, bindings: {} }; _bulkState.groupAssignments.push(entry); }
+            if (t.classList.contains('bc-group-background')) entry.backgroundFolder = t.value;
+            else if (t.classList.contains('bc-group-background-mode')) entry.backgroundMode = t.value;
+            else if (t.classList.contains('bc-group-music-mode')) entry.musicMode = t.value;
+            else entry.musicPath = t.value;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-allow-reuse') {
+            if (!t.checked) {
+                const used = new Set();
+                const repeated = (_bulkState.groupAssignments || []).some(entry => {
+                    if (entry.templateIndex < 0) return false;
+                    if (used.has(entry.templateIndex)) return true;
+                    used.add(entry.templateIndex);
+                    return false;
+                });
+                if (repeated) {
+                    alert('当前有模板被重复选用，请先调整重复的匹配或设为未分配，再关闭重复使用。');
+                    t.checked = true;
+                    return;
+                }
+            }
+            _bulkState.allowTemplateReuse = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-allow-bg-reuse') {
+            _bulkState.allowBackgroundReuse = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.classList.contains('bc-template-assign-group')) {
+            const ti = Number(t.dataset.template);
+            const oldGroupKey = t.dataset.currentGroup || '';
+            const newGroupKey = t.value || '';
+            _bcChangeTemplateGroupAssignment(ti, oldGroupKey, newGroupKey);
+            return;
+        }
+        if (t.classList.contains('bc-music-assign-group')) {
+            const musicPath = t.dataset.music;
+            const oldGroupKey = t.dataset.currentGroup || '';
+            const newGroupKey = t.value || '';
+            _bcChangeMusicGroupAssignment(musicPath, oldGroupKey, newGroupKey);
+            return;
+        }
+        if (t.id === 'bc-filter-unassigned-tpls') {
+            _bulkState.filterUnassignedTemplates = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-filter-unassigned-bgs') {
+            _bulkState.filterUnassignedBackgrounds = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-allow-music-reuse') {
+            _bulkState.allowMusicReuse = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-filter-unassigned-music') {
+            _bulkState.filterUnassignedMusic = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.id === 'bc-filter-unassigned-groups') {
+            _bulkState.filterUnassignedGroups = t.checked;
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
+        if (t.classList.contains('bc-group-template')) {
+            _bcSetGroupTemplate(t.dataset.group, Number(t.value));
+            return;
+        }
+        if (t.classList.contains('bc-group-field')) {
+            const entry = _bulkState.groupAssignments?.find(item => item.key === t.dataset.group);
+            if (entry) {
+                if (!entry.bindings) entry.bindings = {};
+                entry.bindings[t.dataset.field] = _bulkState.columns[Number(t.value)]?.name ?? null;
+                _bcScheduleDraftSave();
+            }
+            return;
+        }
         if (t.classList.contains('bc-tpl-folder-mode')) {
             const ti = parseInt(t.dataset.ti);
             const tpl = _bulkState.templates[ti];
@@ -2449,6 +5279,14 @@ function _showBulkCreateModal() {
             _bcScheduleDraftSave();
             return;
         }
+        if (t.classList.contains('bc-tpl-group')) {
+            const tpl = _bulkState.templates[Number(t.dataset.ti)];
+            const group = _bcNumberedColumnGroups().find(group => group.key === t.value);
+            if (tpl && group) _bcBindNumberedGroup(tpl, group);
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
         if (t.classList.contains('bc-bind-sel')) {
             const ti = parseInt(t.dataset.ti);
             const fk = t.dataset.fk;
@@ -2462,6 +5300,25 @@ function _showBulkCreateModal() {
             setTimeout(() => { t.style.border = ''; t.style.background = ''; }, 600);
             _bcScheduleDraftSave();
             return;
+        }
+    });
+
+    // ── Video thumbnail hover preview ──
+    ov.addEventListener('mouseover', e => {
+        const thumb = e.target.closest?.('.bc-bg-folder-thumb');
+        if (thumb) {
+            const vid = thumb.querySelector('video');
+            if (vid && vid.paused) vid.play().catch(() => {});
+        }
+    });
+    ov.addEventListener('mouseout', e => {
+        const thumb = e.target.closest?.('.bc-bg-folder-thumb');
+        if (thumb && (!e.relatedTarget || !thumb.contains(e.relatedTarget))) {
+            const vid = thumb.querySelector('video');
+            if (vid) {
+                vid.pause();
+                try { vid.currentTime = 0.1; } catch (_) {}
+            }
         }
     });
 
@@ -2587,6 +5444,7 @@ function _showBulkCreateModal() {
                 menu.remove(); 
                 _bcRenderTable(); 
                 if (isCell) _bcUpdateSelectionUI(); // Keep selection after process
+                _bcScheduleDraftSave();
             };
             return btn;
         };
@@ -2772,6 +5630,7 @@ function _showBulkCreateModal() {
             if (_bulkState.rows[ri]) _bulkState.rows[ri][ci] = ta.value;
             m.remove();
             _bcRenderTable();
+            _bcScheduleDraftSave();
         };
         m.querySelector('#bc-exp-ok').onclick = save;
         m.querySelector('#bc-exp-cancel').onclick = () => m.remove();
@@ -2973,6 +5832,7 @@ function _showBulkCreateModal() {
                 }
             }
             _bcRenderTable();
+            _bcScheduleDraftSave();
             return;
         }
 
@@ -3119,12 +5979,29 @@ function _showBulkCreateModal() {
             };
             _bcRenderTable();
             _bcRenderBindings();
+            _bcScheduleDraftSave();
             return;
         }
 
         // Full-table paste mode (button or empty table)
         const first = lines[0];
         const colCount = Math.max(...lines.map(l => l.length));
+
+        if (ov.querySelector('#bc-auto-headers').checked) {
+            const rule = readHeaderRule();
+            if (!rule || !Number.isSafeInteger(rule.start + Math.floor((colCount - 1) / rule.names.length))) {
+                alert('请填写有效的整数起始编号和循环列名（逗号或顿号分隔）。');
+                return;
+            }
+            _bulkState.columns = Array.from({ length: colCount }, (_, index) => _bcColumnFromName(headerName(rule, index)));
+            _bulkState.rows = lines.map(line => Array.from({ length: colCount }, (_, index) => line[index] || ''));
+            _bcSelection = null;
+            _bcAutoRebindAllTemplates();
+            _bcRenderTable();
+            _bcRenderBindings();
+            _bcScheduleDraftSave();
+            return;
+        }
 
         // Ask user about header row
         let hasHdr = false;
@@ -3149,7 +6026,7 @@ function _showBulkCreateModal() {
                 return r;
             });
         }
-        _bcRenderTable(); _bcRenderBindings();
+        _bcRenderTable(); _bcRenderBindings(); _bcScheduleDraftSave();
     }
 
     function _bcPasteIntoSelection(e) {

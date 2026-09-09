@@ -89,7 +89,8 @@ electron/pipe_frames.raw
 *.wav
 *.drt
 *.fcpxml
-*预设.json
+*预设*.json
+82套爆款短视频覆层预设完整库.json
 test-listener.js
 parse_sarif.py
 scratch_detail.py
