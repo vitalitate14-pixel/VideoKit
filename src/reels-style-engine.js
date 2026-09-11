@@ -38,7 +38,9 @@ const DEFAULT_SUBTITLE_STYLE = {
 
     // ── Colors ──
     color_text: '#FFFFFF',
+    text_gradient_direction: 'horizontal',
     color_high: '#FFD700',      // current-word highlight color
+    high_gradient_direction: 'horizontal',
     color_bg: '#000000',
     color_shadow: '#000000',
     opacity_bg: 150,
@@ -684,6 +686,7 @@ const BUILTIN_PRESETS = {
         font_family: "Segoe UI",
         font_weight: 900,
         color_text: "#ff2a85,#ff9f21",
+        text_gradient_direction: "vertical",
         color_high: "#FFFFFF",
         fontsize: 76,
         bold: true,
@@ -782,11 +785,17 @@ function getPresetsByCategory() {
         }
     }
 
-    // Add uncategorized (user-saved) presets to the top
-    const uncategorized = allNames.filter(n => !used.has(n));
-    if (uncategorized.length > 0) {
-        categorized.unshift({ category: '💾 我的预设', names: uncategorized });
-    }
+    // 用户预设允许自定义分组；旧预设未设置分组时归入“我的预设”。
+    const userGroups = new Map();
+    const presetGroups = data.presetGroups || {};
+    allNames.filter(n => !used.has(n)).forEach(name => {
+        const group = String(presetGroups[name] || '我的预设').trim() || '我的预设';
+        if (!userGroups.has(group)) userGroups.set(group, []);
+        userGroups.get(group).push(name);
+    });
+    [...userGroups.entries()].reverse().forEach(([group, names]) => {
+        categorized.unshift({ category: `💾 ${group}`, names });
+    });
 
     return { categorized, presetsMap: allPresets };
 }
@@ -802,6 +811,7 @@ function _loadPresetsFromStorage() {
         if (typeof data !== 'object') return { default: {}, presets: {} };
         data.default = data.default || {};
         data.presets = data.presets || {};
+        data.presetGroups = data.presetGroups || {};
         return data;
     } catch (e) {
         console.error('[StyleEngine] 读取预设失败:', e);
@@ -849,13 +859,14 @@ function saveDefaultSubtitleStyle(style) {
     return _savePresetsToStorage(data);
 }
 
-function saveNamedSubtitlePreset(name, style) {
+function saveNamedSubtitlePreset(name, style, group = '') {
     if (!name || typeof name !== 'string') return false;
     const data = _loadPresetsFromStorage();
     const presets = data.presets || {};
     if (!(name in presets) && Object.keys(presets).length >= MAX_PRESETS) return false;
     presets[name] = extractStyleKeys(style);
     data.presets = presets;
+    if (group) data.presetGroups[name] = String(group).trim() || '我的预设';
     return _savePresetsToStorage(data);
 }
 
@@ -864,6 +875,7 @@ function deleteSubtitlePreset(name) {
     const presets = data.presets || {};
     if (name in presets) {
         delete presets[name];
+        delete data.presetGroups[name];
         data.presets = presets;
         return _savePresetsToStorage(data);
     }
@@ -878,7 +890,16 @@ function renameSubtitlePreset(oldName, newName) {
     if (newName in presets) return false;
     presets[newName] = presets[oldName];
     delete presets[oldName];
+    if (data.presetGroups[oldName]) { data.presetGroups[newName] = data.presetGroups[oldName]; delete data.presetGroups[oldName]; }
     data.presets = presets;
+    return _savePresetsToStorage(data);
+}
+
+function setSubtitlePresetGroup(name, group) {
+    const data = _loadPresetsFromStorage();
+    if (!(name in (data.presets || {}))) return false;
+    const normalized = String(group || '').trim() || '我的预设';
+    data.presetGroups[name] = normalized;
     return _savePresetsToStorage(data);
 }
 
@@ -986,6 +1007,7 @@ const ReelsStyleEngine = {
     saveNamedSubtitlePreset,
     deleteSubtitlePreset,
     renameSubtitlePreset,
+    setSubtitlePresetGroup,
     applySubtitlePreset,
     exportSubtitlePresets,
     importSubtitlePresets,

@@ -86,6 +86,7 @@ function openTemplateLibrary(onSelectCallback = null, opts = {}) {
     modal.id = 'template-library-modal';
     modal._onSelectCallback = onSelectCallback;
     modal._pickerDisabledIds = new Set(opts.disabledIds || []);
+    modal._selectedTemplateIds = new Set();
     modal.style.cssText = 'display:flex;align-items:center;justify-content:center;z-index:400000;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);';
     
     // UI elements hide/show based on mode
@@ -106,6 +107,9 @@ function openTemplateLibrary(onSelectCallback = null, opts = {}) {
                     <button id="tpl-repair-thumbnails-btn" onclick="repairDuplicateTemplateThumbnails()" style="padding:5px 12px;font-size:11px;font-weight:600;background:rgba(14,165,233,0.15);color:#7dd3fc;border:1px solid rgba(14,165,233,0.35);border-radius:8px;cursor:pointer;">📸 修复重复封面</button>
                     <button onclick="_importTemplate()" style="padding:5px 12px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);border-radius:8px;cursor:pointer;">📥 导入</button>
                     <button onclick="_exportAllTemplates()" style="padding:5px 12px;font-size:11px;font-weight:600;background:rgba(236,72,153,0.15);color:#ec4899;border:1px solid rgba(236,72,153,0.3);border-radius:8px;cursor:pointer;">📤 导出全部</button>
+                    <button id="tpl-select-all-btn" onclick="tplSelectAllTemplates()" style="padding:5px 12px;font-size:11px;font-weight:600;background:rgba(59,130,246,0.14);color:#93c5fd;border:1px solid rgba(59,130,246,0.34);border-radius:8px;cursor:pointer;">☑ 全选模板</button>
+                    <button id="tpl-save-selected-presets-btn" onclick="tplSaveSelectedPresets()" style="padding:5px 12px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.16);color:#6ee7b7;border:1px solid rgba(16,185,129,0.36);border-radius:8px;cursor:pointer;">💾 保存所选预设</button>
+                    <span id="tpl-selected-count" style="font-size:10px;color:#94a3b8;white-space:nowrap;">未选择</span>
                     <span id="tpl-current-template-label" style="max-width:170px;font-size:10px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
                     `}
                     <label title="调整模板卡片大小" style="display:flex;align-items:center;gap:5px;padding:3px 7px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:#999;font-size:10px;white-space:nowrap;">
@@ -144,6 +148,10 @@ async function _refreshTemplateList() {
         const resp = await apiFetch(`${API_BASE}/templates/list`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const parsed = await resp.json();
         const templates = parsed.data || parsed || [];
+        modal._templateSummaries = templates;
+        if (!modal._selectedTemplateIds) modal._selectedTemplateIds = new Set();
+        const availableIds = new Set(templates.map(tpl => String(tpl.id)));
+        [...modal._selectedTemplateIds].forEach(id => { if (!availableIds.has(String(id))) modal._selectedTemplateIds.delete(id); });
 
         badge.textContent = `${templates.length} 个模板`;
 
@@ -173,6 +181,7 @@ async function _refreshTemplateList() {
             const safeDate = _tplEscapeHtml(dateStr);
             const safeTaskInfo = _tplEscapeHtml(taskInfo);
             const isDisabledPick = isPicker && modal._pickerDisabledIds && modal._pickerDisabledIds.has(tpl.id);
+            const isSelected = !isPicker && modal._selectedTemplateIds.has(String(tpl.id));
             const thumbHtml = thumbSrc
                 ? `<img src="${safeThumb}" style="width:100%;height:100%;object-fit:cover;" />`
                 : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:36px;">🎬</div>`;
@@ -199,6 +208,7 @@ async function _refreshTemplateList() {
                     <div style="width:100%;aspect-ratio:9/16;background:#0a0a1a;overflow:hidden;">
                         ${thumbHtml}
                     </div>
+                    ${isPicker ? '' : `<label title="选择此模板以保存其动态字幕和覆层预设" style="position:absolute;left:8px;top:8px;display:flex;align-items:center;gap:4px;padding:4px 7px;background:rgba(0,0,0,.72);border-radius:7px;color:#fff;font-size:11px;cursor:pointer;"><input class="tpl-select-preset" type="checkbox" ${isSelected ? 'checked' : ''} style="accent-color:#34d399;cursor:pointer;"> 选择</label>`}
                     ${isDisabledPick ? '<div style="position:absolute;left:8px;top:8px;background:rgba(16,185,129,0.9);color:#06150f;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;">已添加</div>' : ''}
                     <div style="padding:10px 12px;">
                         <div class="tpl-name" style="font-size:13px;font-weight:600;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${safeName}">${safeName}</div>
@@ -216,6 +226,16 @@ async function _refreshTemplateList() {
 
         // 显示操作按钮的 hover 效果
         container.querySelectorAll('.tpl-card').forEach(card => {
+            const selectBox = card.querySelector('.tpl-select-preset');
+            if (selectBox) {
+                selectBox.addEventListener('click', event => event.stopPropagation());
+                selectBox.addEventListener('change', event => {
+                    const selected = modal._selectedTemplateIds || (modal._selectedTemplateIds = new Set());
+                    if (event.currentTarget.checked) selected.add(card.dataset.id);
+                    else selected.delete(card.dataset.id);
+                    _updateTemplatePresetSelectionUI();
+                });
+            }
             if (isPicker) {
                 card.addEventListener('mouseenter', () => card.querySelector('.tpl-actions').style.opacity = '1');
                 card.addEventListener('mouseleave', () => card.querySelector('.tpl-actions').style.opacity = '0');
@@ -279,9 +299,79 @@ async function _refreshTemplateList() {
             });
         });
 
+        _updateTemplatePresetSelectionUI();
+
     } catch (e) {
         container.innerHTML = `<div style="color:#f87171;text-align:center;padding:40px;">加载失败: ${e.message}</div>`;
     }
+}
+
+function _updateTemplatePresetSelectionUI() {
+    const modal = document.getElementById('template-library-modal');
+    if (!modal || modal._onSelectCallback) return;
+    const selected = modal._selectedTemplateIds || new Set();
+    const total = (modal._templateSummaries || []).length;
+    const count = selected.size;
+    const label = document.getElementById('tpl-selected-count');
+    const allButton = document.getElementById('tpl-select-all-btn');
+    const saveButton = document.getElementById('tpl-save-selected-presets-btn');
+    if (label) label.textContent = count ? `已选 ${count} / ${total}` : '未选择';
+    if (allButton) allButton.textContent = total && count === total ? '☐ 取消全选' : '☑ 全选模板';
+    if (saveButton) {
+        saveButton.disabled = count === 0;
+        saveButton.style.opacity = count ? '1' : '.48';
+        saveButton.style.cursor = count ? 'pointer' : 'not-allowed';
+    }
+}
+
+function tplSelectAllTemplates() {
+    const modal = document.getElementById('template-library-modal');
+    if (!modal || modal._onSelectCallback) return;
+    const templates = modal._templateSummaries || [];
+    const selected = modal._selectedTemplateIds || (modal._selectedTemplateIds = new Set());
+    const selectAll = selected.size !== templates.length;
+    selected.clear();
+    if (selectAll) templates.forEach(tpl => selected.add(String(tpl.id)));
+    modal.querySelectorAll('.tpl-select-preset').forEach(box => { box.checked = selected.has(box.closest('.tpl-card').dataset.id); });
+    _updateTemplatePresetSelectionUI();
+}
+
+async function tplSaveSelectedPresets() {
+    const modal = document.getElementById('template-library-modal');
+    if (!modal || modal._onSelectCallback) return;
+    const selected = [...(modal._selectedTemplateIds || [])];
+    if (!selected.length) return;
+    const groupName = await (typeof _showInputDialog === 'function'
+        ? _showInputDialog('预设保存分组', '例如：九月祷告、金色字幕', '我的预设')
+        : Promise.resolve(prompt('输入预设分组名称：', '我的预设')));
+    const category = String(groupName || '').trim();
+    if (!category) return;
+    if (!confirm(`将 ${selected.length} 个模板中的动态字幕和覆层分别保存到分组「${category}」？\n\n同名预设会自动重命名，不会修改原模板或已有预设。`)) return;
+
+    const button = document.getElementById('tpl-save-selected-presets-btn');
+    if (button) { button.disabled = true; button.textContent = '保存中…'; }
+    let subtitles = 0, overlays = 0, failed = 0;
+    for (const id of selected) {
+        try {
+            const resp = await apiFetch(`${API_BASE}/templates/get`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+            });
+            const parsed = await resp.json();
+            const template = parsed.data || parsed;
+            if (!template?.projectData) throw new Error('模板工程数据不存在');
+            const synced = _syncTemplatePresetAssets(template.name || id, template.projectData, category);
+            if (synced.subtitle) subtitles++;
+            if (synced.overlay) overlays++;
+        } catch (error) {
+            failed++;
+            console.warn('[Template] 保存所选预设失败:', id, error);
+        }
+    }
+    if (button) button.textContent = '💾 保存所选预设';
+    _updateTemplatePresetSelectionUI();
+    const message = `已保存到「${category}」：动态字幕 ${subtitles} 个、覆层 ${overlays} 个${failed ? `；${failed} 个失败` : ''}`;
+    if (typeof showToast === 'function') showToast(message, failed ? 'warning' : 'success', 5000);
+    else alert(message);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -481,9 +571,55 @@ function _captureCurrentTemplatePayload(name) {
     };
 }
 
+function _makeUniqueTemplatePresetName(baseName, existingNames) {
+    const occupied = existingNames instanceof Set ? existingNames : new Set(existingNames || []);
+    if (!occupied.has(baseName)) return baseName;
+    let index = 2;
+    let candidate = `${baseName}（${index}）`;
+    while (occupied.has(candidate)) candidate = `${baseName}（${++index}）`;
+    return candidate;
+}
+
+// 模板工程内的样式/覆层是快照；用户选择同步时，再生成可跨工程调用的独立预设。
+// 同名不覆盖已有“我的预设”，而是自动创建带序号的新预设。
+function _syncTemplatePresetAssets(templateName, projectData, category = '模板同步') {
+    const tasks = Array.isArray(projectData?.tasks) ? projectData.tasks : [];
+    const result = { subtitle: false, overlay: false };
+    const subtitleStyle = tasks.find(task => task?.subtitleStyle && Object.keys(task.subtitleStyle).length)?.subtitleStyle
+        || projectData?.style || null;
+    if (subtitleStyle && window.ReelsStyleEngine?.saveNamedSubtitlePreset) {
+        const subtitleData = window.ReelsStyleEngine.loadSubtitlePresets?.() || {};
+        const subtitleNames = new Set(Object.keys(subtitleData.presets || {}));
+        const presetName = _makeUniqueTemplatePresetName(`${templateName} · 动态字幕`, subtitleNames);
+        result.subtitle = window.ReelsStyleEngine.saveNamedSubtitlePreset(presetName, subtitleStyle, category);
+    }
+    const sourceLayers = tasks.find(task => Array.isArray(task?.overlays) && task.overlays.length)?.overlays;
+    if (sourceLayers) {
+        const layers = JSON.parse(JSON.stringify(sourceLayers)).map(layer => {
+            delete layer._img; delete layer._imgLoaded; delete layer._allOverlays;
+            if (!layer.fixed_text) {
+                delete layer.title_text; delete layer.body_text; delete layer.footer_text;
+                delete layer.scroll_title; delete layer.content;
+            }
+            return layer;
+        });
+        try {
+            const key = 'reels_overlay_group_presets';
+            const saved = JSON.parse(localStorage.getItem(key) || '{}');
+            const layerTypes = [...new Set(layers.map(layer => ({ text:'纯文本', textcard:'文字卡片', scroll:'滚动字幕', image:'图片媒体', video:'视频媒体', solid_mask:'纯色蒙版' })[layer.type] || '其他覆层'))];
+            const presetName = _makeUniqueTemplatePresetName(`${templateName} · 覆层`, new Set(Object.keys(saved)));
+            saved[presetName] = { name:presetName, layers, updatedAt:new Date().toISOString(), meta:{ layerCount:layers.length, category, layerTypes, needsBatchText:layers.some(layer => !layer.fixed_text && ['text','textcard','scroll'].includes(layer.type)) } };
+            localStorage.setItem(key, JSON.stringify(saved));
+            result.overlay = true;
+        } catch (error) { console.warn('[Template] 同步覆层预设失败:', error); }
+    }
+    return result;
+}
+
 async function saveCurrentAsTemplate() {
     const name = await (typeof _showInputDialog === 'function' ? _showInputDialog('请输入模板名称', `模板_${new Date().toLocaleDateString('zh-CN')}`) : prompt('请输入模板名称：', `模板_${new Date().toLocaleDateString('zh-CN')}`));
     if (!name || !name.trim()) return;
+    const syncPresetAssets = confirm('是否同时同步保存独立预设？\n\n“是”：把模板内的动态字幕样式和覆层分别保存为同名独立预设。\n“否”：仅保存模板工程。');
 
     try {
         const baseName = name.trim();
@@ -526,6 +662,7 @@ async function saveCurrentAsTemplate() {
 
         if (groups.length > 1) {
             let saved = 0;
+            let syncedSubtitle = 0, syncedOverlay = 0;
             const failed = [];
             const usedNames = new Map();
 
@@ -566,6 +703,11 @@ async function saveCurrentAsTemplate() {
                     if (!(result.success || result.data?.success)) {
                         throw new Error(result.error || '保存失败');
                     }
+                    if (syncPresetAssets) {
+                        const synced = _syncTemplatePresetAssets(templateName, projectData);
+                        if (synced.subtitle) syncedSubtitle++;
+                        if (synced.overlay) syncedOverlay++;
+                    }
                     saved++;
                 } catch (e) {
                     failed.push(`${groupName}: ${e.message}`);
@@ -576,7 +718,7 @@ async function saveCurrentAsTemplate() {
             _setCurrentTemplateContext('', '');
             if (typeof showToast === 'function') {
                 showToast(
-                    `已按分组保存 ${saved} 个模板${failed.length ? `，${failed.length} 个失败` : ''} ✅`,
+                    `已按分组保存 ${saved} 个模板${syncPresetAssets ? `；同步字幕 ${syncedSubtitle} 个、覆层 ${syncedOverlay} 个` : ''}${failed.length ? `，${failed.length} 个失败` : ''} ✅`,
                     failed.length ? 'warning' : 'success'
                 );
             }
@@ -599,10 +741,11 @@ async function saveCurrentAsTemplate() {
         });
         const result = await resp.json();
         if (!(result.success || result.data?.success)) throw new Error(result.error || '保存失败');
+        const synced = syncPresetAssets ? _syncTemplatePresetAssets(payload.name || baseName, payload.projectData) : { subtitle:false, overlay:false };
 
         const savedId = result.id || result.data?.id || '';
         if (savedId) _setCurrentTemplateContext(savedId, payload.name || baseName);
-        if (typeof showToast === 'function') showToast(`模板「${payload.name || baseName}」已保存 ✅`, 'success');
+        if (typeof showToast === 'function') showToast(`模板「${payload.name || baseName}」已保存${syncPresetAssets ? `；已同步${synced.subtitle ? '动态字幕' : ''}${synced.subtitle && synced.overlay ? '、' : ''}${synced.overlay ? '覆层预设' : ''}` : ''} ✅`, 'success');
         _refreshTemplateList();
     } catch (e) {
         if (typeof showToast === 'function') showToast('保存模板失败: ' + e.message, 'error');

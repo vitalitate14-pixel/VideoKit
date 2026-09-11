@@ -915,7 +915,7 @@ function extractUtterances(data) {
     return [];
 }
 
-async function transcribeClip(clipPath, language, gladiaKeys, cacheDir, force, manualSubtitlePath, signal = null, savedTranscriptionDir = '') {
+async function transcribeClip(clipPath, language, gladiaKeys, cacheDir, force, manualSubtitlePath, signal = null, savedTranscriptionDir = '', onProgress = null) {
     if (signal?.aborted) throw new Error('任务已停止');
     // 如果用户手动指定了字幕文件路径
     if (manualSubtitlePath && fs.existsSync(manualSubtitlePath)) {
@@ -1177,7 +1177,7 @@ async function transcribeClip(clipPath, language, gladiaKeys, cacheDir, force, m
         console.warn(`[自动剪辑] 检测到空转录缓存，忽略缓存并重新调用识别: ${txtPath}`);
     }
     let result = await gladiaService.transcribeAudioFull(
-        clipPath, gladiaKeys, langEnName, jsonPath, txtPath, 5.0, null, signal
+        clipPath, gladiaKeys, langEnName, jsonPath, txtPath, 5.0, onProgress, signal
     );
     const hasRecognizedText = value => Boolean(
         value?.fullText?.trim() && Array.isArray(value?.wordTimeInfo) && value.wordTimeInfo.length > 0
@@ -1185,7 +1185,7 @@ async function transcribeClip(clipPath, language, gladiaKeys, cacheDir, force, m
     if (!hasRecognizedText(result)) {
         console.warn(`[自动剪辑] Gladia 首次未返回文字，自动重试一次: ${clipPath}`);
         result = await gladiaService.transcribeAudioFull(
-            clipPath, gladiaKeys, langEnName, jsonPath, txtPath, 5.0, null, signal
+            clipPath, gladiaKeys, langEnName, jsonPath, txtPath, 5.0, onProgress, signal
         );
     }
     if (!hasRecognizedText(result)) {
@@ -1790,7 +1790,13 @@ async function autoEditByScript(opts = {}) {
                         const forceThisClip = forceTranscribe || forceTranscribePaths.has(String(clipPath).replace(/\\/g, '/'));
                         transcription = await transcribeClip(
                             clipPath, language, gladiaKeys, cacheDir, forceThisClip,
-                            manualSubtitleMap[clipPath], opts.signal, outputDir
+                            manualSubtitleMap[clipPath], opts.signal, outputDir,
+                            message => emitProgress({
+                                percent: 8 + Math.round((i / Math.max(clipCount, 1)) * 42),
+                                stage: 'transcribe', current: i + 1, total: clipCount,
+                                clip_index: i, clip_status: 'transcribing',
+                                message: `片段 ${i + 1}/${clipCount}：${message}`,
+                            })
                         );
                     }
                 } catch (err) {
@@ -3548,34 +3554,39 @@ async function autoEditByScript(opts = {}) {
             });
         }
 
-        const srtPath = outputPath.replace(/\.[^.]+$/, '') + '.srt';
-        if (srtItems.length === 0) {
-            throw new Error('生成的字幕为空。请检查您的断行文案或尝试在下方调低匹配阈值。');
-        }
-        emitProgress({
-            percent: 92,
-            stage: 'subtitle',
-            current: srtItems.length,
-            total: srtItems.length,
-            message: '正在写入最终字幕',
-        });
+        let srtPath = '';
+        const subtitleUnavailable = srtItems.length === 0;
+        if (subtitleUnavailable) {
+            // 视频已经成功编码时，字幕匹配失败不能把整个导出误报为失败。
+            // 返回空 srt_path，前端可明确显示“成片完成、字幕未生成”。
+            console.warn('[自动剪辑] 未生成可用字幕行，保留已导出的无字幕成片');
+            emitProgress({ percent: 92, stage: 'subtitle', current: 0, total: 0, message: '字幕未生成，保留无字幕成片' });
+        } else {
+            srtPath = outputPath.replace(/\.[^.]+$/, '') + '.srt';
+            emitProgress({
+                percent: 92,
+                stage: 'subtitle',
+                current: srtItems.length,
+                total: srtItems.length,
+                message: '正在写入最终字幕',
+            });
 
-        // 统一对 SRT 字幕条目进行排序并做时间去重重叠调整，从根本上解决字幕一闪一闪的闪烁问题
-        srtItems.sort((a, b) => a.start - b.start);
-        for (let idx = 1; idx < srtItems.length; idx++) {
-            if (srtItems[idx].start < srtItems[idx - 1].end) {
-                srtItems[idx - 1].end = srtItems[idx].start;
-                if (srtItems[idx - 1].end <= srtItems[idx - 1].start) {
-                    srtItems[idx - 1].end = srtItems[idx - 1].start + 50;
-                    srtItems[idx].start = srtItems[idx - 1].end;
-                    if (srtItems[idx].end <= srtItems[idx].start) {
-                        srtItems[idx].end = srtItems[idx].start + 50;
+            // 统一对 SRT 字幕条目进行排序并做时间去重重叠调整，从根本上解决字幕一闪一闪的闪烁问题
+            srtItems.sort((a, b) => a.start - b.start);
+            for (let idx = 1; idx < srtItems.length; idx++) {
+                if (srtItems[idx].start < srtItems[idx - 1].end) {
+                    srtItems[idx - 1].end = srtItems[idx].start;
+                    if (srtItems[idx - 1].end <= srtItems[idx - 1].start) {
+                        srtItems[idx - 1].end = srtItems[idx - 1].start + 50;
+                        srtItems[idx].start = srtItems[idx - 1].end;
+                        if (srtItems[idx].end <= srtItems[idx].start) {
+                            srtItems[idx].end = srtItems[idx].start + 50;
+                        }
                     }
                 }
             }
+            subtitleService.writeSRT(srtItems, srtPath);
         }
-
-        subtitleService.writeSRT(srtItems, srtPath);
 
         // 临时裁切片段过去会在 finally 中删除，导致用户只能保留最终拼接成片，
         // 无法在二剪时直接复用已经确认过切点、变速和画面删除后的单段素材。
@@ -3716,7 +3727,7 @@ async function autoEditByScript(opts = {}) {
         }
 
         let subtitledPath = '';
-        if (burnSubtitles) {
+        if (burnSubtitles && srtPath) {
             subtitledPath = finalVideoForSubtitles.replace(/\.[^.]+$/, '_subtitled.mp4');
             emitProgress({
                 percent: voiceChangerEnabled ? 98 : 97,
@@ -3743,7 +3754,7 @@ async function autoEditByScript(opts = {}) {
 
         return {
             success: true,
-            message: `自动剪辑完成: ${selected.length} 段`,
+            message: `自动剪辑完成: ${selected.length} 段${subtitleUnavailable ? '（字幕未生成，已保留无字幕成片）' : ''}`,
             output_path: outputPath,
             srt_path: srtPath,
             mp3_path: mp3Path,

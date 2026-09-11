@@ -1213,30 +1213,80 @@ async function routeAPI(endpoint, data, progressSender = null, sender = null) {
         }
 
         // 本地缓存会随应用重置而丢失；审核结果的权威备份是总文件夹内
-        // `审核批次_*/review.json`。打开素材审核时读取最近一次有效记录。
+        // `审核批次_*/review.json`。打开素材审核时读取有效记录（智能合并历史批次）。
         case 'media/visual-review-load': {
             const rootDir = String(data.rootDir || '');
             if (!rootDir || !fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) return { session: null };
-            const candidates = fs.readdirSync(rootDir, { withFileTypes: true })
-                .filter(entry => entry.isDirectory() && /^审核批次[_-]/u.test(entry.name))
-                .map(entry => {
-                    const reviewPath = path.join(rootDir, entry.name, 'review.json');
-                    try {
-                        const stat = fs.statSync(reviewPath);
-                        return stat.isFile() ? { reviewPath, mtimeMs: stat.mtimeMs } : null;
-                    } catch (_) { return null; }
-                })
-                .filter(Boolean)
-                .sort((a, b) => b.mtimeMs - a.mtimeMs);
-            for (const candidate of candidates) {
+
+            const scanReviewCandidates = (dir) => {
                 try {
-                    const session = JSON.parse(fs.readFileSync(candidate.reviewPath, 'utf8'));
-                    if (session && typeof session === 'object' && session.statuses && typeof session.statuses === 'object') {
-                        return { session, reviewPath: candidate.reviewPath };
+                    return fs.readdirSync(dir, { withFileTypes: true })
+                        .filter(entry => entry.isDirectory() && /^审核批次[_-]/u.test(entry.name))
+                        .map(entry => {
+                            const reviewPath = path.join(dir, entry.name, 'review.json');
+                            try {
+                                const stat = fs.statSync(reviewPath);
+                                return stat.isFile() ? { reviewPath, mtimeMs: stat.mtimeMs, dir } : null;
+                            } catch (_) { return null; }
+                        })
+                        .filter(Boolean);
+                } catch (_) { return []; }
+            };
+
+            let candidates = scanReviewCandidates(rootDir).sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+            // 若 rootDir 下无审核批次，尝试扫描直接子套文件夹（兼容按子套独立审核过的场景）
+            if (candidates.length === 0) {
+                try {
+                    const subEntries = fs.readdirSync(rootDir, { withFileTypes: true });
+                    for (const sub of subEntries) {
+                        if (sub.isDirectory()) {
+                            candidates.push(...scanReviewCandidates(path.join(rootDir, sub.name)));
+                        }
                     }
-                } catch (_) { /* 忽略损坏的旧记录，继续尝试上一份 */ }
+                    candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+                } catch (_) {}
             }
-            return { session: null };
+
+            if (candidates.length === 0) return { session: null };
+
+            // 智能合并历史有效记录：按时间从旧到新合并，最新记录优先覆盖，
+            // 绝不因打开新批次只勾选了少数文件就冲掉历史已审核的上百条标记
+            let baseSession = null;
+            let bestReviewPath = '';
+            const mergedStatuses = {};
+            const mergedSuitesMap = new Map();
+
+            const chronological = [...candidates].reverse();
+            for (const cand of chronological) {
+                try {
+                    const session = JSON.parse(fs.readFileSync(cand.reviewPath, 'utf8'));
+                    if (session && typeof session === 'object') {
+                        if (session.statuses && typeof session.statuses === 'object') {
+                            Object.assign(mergedStatuses, session.statuses);
+                        }
+                        if (Array.isArray(session.suites)) {
+                            session.suites.forEach(s => {
+                                if (s && s.key) mergedSuitesMap.set(s.key, s);
+                            });
+                        }
+                        if (!baseSession) {
+                            baseSession = session;
+                            bestReviewPath = cand.reviewPath;
+                        } else {
+                            if (session.batchName) baseSession.batchName = session.batchName;
+                            bestReviewPath = cand.reviewPath;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            if (!baseSession) return { session: null };
+            baseSession.statuses = mergedStatuses;
+            if (mergedSuitesMap.size > 0) {
+                baseSession.suites = [...mergedSuitesMap.values()];
+            }
+            return { session: baseSession, reviewPath: bestReviewPath };
         }
 
         case 'media/auto-edit-by-script':

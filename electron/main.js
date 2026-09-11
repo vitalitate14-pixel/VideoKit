@@ -729,11 +729,11 @@ app.whenReady().then(async () => {
             // SBP-004: Validate file extension for security
             const allowedExtensions = [
                 // Video
-                '.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv', '.3gp',
+                '.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv', '.3gp', '.m4v', '.wmv', '.ts',
                 // Audio
                 '.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.wma', '.aiff', '.aif', '.amr',
                 // Image
-                '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
+                '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg', '.ico', '.tiff', '.tif', '.avif',
                 // Subtitles/Data
                 '.json', '.txt', '.srt', '.vtt', '.fcpxml', '.xml', '.drt', '.zip',
                 // Fonts
@@ -755,11 +755,13 @@ app.whenReady().then(async () => {
             const mimeTypes = {
                 '.mp4': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
                 '.avi': 'video/x-msvideo', '.mov': 'video/quicktime', '.flv': 'video/x-flv', '.3gp': 'video/3gpp',
+                '.m4v': 'video/mp4', '.wmv': 'video/x-ms-wmv', '.ts': 'video/mp2t',
                 '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4',
                 '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg',
                 '.wma': 'audio/x-ms-wma', '.aiff': 'audio/aiff', '.aif': 'audio/aiff', '.amr': 'audio/amr',
                 '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
                 '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
+                '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.tiff': 'image/tiff', '.tif': 'image/tiff', '.avif': 'image/avif',
                 '.json': 'application/json', '.txt': 'text/plain; charset=utf-8',
                 '.srt': 'application/x-subrip', '.vtt': 'text/vtt', '.xml': 'application/xml',
                 '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2',
@@ -865,6 +867,23 @@ app.whenReady().then(async () => {
         return null;
     });
 
+    ipcMain.handle('save-file', async (_event, options = {}) => {
+        const dialogOpts = {
+            title: options.title || '保存文件',
+        };
+        if (options.defaultPath) dialogOpts.defaultPath = options.defaultPath;
+        if (options.filters) dialogOpts.filters = options.filters;
+        const result = await dialog.showSaveDialog(mainWindow, dialogOpts);
+        if (result.canceled || !result.filePath) {
+            return { success: false, canceled: true };
+        }
+        if (typeof options.content === 'string' || Buffer.isBuffer(options.content)) {
+            const fs = require('fs');
+            await fs.promises.writeFile(result.filePath, options.content);
+        }
+        return { success: true, filePath: result.filePath };
+    });
+
     ipcMain.handle('scan-directory', async (event, dirPath) => {
         const fs = require('fs');
         const pathModule = require('path');
@@ -894,6 +913,15 @@ app.whenReady().then(async () => {
         }
     });
 
+    // ==================== 本地多窗口整理与文件分拣 ====================
+    try {
+        const { registerLocalOrganizer } = require('./localOrganizerService');
+        registerLocalOrganizer(ipcMain, () => mainWindow);
+        log('LocalOrganizerService registered successfully');
+    } catch (err) {
+        console.error('[Main] Failed to register localOrganizerService:', err);
+    }
+
     // Recursively scan source media while keeping every descendant attached to
     // the selected top-level task folder. Generated output/backup directories
     // are excluded so a later rescan cannot import finished videos as sources.
@@ -903,6 +931,9 @@ app.whenReady().then(async () => {
         const maxDepth = Math.max(0, Math.min(50, Number(options.maxDepth) || 20));
         const excludedNames = new Set((options.excludedNames || ['_auto_edit', 'backup_clips', '已排除素材', '已排除'])
             .map(name => String(name || '').toLocaleLowerCase()).filter(Boolean));
+        // 审核记录保存在“审核批次_时间”目录，且其中通常有移动后的不合格素材；
+        // 它只供 visual-review-load 读取 review.json，绝不能再次混入素材扫描。
+        const isReviewBatchDir = name => String(name || '').toLocaleLowerCase().startsWith('审核批次');
         const files = [];
         if (!dirPath || !fs.existsSync(dirPath)) return files;
 
@@ -915,7 +946,7 @@ app.whenReady().then(async () => {
                 const fullPath = pathModule.join(currentDir, entry.name);
                 if (entry.isSymbolicLink()) continue;
                 if (entry.isDirectory()) {
-                    if (!excludedNames.has(entry.name.toLocaleLowerCase())) walk(fullPath, depth + 1);
+                    if (!excludedNames.has(entry.name.toLocaleLowerCase()) && !isReviewBatchDir(entry.name)) walk(fullPath, depth + 1);
                     continue;
                 }
                 if (!entry.isFile()) continue;

@@ -86,10 +86,11 @@ function createImageOverlay(opts = {}) {
         id: _overlayId(),
         type: 'image',
         content: opts.content || '',   // 图片路径
-        x: opts.x ?? 100,
-        y: opts.y ?? 100,
-        w: opts.w ?? 200,
-        h: opts.h ?? 200,
+        // 新建图片覆层默认铺满 9:16 画布；需要小贴纸时仍可在属性面板调整。
+        x: opts.x ?? 0,
+        y: opts.y ?? 0,
+        w: opts.w ?? 1080,
+        h: opts.h ?? 1920,
         rotation: opts.rotation ?? 0,
         opacity: opts.opacity ?? 255,
         scale: opts.scale ?? 1.0,
@@ -149,6 +150,7 @@ function createTextCardOverlay(opts = {}) {
         title_bold: opts.title_bold !== false,
         title_italic: opts.title_italic || false,
         title_color: opts.title_color || '#000000',
+        title_gradient_direction: opts.title_gradient_direction || 'horizontal',
         title_align: opts.title_align || 'center',
         title_valign: opts.title_valign || 'top',
         title_uppercase: opts.title_uppercase ?? true,
@@ -162,6 +164,7 @@ function createTextCardOverlay(opts = {}) {
         body_bold: opts.body_bold || false,
         body_italic: opts.body_italic || false,
         body_color: opts.body_color || '#000000',
+        body_gradient_direction: opts.body_gradient_direction || 'horizontal',
         body_align: opts.body_align || 'center',
         body_valign: opts.body_valign || 'top',
         body_letter_spacing: opts.body_letter_spacing ?? 0,
@@ -174,6 +177,7 @@ function createTextCardOverlay(opts = {}) {
         footer_bold: opts.footer_bold || false,
         footer_italic: opts.footer_italic || false,
         footer_color: opts.footer_color || '#666666',
+        footer_gradient_direction: opts.footer_gradient_direction || 'horizontal',
         footer_align: opts.footer_align || 'center',
         footer_valign: opts.footer_valign || 'top',
         footer_letter_spacing: opts.footer_letter_spacing ?? 0,
@@ -630,6 +634,7 @@ function _getGifDecoder(path) {
     // 创建解码器对象
     const gifData = {
         ready: false,
+        failed: false,
         frameCount: 0,
         frameDurations: [],    // 每帧持续时间(ms)
         totalDuration: 0,      // 总时长(秒)
@@ -696,7 +701,9 @@ function _getGifDecoder(path) {
                 };
             }
         } catch (err) {
-            console.error('[GIF] 解码初始化失败:', err);
+            // 素材被移动/删除时，缩略图预览应静默跳过，不能让图库持续报错。
+            gifData.failed = true;
+            console.warn('[GIF] 预览素材不可用，已跳过:', path);
         }
     })();
 
@@ -1450,6 +1457,11 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
     }
 
     if (!drawable) return; // 还没加载好
+    // 失败的 GIF/视频加载偶尔会留下非 CanvasImageSource 的占位对象；
+    // 缩略图渲染必须直接跳过，不能把它传给 drawImage。
+    const sourceW = Number(drawable.naturalWidth || drawable.videoWidth || drawable.width || 0);
+    const sourceH = Number(drawable.naturalHeight || drawable.videoHeight || drawable.height || 0);
+    if (!(sourceW > 0 && sourceH > 0)) return;
 
     ctx.globalCompositeOperation = blendMode;
     ctx.save();
@@ -1458,8 +1470,8 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
 
     let drawW = w, drawH = h;
     if (keepAspect) {
-        const srcW = drawable.naturalWidth || drawable.videoWidth || w;
-        const srcH = drawable.naturalHeight || drawable.videoHeight || h;
+        const srcW = sourceW;
+        const srcH = sourceH;
         const imgRatio = srcW / srcH;
         const boxRatio = w / h;
         if (imgRatio > boxRatio) {
@@ -1469,7 +1481,11 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
         }
     }
 
-    ctx.drawImage(drawable, -drawW / 2, -drawH / 2, drawW, drawH);
+    try {
+        ctx.drawImage(drawable, -drawW / 2, -drawH / 2, drawW, drawH);
+    } catch (_) {
+        // 资源在浏览器解码阶段失效时安全跳过本帧。
+    }
     ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
 }
@@ -2356,12 +2372,12 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
                 if (_titleRanges && _titleRanges.length > 0 && typeof ReelsRichText !== 'undefined') {
                     _drawRichLine(ctx, line, ov.title_text, _titleRanges, lx, ty,
                         ov.title_color || '#1A1A1A', titleFontSize, titleFamily, titleFallback, titleWeight, ov.title_letter_spacing || 0,
-                        _sectionX(tW, customX), tW, ov.title_align || 'center');
+                        _sectionX(tW, customX), tW, ov.title_align || 'center', ov.title_gradient_direction || 'horizontal');
                 } else {
                     if (!indep && ov.title_color_from_style) {
                         ctx.fillStyle = _resolveTitleColor(ov.title_color_from_style);
                     } else {
-                        ctx.fillStyle = ov.title_color || '#1A1A1A';
+                        ctx.fillStyle = _resolveOverlayTextFill(ctx, ov.title_color || '#1A1A1A', lx, ty, titleFontSize, ctx.measureText(line).width, ov.title_gradient_direction || 'horizontal');
                     }
                     ctx.fillText(line, lx, ty);
                 }
@@ -2557,9 +2573,9 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
                 if (_bodyRanges && _bodyRanges.length > 0 && typeof ReelsRichText !== 'undefined') {
                     _drawRichLine(ctx, line, ov.body_text, _bodyRanges, lx, by,
                         ov.body_color || '#333333', bodyFontSize, bodyFamily, bodyFallback, bodyWeight, ov.body_letter_spacing || 0,
-                        _sectionX(bW, customX), bW, ov.body_align || 'center');
+                        _sectionX(bW, customX), bW, ov.body_align || 'center', ov.body_gradient_direction || 'horizontal');
                 } else {
-                    ctx.fillStyle = ov.body_color || '#333333';
+                    ctx.fillStyle = _resolveOverlayTextFill(ctx, ov.body_color || '#333333', lx, by, bodyFontSize, ctx.measureText(line).width, ov.body_gradient_direction || 'horizontal');
                     ctx.fillText(line, lx, by);
                 }
                 by += bodyLineH;
@@ -2638,9 +2654,9 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
                 if (_footerRanges && _footerRanges.length > 0 && typeof ReelsRichText !== 'undefined') {
                     _drawRichLine(ctx, line, ov.footer_text, _footerRanges, lx, fy,
                         ov.footer_color || '#666666', footerFontSize, footerFamily, footerFallback, footerWeight, ov.footer_letter_spacing || 0,
-                        _sectionX(fW, customX), fW, ov.footer_align || 'center');
+                        _sectionX(fW, customX), fW, ov.footer_align || 'center', ov.footer_gradient_direction || 'horizontal');
                 } else {
-                    ctx.fillStyle = ov.footer_color || '#666666';
+                    ctx.fillStyle = _resolveOverlayTextFill(ctx, ov.footer_color || '#666666', lx, fy, footerFontSize, ctx.measureText(line).width, ov.footer_gradient_direction || 'horizontal');
                     ctx.fillText(line, lx, fy);
                 }
                 fy += footerLineH;
@@ -3670,8 +3686,10 @@ function _drawScrollOverlay(ctx, ov, clipX, clipY, clipW, clipH, currentTime, ca
                 const lx = _alignX(ctx, line, titleDrawX, tTextW, tAlign, tLetterSpacing);
                 const _scrollTitleMerged1 = _getAutoColorMergedRanges(ov, 'scroll_title', titleText);
                 const _scrollTitleRanges1 = _scrollTitleMerged1 || ov.scroll_title_styled_ranges;
+                const lineW = ctx.measureText(line).width;
+                ctx.fillStyle = _resolveOverlayTextFill(ctx, tColor, lx, ty, tSize, lineW, ov.scroll_title_gradient_direction || 'horizontal');
                 if (_scrollTitleRanges1 && _scrollTitleRanges1.length > 0 && typeof ReelsRichText !== 'undefined') {
-                    _drawRichLine(ctx, line, titleText, _scrollTitleRanges1, lx, ty, tColor, tSize, tFamily, tFallback, tWeight, tLetterSpacing);
+                    _drawRichLine(ctx, line, titleText, _scrollTitleRanges1, lx, ty, tColor, tSize, tFamily, tFallback, tWeight, tLetterSpacing, undefined, undefined, undefined, ov.scroll_title_gradient_direction || 'horizontal');
                 } else {
                     if (typeof _fillTextWithLetterSpacing !== 'undefined' && tLetterSpacing !== 0 && typeof ctx.letterSpacing === 'undefined') {
                         _fillTextWithLetterSpacing(ctx, line, lx, ty, tLetterSpacing);
@@ -4097,8 +4115,10 @@ function _drawScrollTextBlock(ctx, ov, lines, textX, textY, textW, lineHeight, f
             const lx = _alignX(ctx, line, titleTextX, titleTextW, tAlign, tLetterSpacing);
             const _scrollTitleMerged2 = _getAutoColorMergedRanges(ov, 'scroll_title', titleText);
             const _scrollTitleRanges2 = _scrollTitleMerged2 || ov.scroll_title_styled_ranges;
+            const lineW = ctx.measureText(line).width;
+            ctx.fillStyle = _resolveOverlayTextFill(ctx, tColor, lx, ty, tSize, lineW, ov.scroll_title_gradient_direction || 'horizontal');
             if (_scrollTitleRanges2 && _scrollTitleRanges2.length > 0 && typeof ReelsRichText !== 'undefined') {
-                _drawRichLine(ctx, line, titleText, _scrollTitleRanges2, lx, ty, tColor, tSize, tFamily, tFallback, tWeight, tLetterSpacing);
+                _drawRichLine(ctx, line, titleText, _scrollTitleRanges2, lx, ty, tColor, tSize, tFamily, tFallback, tWeight, tLetterSpacing, undefined, undefined, undefined, ov.scroll_title_gradient_direction || 'horizontal');
             } else {
                 ctx.fillText(line, lx, ty);
             }
@@ -4199,8 +4219,10 @@ function _drawScrollTextBlock(ctx, ov, lines, textX, textY, textW, lineHeight, f
         const lx = _alignX(ctx, line, textX, textW, align, bLetterSpacing);
         const _scrollBodyMerged = _getAutoColorMergedRanges(ov, 'scroll_body', rawContent);
         const _scrollBodyRanges = _scrollBodyMerged || ov.scroll_styled_ranges;
+        const lineW = ctx.measureText(line).width;
+        ctx.fillStyle = _resolveOverlayTextFill(ctx, ov.color || '#FFFFFF', lx, yc, fontSize, lineW, ov.scroll_body_gradient_direction || ov.scroll_gradient_direction || 'horizontal');
         if (_scrollBodyRanges && _scrollBodyRanges.length > 0 && typeof ReelsRichText !== 'undefined') {
-            _drawRichLine(ctx, line, rawContent, _scrollBodyRanges, lx, yc, ov.color || '#FFFFFF', fontSize, bodyFamily, bodyFallback, bodyWeight, bLetterSpacing);
+            _drawRichLine(ctx, line, rawContent, _scrollBodyRanges, lx, yc, ov.color || '#FFFFFF', fontSize, bodyFamily, bodyFallback, bodyWeight, bLetterSpacing, undefined, undefined, undefined, ov.scroll_body_gradient_direction || ov.scroll_gradient_direction || 'horizontal');
         } else {
             if (typeof _fillTextWithLetterSpacing !== 'undefined' && bLetterSpacing !== 0 && typeof ctx.letterSpacing === 'undefined') {
                 _fillTextWithLetterSpacing(ctx, line, lx, yc, bLetterSpacing);
@@ -4363,6 +4385,30 @@ class OverlayManager {
 // 4. Drawing Helpers
 // ═══════════════════════════════════════════════════════
 
+function _resolveOverlayTextFill(ctx, colorVal, x, y, fontSize, textW = 0, direction = 'horizontal') {
+    if (typeof colorVal === 'string' && colorVal.includes(',')) {
+        const colors = colorVal.split(',').map(c => c.trim()).filter(Boolean);
+        if (colors.length >= 2) {
+            const fs = Number(fontSize) || 40;
+            const w = Number(textW) || fs * 3;
+            let grad;
+            if (direction === 'vertical') {
+                grad = ctx.createLinearGradient(x, y - fs * 0.8, x, y + fs * 0.25);
+            } else if (direction === 'diagonal') {
+                grad = ctx.createLinearGradient(x, y - fs * 0.8, x + w, y + fs * 0.25);
+            } else {
+                // 默认水平渐变：从左到右流光
+                grad = ctx.createLinearGradient(x, y, x + w, y);
+            }
+            colors.forEach((c, i) => {
+                grad.addColorStop(i / Math.max(1, colors.length - 1), c);
+            });
+            return grad;
+        }
+    }
+    return colorVal;
+}
+
 function _measureTextWithLetterSpacing(ctx, text, letterSpacing = 0) {
     const spacing = parseFloat(letterSpacing || 0);
     const baseW = ctx.measureText(text || '').width;
@@ -4478,7 +4524,7 @@ function _drawTextLines(ctx, lines, boxX, boxY, boxW, lineHeight, align, color) 
  * @param {number} boxW           可选：文本区宽度
  * @param {string} align          可选：left | center | right
  */
-function _drawRichLine(ctx, lineText, fullText, styledRanges, x, y, defaultColor, baseFontSize, fontFamily, fallback, fontWeight, letterSpacing, boxX, boxW, align) {
+function _drawRichLine(ctx, lineText, fullText, styledRanges, x, y, defaultColor, baseFontSize, fontFamily, fallback, fontWeight, letterSpacing, boxX, boxW, align, direction = 'horizontal') {
     // Rich chunks may change font size/weight. Keep those changes local so the
     // next line's alignment is still measured with the section's base font.
     ctx.save();
@@ -4492,7 +4538,7 @@ function _drawRichLine(ctx, lineText, fullText, styledRanges, x, y, defaultColor
     }
     if (lineStart < 0) {
         // fallback: 找不到就原样绘制
-        ctx.fillStyle = defaultColor;
+        ctx.fillStyle = _resolveOverlayTextFill(ctx, defaultColor, x, y, baseFontSize, _measureTextWithLetterSpacing(ctx, lineText, letterSpacing), direction);
         if (letterSpacing && typeof _fillTextWithLetterSpacing !== 'undefined' && typeof ctx.letterSpacing === 'undefined') {
             _fillTextWithLetterSpacing(ctx, lineText, x, y, letterSpacing);
         } else {
@@ -4554,7 +4600,9 @@ function _drawRichLine(ctx, lineText, fullText, styledRanges, x, y, defaultColor
         const tokBold = chunk.style.bold ? 700 : fontWeight;
         const tokFont = `${tokBold} ${tokFs}px "${fontFamily}", ${fallback}`;
         ctx.font = tokFont;
-        ctx.fillStyle = chunk.style.color || defaultColor;
+        const segColor = chunk.style.color || defaultColor;
+        const segW = _measureTextWithLetterSpacing(ctx, segText, letterSpacing);
+        ctx.fillStyle = _resolveOverlayTextFill(ctx, segColor, cx, y, tokFs, segW, direction);
         
         if (letterSpacing && typeof _fillTextWithLetterSpacing !== 'undefined' && typeof ctx.letterSpacing === 'undefined') {
             _fillTextWithLetterSpacing(ctx, segText, cx, y, letterSpacing);
@@ -4607,6 +4655,8 @@ function _overlayId() {
 // Exports
 // ═══════════════════════════════════════════════════════
 
+OverlayManager.prototype._resolveOverlayTextFill = _resolveOverlayTextFill;
+
 const ReelsOverlay = {
     createTextOverlay,
     createImageOverlay,
@@ -4616,6 +4666,7 @@ const ReelsOverlay = {
     drawOverlay,
     splitBodyText,
     OverlayManager,
+    _resolveOverlayTextFill,
 };
 
 if (typeof window !== 'undefined') window.ReelsOverlay = ReelsOverlay;

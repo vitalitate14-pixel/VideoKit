@@ -1690,11 +1690,32 @@ class ReelsCanvasRenderer {
 
         // Fill
         if (typeof fillColor === 'string' && fillColor.includes(',')) {
-            const colors = fillColor.split(',').map(c => c.trim());
+            const colors = fillColor.split(',').map(c => c.trim()).filter(Boolean);
             if (colors.length >= 2) {
                 const match = ctx.font.match(/(\d+)px/);
                 const fontSize = match ? parseFloat(match[1]) : 80;
-                const grad = ctx.createLinearGradient(x, y, x, y + fontSize * 0.95);
+                let dir = 'horizontal';
+                if (s) {
+                    if (fillColor === s.color_high) {
+                        dir = s.high_gradient_direction || s.text_gradient_direction || 'horizontal';
+                    } else {
+                        dir = s.text_gradient_direction || 'horizontal';
+                    }
+                }
+                let grad;
+                if (dir === 'horizontal') {
+                    const wordW = (letterSpacing > 0)
+                        ? (ctx.measureText(text).width + letterSpacing * Math.max(0, text.length - 1))
+                        : ctx.measureText(text).width;
+                    grad = ctx.createLinearGradient(x, y, x + (wordW || fontSize * 2), y);
+                } else if (dir === 'diagonal') {
+                    const wordW = (letterSpacing > 0)
+                        ? (ctx.measureText(text).width + letterSpacing * Math.max(0, text.length - 1))
+                        : ctx.measureText(text).width;
+                    grad = ctx.createLinearGradient(x, y, x + (wordW || fontSize * 2), y + fontSize * 0.95);
+                } else {
+                    grad = ctx.createLinearGradient(x, y, x, y + fontSize * 0.95);
+                }
                 colors.forEach((c, i) => {
                     grad.addColorStop(i / Math.max(1, colors.length - 1), c);
                 });

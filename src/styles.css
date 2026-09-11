@@ -6,6 +6,8 @@
     color: #ffe4e6;
     border: 1px solid #a64750;
 }
+
+
 #autoedit-stop-btn:disabled,
 #autoedit-batch-stop-btn:disabled {
     background: #303030;
@@ -20,6 +22,8 @@
     background: #8d333d;
 }
 :root {
+    /* Electron macOS hiddenInset 标题栏高度：所有应用内模态窗口避开此区域。 */
+    --window-chrome-height: 38px;
     --bg-primary: #181818;
     --bg-secondary: #1e1e1e;
     --bg-tertiary: #252525;
@@ -66,7 +70,7 @@ body {
 
 /* 标题栏 (现在和导航栏合并为一行) */
 .titlebar {
-    height: 38px;
+    height: var(--window-chrome-height);
     background: #111111;
     display: flex;
     align-items: center;
@@ -77,6 +81,42 @@ body {
     -webkit-app-region: drag;
     border-bottom: 1px solid var(--border-color);
 }
+
+/* 统一窗口安全区：模态层不覆盖 macOS 红绿灯或顶部拖拽区。
+   只命中直接挂在 body 下的遮罩，避免影响组件内部的小型浮层。 */
+body > [class*="modal-overlay"],
+body > [class*="dialog-overlay"] {
+    top: var(--window-chrome-height) !important;
+    bottom: 0 !important;
+    height: auto !important;
+    -webkit-app-region: no-drag;
+}
+
+/* 动态字幕预设库 */
+.reels-subtitle-preset-library { position:fixed; inset:var(--window-chrome-height) 0 0; z-index:350000; background:rgba(0,0,0,.78); -webkit-app-region:no-drag; }
+.rsp-shell { height:100%; display:flex; flex-direction:column; background:#171729; color:#e5e7eb; }
+.rsp-shell header { min-height:58px; padding:0 24px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #373750; background:#121220; }
+.rsp-shell h2 { margin:0; font-size:19px; }
+.rsp-close,.rsp-shell button { cursor:pointer; }
+.rsp-close { border:0; background:transparent; color:#e5e7eb; font-size:25px; }
+.rsp-clear-mine { padding:7px 11px; border:1px solid #b95461; border-radius:6px; background:rgba(130,35,48,.32); color:#fecaca; font-size:12px; font-weight:600; }
+.rsp-clear-mine:hover:not(:disabled) { background:rgba(170,42,57,.48); }
+.rsp-clear-mine:disabled { opacity:.42; cursor:not-allowed; }
+.rsp-main { min-height:0; flex:1; display:flex; }
+.rsp-main aside { width:210px; flex:0 0 210px; padding:12px; overflow:auto; background:#11111e; border-right:1px solid #373750; }
+.rsp-main aside button { width:100%; margin:0 0 6px; padding:9px; text-align:left; border:1px solid transparent; border-radius:6px; background:transparent; color:#cbd5e1; font-size:12px; }
+.rsp-main aside button:hover,.rsp-main aside button.active { background:#33335b; border-color:#6262a5; color:#fff; }
+.rsp-main aside small { color:#94a3b8; float:right; }
+.rsp-main section { min-width:0; flex:1; padding:20px; overflow:auto; }
+.rsp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+.rsp-card { padding:12px; border:1px solid #3d3d60; border-radius:9px; background:#24243f; display:flex; flex-direction:column; gap:8px; }
+/* 预设保存的是竖屏字幕坐标；必须按 9:16 画布绘制，预览中的位置与导出一致。 */
+.rsp-preview-canvas { width:100%; aspect-ratio:9 / 16; display:block; border-radius:6px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); background:#11111f; }
+.rsp-card[data-animated="true"] .rsp-preview-canvas { cursor:default; }
+.rsp-name { font-weight:700; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsp-group { color:#a5b4fc; font-size:11px; }
+.rsp-use,.rsp-delete { border-radius:5px; padding:6px; border:1px solid #5b7fd4; background:#233b6b; color:#dbeafe; }
+.rsp-delete { border-color:#b95461; background:#552631; color:#fecaca; }
 
 .titlebar-drag-region {
     display: none;
@@ -222,6 +262,25 @@ body {
     outline-offset: 5px;
     border-radius: 6px;
     background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* 文件夹拖拽悬停高亮效果 */
+.folder-drop-active {
+    outline: 2px dashed #38bdf8 !important;
+    outline-offset: 3px !important;
+    background: rgba(56, 189, 248, 0.12) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.25) !important;
+    transition: all 0.15s ease !important;
+}
+
+.folder-drop-active-purple {
+    outline: 2px dashed #a78bfa !important;
+    outline-offset: 3px !important;
+    background: rgba(167, 139, 250, 0.12) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 0 14px rgba(167, 139, 250, 0.25) !important;
+    transition: all 0.15s ease !important;
 }
 
 .file-path {
@@ -2422,4 +2481,77 @@ body.theme-light .rbt-select {
 }
 #organizer-groups::-webkit-scrollbar-thumb:hover {
     background: rgba(124, 92, 255, 0.4);
+}
+
+/* ─── 多色文字渐变实时色块指示与样式 ─── */
+input[type="color"].vk-has-gradient {
+    position: relative;
+    cursor: pointer !important;
+}
+input[type="color"].vk-has-gradient::-webkit-color-swatch-wrapper {
+    padding: 0 !important;
+}
+input[type="color"].vk-has-gradient::-webkit-color-swatch {
+    background: var(--vk-gradient-preview, none) !important;
+    border: 1px solid rgba(255, 255, 255, 0.45) !important;
+    border-radius: 4px !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.vk-gradient-swatch-badge {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 36px;
+    height: 28px;
+    border-radius: 4px;
+    box-sizing: border-box;
+    border: 1.5px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+    z-index: 2;
+    transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+.vk-gradient-swatch-badge:hover {
+    transform: scale(1.06);
+    border-color: #ffffff;
+    box-shadow: 0 0 8px rgba(123, 139, 239, 0.85);
+}
+
+.vk-gradient-btn-active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(236, 72, 153, 0.3)) !important;
+    border: 1px solid #8b5cf6 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.45) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+}
+.vk-gradient-btn-active:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.4), rgba(236, 72, 153, 0.4)) !important;
+    border-color: #a78bfa !important;
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.75) !important;
+}
+.vk-grad-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1;
+    margin-left: 2px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.vk-grad-clear-btn:hover {
+    background: rgba(239, 68, 68, 0.9);
 }

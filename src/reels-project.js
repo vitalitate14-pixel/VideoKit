@@ -298,7 +298,13 @@ function _normalizeProjectData(data) {
  * 保存项目到文件。
  * @param {object} state - 当前应用状态
  */
-async function saveProject(state) {
+async function saveProject(state, options = {}) {
+    // 这是唯一会打开 macOS 原生“另存为”窗口的工程保存入口。启动恢复、
+    // 自动保存和热更新绝不能调用它；它们应写各自的静默恢复文件。
+    if (options.interactive !== true) {
+        console.warn('[ReelsProject] 忽略未授权的交互式工程保存请求');
+        return { success: false, canceled: true, ignored: true };
+    }
     const projectData = collectProjectData(state);
     const json = JSON.stringify(projectData, null, 2);
 

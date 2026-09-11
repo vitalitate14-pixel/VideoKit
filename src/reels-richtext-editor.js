@@ -435,6 +435,7 @@ class ReelsRichTextEditor {
                 </div>
                 <div class="rte-tool-group">
                     <input type="color" class="rt-color-picker rt-sel-color" title="文字颜色" value="#ff0000">
+                    <button type="button" class="rt-btn rt-sel-gradient" title="渐变文字颜色 (支持多节点自定义)" style="padding:0 4px;font-size:12px;height:24px;line-height:22px;">🌈</button>
                     <input type="color" class="rt-color-picker rt-stroke-color" title="描边颜色" value="#3E2723">
                     <select class="rt-select rt-sel-stroke" title="描边宽度" style="width:56px;">
                         <option value="">描边</option>
@@ -739,7 +740,14 @@ class ReelsRichTextEditor {
             if (seg.style.bold) css += 'font-weight:bold;';
             if (seg.style.font_weight) css += `font-weight:${seg.style.font_weight};`;
             if (seg.style.italic) css += 'font-style:italic;';
-            if (seg.style.color) css += `color:${seg.style.color};`;
+            if (seg.style.color) {
+                if (seg.style.color.includes(',')) {
+                    const stops = seg.style.color.split(',').map(s => s.trim()).join(', ');
+                    css += `background-image:linear-gradient(180deg, ${stops});-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;`;
+                } else {
+                    css += `color:${seg.style.color};`;
+                }
+            }
             if (seg.style.font_family) css += `font-family:"${seg.style.font_family}",sans-serif;`;
             if (seg.style.fontsize) {
                 const baseFs = effectiveBase.fontsize || 80;
@@ -1058,6 +1066,28 @@ class ReelsRichTextEditor {
         cp.addEventListener('input', (e) => {
             this.applyStyleToSelection({ color: e.target.value });
         });
+
+        // 渐变颜色按钮
+        const gradBtn = this.popup.querySelector('.rt-sel-gradient');
+        if (gradBtn) {
+            gradBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!window.ReelsGradientPicker) return;
+                const selInfo = { start: this._savedStart, end: this._savedEnd };
+                if (selInfo.start >= selInfo.end) return;
+
+                window.ReelsGradientPicker.open({
+                    title: '富文本文字渐变色',
+                    value: cp.value || '#ff0000',
+                    direction: 'horizontal',
+                    anchorEl: gradBtn,
+                    onChange: ({ value, direction }) => {
+                        this.applyStyleToSelection({ color: value, direction: direction });
+                    }
+                });
+            });
+        }
 
         // 描边颜色选择
         const strokeCp = this.popup.querySelector('.rt-stroke-color');

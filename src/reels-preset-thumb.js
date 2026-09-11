@@ -21,12 +21,23 @@ class PresetThumbRenderer {
      * @param {string} bgColor - 背景色
      * @returns {string} base64 DataURL (image/webp)
      */
-    renderThumb(layers, bgColor = '#1a1a2e') {
+    renderThumb(layers, bgColor = '#1a1a2e', previewText = this._previewText || '') {
+        const previewCopy = typeof previewText === 'object' && previewText ? previewText : { title: previewText, body: previewText, footer: '' };
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.THUMB_W, this.THUMB_H);
         
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, this.THUMB_W, this.THUMB_H);
+        if (this._previewBgMedia) {
+            const media = this._previewBgMedia;
+            const sw = media.naturalWidth || media.videoWidth || 0;
+            const sh = media.naturalHeight || media.videoHeight || 0;
+            if (sw > 0 && sh > 0) {
+                const scale = Math.max(this.THUMB_W / sw, this.THUMB_H / sh);
+                const dw = sw * scale, dh = sh * scale;
+                ctx.drawImage(media, (this.THUMB_W - dw) / 2, (this.THUMB_H - dh) / 2, dw, dh);
+            }
+        }
 
         ctx.save();
         ctx.scale(this.SCALE, this.SCALE);
@@ -36,6 +47,19 @@ class PresetThumbRenderer {
             const renderOv = JSON.parse(JSON.stringify(ov)); // 深拷贝防止污染
             renderOv._exporting = true; // 隐藏辅助线
             
+            // 预设库临时文案只用于预览；固定文案不替换。
+            if ((previewCopy.title || previewCopy.body || previewCopy.footer) && !renderOv.fixed_text) {
+                if (renderOv.type === 'textcard') {
+                    renderOv.title_text = previewCopy.title || renderOv.title_text;
+                    renderOv.body_text = previewCopy.body || renderOv.body_text;
+                    renderOv.footer_text = previewCopy.footer || renderOv.footer_text;
+                } else if (renderOv.type === 'scroll') {
+                    renderOv.scroll_title = previewCopy.title || renderOv.scroll_title;
+                    renderOv.content = previewCopy.body || renderOv.content;
+                } else if (renderOv.type === 'text') {
+                    renderOv.content = previewCopy.body || previewCopy.title || renderOv.content;
+                }
+            }
             // 占位文案处理
             if (!renderOv.fixed_text) {
                 if (renderOv.type === 'textcard') {
@@ -74,8 +98,23 @@ class PresetThumbRenderer {
      * @param {string} bgColor - 背景色
      * @returns {Promise<string>} base64 DataURL (image/webp)
      */
-    async renderThumbAsync(layers, bgColor = '#1a1a2e') {
+    async renderThumbAsync(layers, bgColor = '#1a1a2e', previewBackgroundPath = '', previewText = '') {
         const ctx = this.ctx;
+        this._previewBgMedia = null;
+        this._previewText = previewText;
+        if (previewBackgroundPath) {
+            try {
+                const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(previewBackgroundPath);
+                const media = document.createElement(isImage ? 'img' : 'video');
+                media.muted = true; media.preload = 'metadata';
+                media.src = window.electronAPI?.toFileUrl ? window.electronAPI.toFileUrl(previewBackgroundPath) : previewBackgroundPath;
+                await new Promise((resolve, reject) => {
+                    media.onload = media.onloadeddata = () => resolve();
+                    media.onerror = () => reject(new Error('背景无法读取'));
+                });
+                this._previewBgMedia = media;
+            } catch (_) { /* 背景不可用时仍保留纯色缩略图 */ }
+        }
         
         // 1. 先触发一次绘制，让底层的 ReelsOverlay 发起本地文件预载请求
         for (const ov of layers) {
@@ -90,7 +129,7 @@ class PresetThumbRenderer {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // 3. 再次正式渲染并返回
-        return this.renderThumb(layers, bgColor);
+        return this.renderThumb(layers, bgColor, previewText);
     }
 }
 

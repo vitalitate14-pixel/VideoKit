@@ -12,6 +12,17 @@ const { formatMediaError, formatProcessStartError } = require('./media-error');
 // 超时默认值
 const DEFAULT_TIMEOUT = 600000; // 10 分钟
 const PROBE_TIMEOUT = 30000;    // 30 秒
+// FFmpeg 会把连续的编码进度写到 stderr。长视频或批量导出时若完整累积，
+// Electron 主进程会持续涨内存，最终可能把渲染窗口拖至白屏。保留末尾日志
+// 仍足够给 formatMediaError 提取实际失败原因。
+const MAX_PROCESS_LOG_CHARS = 4 * 1024 * 1024;
+
+function appendProcessLog(previous, chunk) {
+    const next = previous + String(chunk || '');
+    return next.length > MAX_PROCESS_LOG_CHARS
+        ? next.slice(-MAX_PROCESS_LOG_CHARS)
+        : next;
+}
 
 function expandHomePath(p) {
     if (!p || typeof p !== 'string') return p;
@@ -79,8 +90,8 @@ function runCommand(cmd, args, options = {}) {
             if (options.signal.aborted) abort();
             else options.signal.addEventListener('abort', abort, { once: true });
         }
-        proc.stdout.on('data', d => stdout += d.toString());
-        proc.stderr.on('data', d => stderr += d.toString());
+        proc.stdout.on('data', d => { stdout = appendProcessLog(stdout, d); });
+        proc.stderr.on('data', d => { stderr = appendProcessLog(stderr, d); });
         proc.on('close', code => {
             if (options.signal) options.signal.removeEventListener('abort', abort);
             if (cancelled || options.signal?.aborted) {

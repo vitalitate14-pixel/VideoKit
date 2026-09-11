@@ -14,6 +14,28 @@
 // ═══════════════════════════════════════════════════════
 
 let _dragSrcIdx = null; // 拖拽排序：源行索引（模块级，供 panel drop 判断）
+
+// 批量预设库的就地编辑器：不跳主 Reels。背景只用于此弹窗预览，不写入任务/预设。
+window.openBatchOverlayPresetEditor = function(name, preset) {
+    if (!window.ReelsOverlayPanel || !window.ReelsOverlay?.OverlayManager) return alert('覆层编辑器尚未加载');
+    const layers = JSON.parse(JSON.stringify(Array.isArray(preset) ? preset : (preset.layers || [])));
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:450000;background:#000d;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `<div style="background:#181822;padding:16px;border-radius:10px;display:flex;gap:16px;max-width:96vw;max-height:94vh;overflow:auto;color:#ddd;">
+      <div style="width:min(38vw,360px);aspect-ratio:9/16;position:relative;background:#080810;align-self:flex-start;"><video data-video muted loop playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;"></video><img data-image style="width:100%;height:100%;object-fit:cover;position:absolute;display:none;"><canvas data-canvas width="1080" height="1920" style="width:100%;height:100%;position:absolute;pointer-events:none;"></canvas></div>
+      <div style="width:260px;display:flex;flex-direction:column;gap:8px;font-size:12px;"><strong>✏️ 直接编辑「${String(name).replace(/</g, '&lt;')}」</strong><button data-bg>🖼 选择临时预览背景</button><button data-clear>清除临时背景</button><span data-label style="color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未设置（深色底）</span><span style="color:#94a3b8;font-size:11px;">背景仅供预览，不保存到预设、不影响导出。</span><button data-save style="margin-top:auto;background:#2563eb;color:#fff;border:0;border-radius:5px;padding:8px;cursor:pointer;">保存预设</button><button data-close>完成</button></div>
+      <div data-panel style="width:440px;min-width:360px;max-height:85vh;overflow:auto;border-left:1px solid #444;padding-left:12px;"></div></div>`;
+    document.body.appendChild(modal);
+    const get = s => modal.querySelector(s), mgr = new window.ReelsOverlay.OverlayManager(); mgr.overlays = layers;
+    let bgPath = '';
+    const draw = () => { const c = get('[data-canvas]'), ctx = c.getContext('2d'); ctx.clearRect(0,0,1080,1920); for (const ov of mgr.overlays) window.ReelsOverlay.drawOverlay(ctx, { ...ov, _exporting:true }, 0, 1080, 1920); };
+    const proxy = { overlayMgr:mgr, getCanvasSize:()=>({w:1080,h:1920,cx:540,cy:960}), getDuration:()=>9999, previewEnd:()=>{}, addOverlay:o=>{mgr.addOverlay(o);draw();panel._refreshList();}, removeOverlay:id=>{mgr.removeOverlay(id);draw();panel._refreshList();}, render:draw, getOverlayAboveSubtitle:()=>true, setOverlayAboveSubtitle:()=>{} };
+    const panel = new window.ReelsOverlayPanel(get('[data-panel]'), proxy); get('[data-panel]').querySelector('.rop-section')?.remove(); panel._refreshList(); if(mgr.overlays[0]) panel.selectOverlay(mgr.overlays[0]); draw();
+    get('[data-bg]').onclick = async () => { const p = await window.electronAPI?.selectFiles?.({title:'选择临时预览背景',filters:[{name:'图片或视频',extensions:['mp4','mov','mkv','webm','jpg','jpeg','png','webp','gif']}]}); bgPath=p?.[0]||''; if(!bgPath)return; const isImg=/\.(jpg|jpeg|png|webp|gif)$/i.test(bgPath), el=isImg?get('[data-image]'):get('[data-video]'); get('[data-image]').style.display=isImg?'':'none';get('[data-video]').style.display=isImg?'none':'';el.src=window.electronAPI?.toFileUrl?window.electronAPI.toFileUrl(bgPath):bgPath;if(!isImg)el.play().catch(()=>{});get('[data-label]').textContent=bgPath.split(/[\\/]/).pop(); };
+    get('[data-clear]').onclick=()=>{get('[data-video]').removeAttribute('src');get('[data-image]').removeAttribute('src');get('[data-image]').style.display='none';get('[data-video]').style.display='';get('[data-label]').textContent='未设置（深色底）';};
+    get('[data-save]').onclick=()=>{let all={};try{all=JSON.parse(localStorage.getItem('reels_overlay_group_presets')||'{}')}catch(_){};all[name]={...(Array.isArray(preset)?{}:preset),name,layers:JSON.parse(JSON.stringify(mgr.overlays)),updatedAt:new Date().toISOString()};localStorage.setItem('reels_overlay_group_presets',JSON.stringify(all));if(typeof showToast==='function')showToast(`预设「${name}」已保存`, 'success');};
+    get('[data-close]').onclick=()=>modal.remove();
+};
 const _VOICE_HINT_REGEX = /(^|[\s._-])(voice|audio|dub|dubbing|narration|vo|配音|人声|旁白|解说|口播)([\s._-]|$)/i;
 const _VOICE_VIDEO_EXTS = new Set(['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm']);
 const _CLIP_POOL_VIDEO_EXTS = new Set(['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm']);

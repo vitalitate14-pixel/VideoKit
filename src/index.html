@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VideoKit - 视频工具包</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="sort-upload.css">
 </head>
 
 <body>
@@ -382,6 +383,7 @@
               <button class="sidebar-item" data-action="subtab" data-subtab="media-unirename">统一命名</button>
               <button class="sidebar-item" data-action="subtab" data-subtab="media-batchrename">批量重命名</button>
               <button class="sidebar-item" data-action="subtab" data-subtab="media-organizer">素材整理</button>
+              <button class="sidebar-item" data-action="subtab" data-subtab="media-multiwindow">多窗口整理</button>
             </div>
           </aside>
 
@@ -2691,11 +2693,46 @@
               <span class="workbench-title-desc">智能拆解文件名字段，支持多规则按内容对号入座，纯本地不使用 AI</span>
             </div>
 
+            <!-- 文件夹合并：用于将多批素材汇入同一个总文件夹 -->
+            <div id="folder-merge-card" class="form-section" ondragenter="folderMergeCardDragHover(event,true)" ondragover="folderMergeCardDragHover(event,true)" ondragleave="folderMergeCardDragHover(event,false)" ondrop="folderMergeCardDrop(event)" style="background:rgba(56,189,248,0.05); border:1px solid rgba(56,189,248,0.28); border-radius:9px; padding:14px; transition:border-color .15s, background .15s;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                <span style="font-weight:650; color:var(--text-primary);">🗂️ 同名文件夹合并</span>
+                <span style="font-size:12px; color:var(--text-secondary);">同名子文件夹自动合并；同名文件自动改为 <code>文件名 (1).扩展名</code>，绝不覆盖。<span style="color:#38bdf8; margin-left:6px;">💡 支持直接拖拽文件夹进来</span></span>
+              </div>
+              <div id="folder-merge-target-zone" class="param-row" ondragenter="folderMergeTargetDragHover(event,true)" ondragover="folderMergeTargetDragHover(event,true)" ondragleave="folderMergeTargetDragHover(event,false)" ondrop="folderMergeTargetDrop(event)" style="display:flex; gap:8px; align-items:center; padding:3px; border-radius:8px; transition:all .15s;">
+                <label style="white-space:nowrap; font-weight:500;">目标位置:</label>
+                <input id="folder-merge-target" class="input file-path" placeholder="拖拽文件夹到此处，或点击选择总目标" readonly style="flex:1" ondragenter="folderMergeTargetDragHover(event,true)" ondragover="folderMergeTargetDragHover(event,true)" ondragleave="folderMergeTargetDragHover(event,false)" ondrop="folderMergeTargetDrop(event)">
+                <button class="btn btn-secondary" onclick="folderMergeChooseTarget()">📁 选择总目标</button>
+                <button class="btn btn-secondary btn-small" onclick="folderMergeAddTargetFolder()">＋ 添加目标文件夹</button>
+              </div>
+              <div id="folder-merge-target-folders" style="display:flex; flex-direction:column; gap:5px; margin:8px 0 0;"></div>
+              <div id="folder-merge-sources-zone" ondragenter="folderMergeSourcesDragHover(event,true)" ondragover="folderMergeSourcesDragHover(event,true)" ondragleave="folderMergeSourcesDragHover(event,false)" ondrop="folderMergeSourcesDrop(event)" style="padding:4px; border-radius:8px; transition:all .15s; margin-top:6px;">
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <span style="font-size:12px; color:var(--text-secondary);">待合并来源:</span>
+                  <button class="btn btn-secondary btn-small" onclick="folderMergeAddSource('root')">＋ 添加总文件夹</button>
+                  <button class="btn btn-secondary btn-small" onclick="folderMergeAddSource('folder')">＋ 添加单独文件夹</button>
+                  <label style="cursor:pointer; display:flex; gap:4px; align-items:center; font-size:12px; margin-left:4px;">
+                    <input type="radio" name="folder-merge-mode" value="move" checked onchange="folderMergeChangeMode('move')"> 移动（默认）
+                  </label>
+                  <label style="cursor:pointer; display:flex; gap:4px; align-items:center; font-size:12px;">
+                    <input type="radio" name="folder-merge-mode" value="copy" onchange="folderMergeChangeMode('copy')"> 复制保留来源
+                  </label>
+                </div>
+                <div id="folder-merge-sources" style="display:flex; flex-direction:column; gap:5px; margin:10px 0 8px; min-height:36px; padding:6px; border:1px dashed rgba(255,255,255,0.08); border-radius:6px; transition:all .15s;"></div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-secondary" onclick="folderMergePreview()">🔍 预览合并结果</button>
+                <button class="btn btn-primary" onclick="folderMergeApply()" id="folder-merge-apply" disabled>🚀 确认合并并移动</button>
+                <span id="folder-merge-status" class="status-text" style="font-size:12px; color:var(--text-secondary);">先选择目标和来源；执行前会先预览。</span>
+              </div>
+              <div id="folder-merge-preview" class="hidden" style="margin-top:10px; font-size:12px; color:var(--text-secondary);"></div>
+            </div>
+
             <!-- 1. 待整理文件夹与设置 -->
-            <div class="form-section">
-              <div class="param-row" style="display:flex; gap:8px; align-items:center;">
+            <div id="organizer-source-card" class="form-section">
+              <div id="organizer-source-zone" class="param-row" ondragenter="organizerSourceDragHover(event,true)" ondragover="organizerSourceDragHover(event,true)" ondragleave="organizerSourceDragHover(event,false)" ondrop="organizerSourceDrop(event)" style="display:flex; gap:8px; align-items:center; padding:3px; border-radius:8px; transition:all .15s;">
                 <label style="white-space:nowrap; font-weight:500;">待整理文件夹:</label>
-                <input id="organizer-source" class="input file-path" placeholder="选择总文件夹（将递归扫描包含的全部媒体文件）" readonly style="flex:1">
+                <input id="organizer-source" class="input file-path" placeholder="拖拽总文件夹到此处，或点击选择文件夹（将递归扫描全部媒体）" readonly style="flex:1" ondragenter="organizerSourceDragHover(event,true)" ondragover="organizerSourceDragHover(event,true)" ondragleave="organizerSourceDragHover(event,false)" ondrop="organizerSourceDrop(event)">
                 <button class="btn btn-secondary" onclick="organizerChooseFolder()">📁 选择文件夹</button>
                 <button class="btn btn-primary" onclick="organizerPreview()">🔍 扫描并分析</button>
               </div>
@@ -2768,6 +2805,492 @@
               <span id="organizer-status" class="status-text" style="color:var(--text-secondary); font-size:12px;">仅预览，尚未变更磁盘文件</span>
             </div>
           </div>
+
+          <!-- ========== 本地多窗口整理 ========== -->
+          <div id="media-multiwindow-subtab" class="subtab-content">
+            <section class="panel" id="sort-upload-panel">
+              <div class="su-topbar">
+                <!-- 第一行：工作区控制栏 (Row 1: Workspace Address & Tabs Bar) -->
+                <div class="su-workspace-bar">
+                  <!-- Mode switch -->
+                  <div class="su-mode-switch">
+                    <button class="su-mode-switch-btn" data-mode="upload" style="display:none;" title="上传到 Google Drive">☁️ 上传模式</button>
+                    <button class="su-mode-switch-btn active" data-mode="local-dual" title="用双栏或多宫格窗口整理本地文件">▦ 多窗口整理</button>
+                    <button class="su-mode-switch-btn" data-mode="local-organize" title="纯本地文件整理">📁 本地整理</button>
+                  </div>
+
+                <span class="su-sep"></span>
+
+                <!-- Tab pages -->
+                <div class="su-tab-bar" id="su-tab-bar"></div>
+                <div class="su-tab-dropdown-wrapper" id="su-tab-dropdown-wrapper" style="position: relative; margin-left: 2px; margin-right: 4px; flex-shrink: 0; display: inline-block;">
+                  <button class="su-chip" id="su-tab-dropdown-btn" style="height: 28px; width: 20px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f1f5f9; cursor: pointer; color: #475569;" title="查看所有标签页的目录">▾</button>
+                </div>
+
+                <span class="su-sep"></span>
+
+                <div class="su-address-bar su-location-group">
+                  <div class="su-address-content">
+                    <span class="su-folder-path" id="su-folder-path">未选择文件夹</span>
+                    <div class="su-breadcrumb" id="su-breadcrumb" style="display:none;"></div>
+                  </div>
+                  <span class="su-address-sep"></span>
+                  <button class="su-address-action-btn" id="su-pick-folder" title="选择源文件夹">📂 选择</button>
+                  <button class="su-address-action-btn" id="su-refresh-folder" title="刷新当前文件夹" disabled>🔄</button>
+                </div>
+
+                <span class="su-sep"></span>
+
+                <div class="su-search-group">
+                  <div class="su-file-search-container" style="position:relative; display:inline-block; flex-shrink:0;">
+                    <button class="su-chip" id="su-file-search-toggle-btn" title="搜索文件名" style="height:28px; width:28px; padding:0; display:flex; align-items:center; justify-content:center; font-size:11px; border:1px solid #e2e8f0; border-radius:8px; background:#f1f5f9; cursor:pointer; color:#475569;">🔍</button>
+                    <div class="su-file-search-popup" id="su-file-search-popup" style="display:none; position:absolute; left:0; top:100%; z-index:9999; background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:6px; box-shadow:0 4px 16px rgba(0,0,0,0.12); width:180px; margin-top:4px;">
+                      <input class="su-search" id="su-search" placeholder="搜索文件名..." style="margin:0; width:100%; box-sizing:border-box; padding:4px 8px; font-size:11px; height:24px; border:1px solid #cbd5e1; border-radius:4px; outline:none;" />
+                    </div>
+                  </div>
+                  <select class="su-search su-name-filter" id="su-name-filter" title="按文件名筛选">
+                    <option value="all">名称筛选</option>
+                    <option value="include">名称包含</option>
+                    <option value="exclude">名称排除</option>
+                  </select>
+                  <input class="su-search su-name-filter-input" id="su-name-filter-input" placeholder="输入关键词..." title="多个关键词可用逗号或换行分隔" style="display:none;" />
+                  <select class="su-search su-date-filter" id="su-date-filter" title="日期筛选">
+                    <option value="all">所有日期</option>
+                    <option value="today" selected>今天</option>
+                    <option value="1d">近 1 天</option>
+                    <option value="3d">近 3 天</option>
+                    <option value="7d">近 7 天</option>
+                    <option value="30d">近 1 个月</option>
+                    <option value="60d">近 2 个月</option>
+                    <option value="180d">近 半年</option>
+                    <option value="custom">自定义范围...</option>
+                    <option value="custom-month">指定月份...</option>
+                  </select>
+                  <span class="su-date-custom-wrap" id="su-date-custom-wrap" style="display:none;">
+                    <input type="date" id="su-date-custom-start" class="su-search su-date-input" title="开始日期" />
+                    <span class="su-date-to">至</span>
+                    <input type="date" id="su-date-custom-end" class="su-search su-date-input" title="结束日期" />
+                  </span>
+                  <span class="su-month-custom-wrap" id="su-month-custom-wrap" style="display:none;">
+                    <input type="month" id="su-month-custom-val" class="su-search su-month-input" title="选择月份" />
+                  </span>
+                  <select class="su-search su-sort-order" id="su-sort-order" title="排序方式">
+                    <option value="name-asc">名称 ↑</option>
+                    <option value="name-desc">名称 ↓</option>
+                    <option value="date-desc" selected>时间 ↓</option>
+                    <option value="date-asc">时间 ↑</option>
+                    <option value="size-desc">大小 ↓</option>
+                    <option value="size-asc">大小 ↑</option>
+                  </select>
+                  <button class="su-btn su-btn-sm" id="su-clear-custom-order" title="取消已确认的自定义顺序，让全部文件按上方规则排列">↺ 默认</button>
+                </div>
+
+                <div class="su-view-group">
+                  <div class="su-view-modes">
+                    <button class="su-chip su-view-mode" data-mode="flat" title="平铺模式：递归展开显示所有子文件夹中的文件">☷ 平铺</button>
+                    <button class="su-chip su-view-mode active" data-mode="tree" title="层级模式：按文件夹层级逐层进入浏览">📂 层级</button>
+                  </div>
+                  <span class="su-sep"></span>
+                  <div class="su-slider-container" title="缩略图大小">
+                    <span class="su-slider-icon">🔆</span>
+                    <input type="range" id="su-thumb-size" class="su-thumb-slider" min="80" max="320" value="130" step="10" />
+                  </div>
+                </div>
+
+                <div class="su-source-folders-bar" id="su-source-folders-bar" style="display:none;"></div>
+
+                <!-- 隐藏的拖拽导入区域 (Overlay Drop Zone) -->
+                <div class="su-drop-hint" id="su-drop-zone">
+                  <div class="su-drop-hint-content">
+                    <span class="su-drop-hint-icon">📥</span>
+                    <span>释放文件或文件夹以导入当前列表</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 第二行：操作控制大本营 (Row 2: Command Bar) -->
+              <div class="su-command-bar">
+                <!-- File filters (Images, Videos, etc.) -->
+                <div class="su-filter-group">
+                  <div class="su-chip-group">
+                    <button class="su-chip su-type-chip active" data-type="all">全部</button>
+                    <button class="su-chip su-type-chip" data-type="image">图片</button>
+                    <button class="su-chip su-type-chip" data-type="video">视频</button>
+                    <button class="su-chip su-type-chip" data-type="document">文档</button>
+                    <button class="su-chip su-type-chip" data-type="other">其他</button>
+                  </div>
+                  <span class="su-sep"></span>
+                  <div class="su-select-dropdown" id="su-select-dropdown" style="position:relative;display:inline-block;">
+                    <button class="su-chip" id="su-select-menu-btn">选择 ▾</button>
+                  </div>
+                  <button class="su-chip" id="su-batch-rename-btn" disabled title="自定义顺序、分组到文件夹，也可选择是否批量重命名">↕️ 排序 / 分组</button>
+                  <button class="su-chip su-dedup-chip" id="su-dedup-btn" data-tip="清理完全重复的图片/视频" style="display:none;">🧹 去重</button>
+                </div>
+
+                <span class="su-sep"></span>
+
+                <div class="su-stats-group">
+                  <span class="su-stat-tag select-tag">✓ 已选 <strong id="su-sel-info">0</strong></span>
+                  <span class="su-stat-tag assign-tag">📁 已分配 <strong id="su-assign-info">0</strong></span>
+                  <span class="su-stat-tag unassign-tag">❓ 未分配 <strong id="su-unassign-info">0</strong></span>
+                </div>
+                <div id="su-recent-slots" class="su-recent-slots"></div>
+
+                <span class="su-sep"></span>
+
+                <div class="su-command-scroll">
+                  <!-- 配置参数设置容器 -->
+                  <div class="su-settings-container">
+                    <button class="su-btn su-settings-toggle" id="su-settings-toggle-btn" type="button" title="点击展开高级整理与上传参数设置">⚙️ 整理设置 ▾</button>
+                    <div class="su-settings-popup" id="su-settings-popup" style="display:none;">
+                      <!-- 云端整理设置行 -->
+                      <div class="su-org-bar su-popup-section">
+                        <span class="su-org-title">☁️ Drive上传</span>
+                        <label class="su-toggle-label" data-tip="上传时自动在目标位置创建以命名规则命名的子文件夹">
+                          <input type="checkbox" id="su-cloud-subfolder" checked />
+                          <span>自动建子文件夹</span>
+                        </label>
+                      </div>
+
+                      <!-- 本地整理设置行 -->
+                      <div class="su-org-bar su-popup-section" id="su-local-org-bar" style="display:none; flex-direction:column; align-items:flex-start; gap:10px; border:none; background:transparent; padding:4px 0;">
+                        <span class="su-org-title" style="margin-bottom:2px;">📁 本地整理</span>
+                        
+                        <!-- 第一行：建子文件夹和悬浮放大并排 -->
+                        <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; width:100%;">
+                          <div style="display:flex; align-items:center; gap:6px;">
+                            <label class="su-toggle-label" data-tip="开启后，将在目标分类文件夹内自动创建以当前日期或自定义名称命名的子文件夹">
+                              <input type="checkbox" id="su-local-org-date-sub" />
+                              <span>建子文件夹</span>
+                            </label>
+                            
+                            <div class="su-inline-rule-group">
+                              <select id="su-local-org-subfolder-rule" class="su-select su-subfolder-rule" style="display:none;font-size:11px;padding:2px 4px;height:22px;border:1px solid #cbd5e1;border-radius:4px;" title="子文件夹命名规则">
+                                <option value="date">按日期 (2026-04-26)</option>
+                                <option value="date-cn">按中文日期 (4月26日)</option>
+                                <option value="yearmonth">按年月 (2026-04)</option>
+                                <option value="custom">自定义名称</option>
+                              </select>
+                              <input type="text" id="su-local-org-subfolder-custom" class="su-slot-search su-subfolder-custom" style="display:none;width:110px;margin:0;padding:3px 6px;font-size:11px;height:22px;border:1px solid #cbd5e1;border-radius:4px;" placeholder="输入文件夹名..." />
+                            </div>
+                          </div>
+                          
+                          <label class="su-toggle-label" data-tip="开启后，鼠标悬浮在图片缩略图上会自动弹出大图预览">
+                            <input type="checkbox" id="su-hover-magnify-toggle" />
+                            <span>悬浮放大</span>
+                          </label>
+                        </div>
+
+                        <!-- 第二行：废品箱与同名 -->
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; width:100%; margin-top:4px;">
+                          <span class="su-toggle-label su-readonly-toggle" style="opacity:0.9; display:inline-flex; align-items:center; gap:4px;" data-tip="遇到同名文件或文件夹时，选择对应的冲突处理策略">
+                            <span>📎 同名文件:</span>
+                            <select id="su-local-org-conflict-rule" class="su-select" style="font-size:11px;padding:2px 4px;height:22px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;cursor:pointer;outline:none;" title="同名冲突处理方式">
+                              <option value="rename" selected>自动重命名</option>
+                              <option value="overwrite">覆盖目标</option>
+                              <option value="skip">跳过</option>
+                            </select>
+                          </span>
+                          
+                          <div class="su-waste-container" style="display:flex; align-items:center; gap:4px; border:none; padding:0; background:transparent;">
+                            <span class="su-toggle-label su-waste-label" style="cursor:default; padding:0;" data-tip="点击 ✕ 按钮时，将文件移入此文件夹。未设置时自动在文件旁建 _废品 文件夹">
+                              <span>🗑 废品箱:</span>
+                            </span>
+                            <span id="su-waste-folder-display" class="su-waste-display" style="max-width:110px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11px;">未设置</span>
+                            <button class="su-btn su-btn-sm" id="su-waste-folder-pick" type="button" title="选择废品箱文件夹" style="height:20px; padding:0 6px; font-size:10px;">📂 设置</button>
+                            <button class="su-btn su-btn-sm" id="su-waste-folder-clear" type="button" title="清除废品箱设置" style="display:none; height:20px; padding:0 6px; font-size:10px;">✕</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <span class="su-sep"></span>
+
+                  <div class="su-btn-group">
+                    <button class="su-btn" id="su-unassign-selected" disabled title="仅取消当前选中文件或文件夹的分配">取消所选分配</button>
+                    <button class="su-btn" id="su-clear-assign">清空分配</button>
+                    <button class="su-btn" id="su-folder-upload" title="选择整个文件夹的文件直接上传到指定 Drive 目标">📂 文件夹上传</button>
+                    <button class="su-btn su-btn-primary" id="su-start-upload" disabled>⬆️ 开始上传 (0)</button>
+                    <button class="su-btn su-btn-primary" id="su-local-copy" style="display:none" disabled>📋 复制到目标 (0)</button>
+                    <button class="su-btn su-btn-primary su-btn-warning" id="su-local-move" style="display:none" disabled>📦 移动到目标 (0)</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="su-multi-layout-bar" id="su-multi-layout-bar" hidden>
+              <strong>窗口布局</strong>
+              <button class="su-multi-layout-btn active" data-layout-count="2" title="切换为左右两个文件浏览窗口；中间分隔线可以拖动">双栏</button>
+              <button class="su-multi-layout-btn" data-layout-count="4" title="切换为 2 × 2 四个文件浏览窗口">四宫格</button>
+              <button class="su-multi-layout-btn" data-layout-count="6" title="切换为 3 × 2 六个文件浏览窗口">六宫格</button>
+              <button class="su-multi-layout-btn" data-layout-count="8" title="切换为 4 × 2 八个文件浏览窗口">八宫格</button>
+              <button class="su-multi-layout-btn" data-layout-count="custom" title="自定义窗口数量和每行列数">自定义</button>
+              <button class="su-multi-layout-btn su-multi-layout-reset" id="su-multi-layout-reset" title="恢复当前布局的默认等宽状态；双栏恢复为左右各占一半">↺ 恢复默认</button>
+              <span class="su-sep"></span>
+              <button class="su-multi-layout-btn" id="su-dual-sidebar-toggle-btn" title="在多窗口右侧显示或隐藏本地目标文件夹侧边栏">📁 目标侧边栏</button>
+              <span class="su-sep"></span>
+              <button class="su-multi-layout-btn" id="su-multi-export-config" title="导出全局常用路径和当前宫格、标签页、筛选等配置">📤 导出配置</button>
+              <button class="su-multi-layout-btn" id="su-multi-import-config" title="从 JSON 文件导入常用路径和宫格工作区配置；不会执行文件移动">📥 导入配置</button>
+              <span id="su-multi-layout-summary">2 个窗口</span>
+            </div>
+            <div class="su-dual-transfer-bar su-dual-transfer-bar-top" id="su-dual-transfer-bar-top" hidden>
+              <span class="su-dual-selection-info">原文件窗口未选择项目</span>
+              <button class="su-btn su-btn-primary" data-dual-transfer="copy" disabled title="按照每个项目卡片显示的绑定目标分别复制；原文件保留">📋 按分配复制</button>
+              <button class="su-btn su-btn-primary su-btn-warning" data-dual-transfer="move" disabled title="按照每个项目卡片显示的绑定目标分别移动；原位置不再保留">📦 按分配移动</button>
+              <button class="su-btn su-btn-ghost su-dual-clear-btn" data-dual-transfer="clear-all" disabled title="取消所有已分配项目的目标绑定，不移动或删除文件">✕ 全部取消分配</button>
+            </div>
+            <div class="su-body">
+              <div class="su-file-area" id="su-file-area">
+                <div class="su-empty" id="su-empty">
+                  <div style="font-size:48px;opacity:0.4">📂</div>
+                  <p>点击「选择文件夹」或拖拽文件到此区域</p>
+                </div>
+                <div class="su-file-grid" id="su-file-grid"></div>
+              </div>
+              <div class="su-dual-workspace" id="su-dual-workspace" hidden></div>
+              <div class="su-slot-sidebar">
+                <div class="su-slot-header">
+                  <span>📤 上传卡片</span>
+                  <button class="su-btn su-btn-sm" id="su-batch-edit-btn" title="批量编辑卡片">📋 批量</button>
+                  <button class="su-btn su-btn-sm" id="su-import-sheets-btn" title="从 Google Sheets 导入">📊 导入</button>
+                  <!-- Search toggle wrapper (inline block) -->
+                  <div id="su-search-dropdown-wrap" style="position:relative; display:inline-block;">
+                    <button class="su-btn su-btn-sm" id="su-search-toggle-btn" title="搜索分类" style="padding: 4px 8px;">🔍</button>
+                    <div class="su-search-popup" id="su-search-popup" style="display:none; position:absolute; right:0; top:100%; z-index:9999; background:#fff; border:1px solid #e0e0e0; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.12); padding:6px; min-width:180px; margin-top:4px;">
+                      <input class="su-slot-search" id="su-slot-search" placeholder="🔍 搜索分类..." style="margin:0; width:100%; box-sizing:border-box; padding:4px 8px; font-size:12px; border:1px solid #ddd; border-radius:4px; outline:none;" />
+                    </div>
+                  </div>
+                  <!-- Consolidated Local Organize Actions Dropdown -->
+                  <div id="su-local-action-dropdown" style="display:none; position:relative; display:inline-block;">
+                    <button class="su-btn su-btn-sm" id="su-local-action-btn" style="background:#e8f5e9; color:#2e7d32; border-color:#c8e6c9; font-weight:600;" title="目标文件夹管理操作">目标操作 ▾</button>
+                  </div>
+                  <button class="su-btn su-btn-sm" id="su-show-archived-local-folders" style="display:none" title="查看并恢复已归档的目标文件夹">🗃️ 已归档</button>
+                  <button class="su-btn su-btn-sm" id="su-local-folder-view-toggle" style="display:none" title="切换目标文件夹的列表或网格显示">▦ 网格</button>
+                  <select class="su-local-folder-sort" id="su-local-folder-sort" style="display:none" title="设置各分组内目标文件夹的排序方式">
+                    <option value="added-asc">添加顺序</option>
+                    <option value="added-desc">最新添加</option>
+                    <option value="name-asc">名称 ↑</option>
+                    <option value="name-desc">名称 ↓</option>
+                  </select>
+                  <button class="su-btn su-btn-sm" id="su-refresh-target-folders" style="display:none" title="刷新目标文件夹的缩略图和状态">🔄 刷新</button>
+                  <button class="su-btn su-btn-sm" id="su-dual-sidebar-close-btn" style="display:none" title="收起并隐藏目标文件夹侧边栏">✕ 隐藏</button>
+                  <!-- Consolidated Upload Actions Dropdown -->
+                  <div id="su-upload-action-dropdown" style="display:none; position:relative; display:inline-block;">
+                    <button class="su-btn su-btn-sm" id="su-upload-action-btn" style="background:#e3f2fd; color:#0d47a1; border-color:#bbdefb; font-weight:600;" title="云端目标管理操作">卡片操作 ▾</button>
+                  </div>
+                  <button class="su-btn su-btn-sm" id="su-add-local-folder" style="display:none" title="添加本地目标文件夹">+ 添加文件夹</button>
+                  <button class="su-btn su-btn-sm" id="su-add-local-subfolders" style="display:none" title="自动获取所选文件夹下的子文件夹作为目标文件夹">+ 获取子文件夹</button>
+                  <button class="su-btn su-btn-sm" id="su-export-preset" style="display:none" title="导出目标文件夹预设">📤 导出</button>
+                  <button class="su-btn su-btn-sm" id="su-import-preset" style="display:none" title="导入目标文件夹预设">📥 导入</button>
+                  <button class="su-btn su-btn-sm" id="su-merge-preset" style="display:none" title="选择多个预设文件合并卡片">🔀 合并</button>
+                </div>
+                <div class="su-slot-list" id="su-slot-list"></div>
+              </div>
+            </div>
+            <div class="su-dual-transfer-bar" id="su-dual-transfer-bar" hidden>
+              <span class="su-dual-selection-info">原文件窗口未选择项目</span>
+              <button class="su-btn su-btn-primary" data-dual-transfer="copy" disabled title="按照每个项目卡片显示的绑定目标分别复制；原文件保留">📋 按分配复制</button>
+              <button class="su-btn su-btn-primary su-btn-warning" data-dual-transfer="move" disabled title="按照每个项目卡片显示的绑定目标分别移动；原位置不再保留">📦 按分配移动</button>
+              <button class="su-btn su-btn-ghost su-dual-clear-btn" data-dual-transfer="clear-all" disabled title="取消所有已分配项目的目标绑定，不移动或删除文件">✕ 全部取消分配</button>
+            </div>
+            <!-- 上传进度条 -->
+            <div class="su-progress-bar" id="su-progress-bar" hidden>
+              <div class="su-progress-fill" id="su-progress-fill" style="width:0%"></div>
+            </div>
+            <div class="su-progress-text" id="su-progress-text" hidden></div>
+          </section>
+
+          <!-- ========== 批量编辑卡片弹窗 ========== -->
+          <div class="su-modal-overlay" id="su-batch-modal" hidden>
+            <div class="su-modal">
+              <div class="su-modal-header">
+                <h3>📋 批量编辑上传卡片</h3>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <button class="su-btn su-btn-sm" id="su-batch-paste" title="从剪贴板粘贴表格数据">📋 粘贴</button>
+                  <button class="su-btn su-btn-sm" id="su-batch-add-row">+ 添加行</button>
+                  <button class="su-btn su-btn-sm" id="su-batch-del-rows">🗑 删除选中</button>
+                  <button class="su-btn su-btn-sm su-btn-primary" id="su-batch-save">💾 保存全部</button>
+                  <button class="su-btn su-btn-sm" id="su-batch-close">✕</button>
+                </div>
+              </div>
+              <div class="su-modal-body">
+                <!-- 批量操作工具栏 -->
+                <div class="su-batch-toolbar" id="su-batch-toolbar">
+                  <span class="su-batch-toolbar-label">批量操作 (选中行)：</span>
+                  <div class="su-batch-toolbar-group">
+                    <label>分类</label>
+                    <select id="su-batch-set-main" class="su-batch-set-field"><option value="">--不设--</option></select>
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>子分类</label>
+                    <select id="su-batch-set-sub" class="su-batch-set-field"><option value="">--不设--</option></select>
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>分组</label>
+                    <input type="text" id="su-batch-set-group" class="su-batch-set-input" placeholder="分组名" />
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>头像</label>
+                    <input type="text" id="su-batch-set-avatar" class="su-batch-set-input" placeholder="URL/本地" style="width: 70px;" />
+                    <button class="su-btn su-btn-sm" id="su-batch-pick-avatar" style="padding: 0 4px; height: 26px; border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; background: #f0f0f0;" title="选择本地图片">🖼️</button>
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>模式</label>
+                    <select id="su-batch-set-mode" class="su-batch-set-field">
+                      <option value="">--不设--</option>
+                      <option value="library">入库</option>
+                      <option value="custom-link">自定义</option>
+                    </select>
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>任务类型</label>
+                    <select id="su-batch-set-tasktype" class="su-batch-set-field"><option value="">--不设--</option></select>
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>命名规则</label>
+                    <select id="su-batch-set-naming" class="su-batch-set-field"><option value="">--不设--</option></select>
+                  </div>
+                  <div class="su-batch-toolbar-group">
+                    <label>文件夹命名</label>
+                    <select id="su-batch-set-foldernaming" class="su-batch-set-field"><option value="">--不设--</option></select>
+                  </div>
+                  <button class="su-btn su-btn-sm su-btn-primary" id="su-batch-apply-fields" title="将上方选择的值应用到所有勾选的行">✓ 应用到选中行</button>
+                  <span class="su-batch-sep"></span>
+                  <button class="su-btn su-btn-sm" id="su-batch-paste-links" title="批量粘贴多条 Google Drive 文件夹链接，每行一条，自动分配到选中行或从第一行开始">📋 批量粘贴链接</button>
+                  <button class="su-btn su-btn-sm" id="su-batch-add-multi" title="一次添加多行">+ 批量添加行</button>
+                  <span class="su-batch-sep"></span>
+                  <label class="su-toggle-label" data-tip="隐藏非必填列，只显示带 * 的必填项">
+                    <input type="checkbox" id="su-batch-hide-optional" />
+                    <span class="su-toggle-text">仅必填</span>
+                  </label>
+                </div>
+                <div class="su-batch-table-wrap">
+                  <table class="su-batch-table" id="su-batch-table">
+                    <colgroup>
+                      <col class="col-check" />
+                      <col class="col-group su-col-optional" />
+                      <col class="col-avatar su-col-optional" />
+                      <col class="col-name" />
+                      <col class="col-mode" />
+                      <col class="col-link su-col-custom" />
+                      <col class="col-skip su-col-optional" />
+                      <col class="col-tasktype" />
+                      <col class="col-extra su-col-optional" />
+                      <col class="col-page su-col-optional" />
+                      <col class="col-admin su-col-optional" />
+                      <col class="col-cat su-col-lib" />
+                      <col class="col-subcat su-col-lib" />
+                      <col class="col-naming su-col-lib su-col-optional" />
+                      <col class="col-foldernaming su-col-lib su-col-optional" />
+                      <col class="col-subject su-col-lib su-col-optional" />
+                      <col class="col-event su-col-lib su-col-optional" />
+                      <col class="col-dist su-col-lib su-col-optional" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th><input type="checkbox" id="su-batch-check-all" /></th>
+                        <th class="su-col-optional">分组</th>
+                        <th class="su-col-optional">头像</th>
+                        <th>卡片名称 <span class="su-required">*</span></th>
+                        <th>模式 <span class="su-required">*</span></th>
+                        <th class="su-col-custom">目标链接 <span class="su-required">*</span></th>
+                        <th class="su-col-optional">跳过</th>
+                        <th>任务类型 <span class="su-required">*</span></th>
+                        <th class="su-col-optional">专页链接</th>
+                        <th class="su-col-optional">专页名称</th>
+                        <th class="su-col-optional">管理员</th>
+                        <th class="su-col-lib">分类 <span class="su-required">*</span></th>
+                        <th class="su-col-lib">子分类 <span class="su-required">*</span></th>
+                        <th class="su-col-lib su-col-optional">命名规则</th>
+                        <th class="su-col-lib su-col-optional">文件夹命名</th>
+                        <th class="su-col-lib su-col-optional">主题</th>
+                        <th class="su-col-lib su-col-optional">事件名称</th>
+                        <th class="su-col-lib su-col-optional">分发方式</th>
+                      </tr>
+                    </thead>
+                    <tbody id="su-batch-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== 批量编辑本地目标文件夹弹窗 ========== -->
+          <div class="su-modal-overlay" id="su-local-batch-modal" hidden>
+            <div class="su-modal" style="max-width: 1000px;">
+              <div class="su-modal-header">
+                <h3>📁 批量管理本地目标文件夹</h3>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <button class="su-btn su-btn-sm" id="su-local-batch-add-row">+ 添加行</button>
+                  <button class="su-btn su-btn-sm" id="su-local-batch-del-rows">🗑 删除选中</button>
+                  <button class="su-btn su-btn-sm su-btn-primary" id="su-local-batch-save">💾 保存全部</button>
+                  <button class="su-btn su-btn-sm" id="su-local-batch-close">✕</button>
+                </div>
+              </div>
+              <div class="su-modal-body">
+                <div class="su-batch-table-wrap">
+                  <table class="su-batch-table" id="su-local-batch-table">
+                    <colgroup>
+                      <col class="col-check" style="width: 40px;" />
+                      <col class="col-group" style="width: 120px;" />
+                      <col class="col-avatar" style="width: 120px;" />
+                      <col class="col-name" style="width: 180px;" />
+                      <col class="col-path" />
+                      <col class="col-subrule" style="width: 130px;" />
+                      <col class="col-subcustom" style="width: 130px;" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th><input type="checkbox" id="su-local-batch-check-all" /></th>
+                        <th>分组</th>
+                        <th>头像</th>
+                        <th>显示名称 <span class="su-required">*</span></th>
+                        <th>本地磁盘物理路径 <span class="su-required">*</span></th>
+                        <th>子文件夹规则</th>
+                        <th>自定义规则内容</th>
+                      </tr>
+                    </thead>
+                    <tbody id="su-local-batch-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== Sheets 导入弹窗 ========== -->
+          <div class="su-modal-overlay" id="su-sheets-modal" hidden>
+            <div class="su-modal" style="max-width:560px">
+              <div class="su-modal-header">
+                <h3>📊 从 Google Sheets 导入</h3>
+                <button class="su-btn su-btn-sm" id="su-sheets-close">✕</button>
+              </div>
+              <div class="su-modal-body">
+                <div class="su-sheets-form">
+                  <label>Google Sheets 链接：</label>
+                  <input class="su-input" id="su-sheets-url" placeholder="粘贴 Google Sheets 链接..." />
+                  <label>工作表名称（可选）：</label>
+                  <input class="su-input" id="su-sheets-tab" placeholder="默认读取第一个工作表" />
+                  <p class="su-sheets-hint">
+                    表格格式：第一行为标题行，支持的列名：<br/>
+                    分类名称、子分类、分组、模式、目标链接、显示名称、头像、专页链接<br/>
+                    模式可选值：入库、自定义<br/>
+                    头像列支持：图片URL 或 =IMAGE("url") 公式
+                  </p>
+                  <div style="display:flex;gap:8px;margin-top:12px">
+                    <button class="su-btn" id="su-sheets-preview">预览数据</button>
+                    <button class="su-btn su-btn-primary" id="su-sheets-import" disabled>确认导入</button>
+                  </div>
+                  <div id="su-sheets-preview-area" class="su-sheets-preview" hidden></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== 头像放大预览弹窗 ========== -->
+          <div class="su-modal-overlay" id="su-avatar-preview-modal" hidden style="cursor: zoom-out;" onclick="this.hidden=true">
+            <img id="su-avatar-preview-img" src="" style="max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: white; object-fit: contain;" />
+          </div>
+        </div>
 
           <!-- ========== 批量重命名工具 ========== -->
           <div id="media-batchrename-subtab" class="subtab-content">
@@ -3715,7 +4238,7 @@
 
                     <!-- 项目 -->
                     <div style="padding:4px 12px;font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">项目管理</div>
-                    <div class="reels-dropdown-item" onclick="reelsSaveProject()">💾 保存项目</div>
+                    <div class="reels-dropdown-item" onclick="reelsSaveProject(event)">💾 保存项目</div>
                     <div class="reels-dropdown-item" onclick="reelsLoadProject()">📂 加载项目</div>
 
                     <div style="border-top:1px solid var(--border-color);margin:4px 0;"></div>
@@ -3833,6 +4356,7 @@
                           <span style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">-- 改全部样式 --</span>
                           <span style="font-size:10px;">▼</span>
                       </div>
+                      <button type="button" class="btn btn-secondary" style="padding:2px 7px;font-size:11px;white-space:nowrap;" title="打开动态字幕预设库" onclick="typeof reelsOpenSubtitlePresetLibrary === 'function' && reelsOpenSubtitlePresetLibrary()">预设库</button>
                       <input type="hidden" id="reels-preset-select" value="">
                     </div>
                     <div class="param-row" style="flex-wrap: wrap; gap: 8px; margin-top: 6px;">
@@ -3931,11 +4455,13 @@
                         <label style="margin:0;">文字:</label>
                         <input type="color" id="reels-color-text" value="#FFFFFF"
                           style="width: 36px; height: 28px; border: none; cursor: pointer;"
-                          onchange="var e=document.getElementById('reels-ambient-text-color'); if(e)e.value=this.value; reelsUpdatePreview()">
+                          onchange="var e=document.getElementById('reels-ambient-text-color'); if(e)e.value=this.value; if(!this._settingFromGradient){delete this.dataset.gradientValue;} if(typeof _syncSubtitleGradientSwatch==='function')_syncSubtitleGradientSwatch(this,document.getElementById('reels-color-text-gradient-btn')); reelsUpdatePreview()">
+                        <button type="button" id="reels-color-text-gradient-btn" class="btn btn-secondary" style="font-size:11px; padding:2px 6px; height:28px; display:inline-flex; align-items:center; gap:2px;" title="文字渐变色 (支持多节点自定义)">🌈</button>
                         <label style="margin:0;">高亮:</label>
                         <input type="color" id="reels-color-high" value="#FFD700"
                           style="width: 36px; height: 28px; border: none; cursor: pointer;"
-                          onchange="reelsUpdatePreview()">
+                          onchange="if(!this._settingFromGradient){delete this.dataset.gradientValue;} if(typeof _syncSubtitleGradientSwatch==='function')_syncSubtitleGradientSwatch(this,document.getElementById('reels-color-high-gradient-btn')); reelsUpdatePreview()">
+                        <button type="button" id="reels-color-high-gradient-btn" class="btn btn-secondary" style="font-size:11px; padding:2px 6px; height:28px; display:inline-flex; align-items:center; gap:2px;" title="高亮渐变色 (支持多节点自定义)">🌈</button>
                       </div>
                           </div>
                         </div>
@@ -6882,15 +7408,17 @@ THE HOLY	This is no coincidence...</div>
   <script src="reels-preset-thumb.js"></script>
   <script src="reels-audio-spectrum.js"></script>
   <script src="reels-video-canvas.js"></script>
+  <script src="reels-gradient-picker.js"></script>
   <script src="reels-rich-text.js"></script>
   <script src="reels-richtext-editor.js"></script>
   <script src="reels-timeline-editor.js"></script>
-  <script src="reels-overlay-panel.js"></script>
+  <script src="reels-overlay-panel.js?v=20260911-preset-gallery-4"></script>
   <script src="reels-task-derivation.js"></script>
   <script src="reels-bulk-create.js"></script>
   <script src="reels-batch-table.js"></script>
   <script src="batch-reels.js"></script>
   <script src="reels-preview-v2.js"></script>
+  <script src="sort-upload.js"></script>
   <script src="app.js"></script>
   <script src="voiceover-workflow.js"></script>
 </body>

@@ -2605,6 +2605,9 @@ function _readStyleFromUI() {
     const val = (id) => {
         const el = get(id);
         if (!el) return '';
+        if (el.dataset?.gradientValue) {
+            return el.dataset.gradientValue;
+        }
         if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
             return el.value;
         }
@@ -2641,7 +2644,9 @@ function _readStyleFromUI() {
 
         // Colors
         color_text: val('reels-color-text') || '#FFFFFF',
+        text_gradient_direction: get('reels-color-text')?.dataset?.gradientDirection || 'horizontal',
         color_high: val('reels-color-high') || '#FFD700',
+        high_gradient_direction: get('reels-color-high')?.dataset?.gradientDirection || 'horizontal',
 
         // Stroke
         use_stroke: chk('reels-use-stroke'),
@@ -3053,8 +3058,35 @@ function _writeStyleToUI(style) {
     set('reels-letter-spacing', style.letter_spacing || 0);
     set('reels-text-direction', style.text_direction || 'auto');
     reelsRefreshSubtitleWeightOptions();
-    set('reels-color-text', style.color_text || '#FFFFFF');
-    set('reels-color-high', style.color_high || '#FFD700');
+    const colorTextEl = document.getElementById('reels-color-text');
+    if (colorTextEl) {
+        if (style.color_text && style.color_text.includes(',')) {
+            colorTextEl.dataset.gradientValue = style.color_text;
+            colorTextEl.value = style.color_text.split(',')[0].trim();
+        } else {
+            delete colorTextEl.dataset.gradientValue;
+            colorTextEl.value = style.color_text || '#FFFFFF';
+        }
+        colorTextEl.dataset.gradientDirection = style.text_gradient_direction || 'horizontal';
+        if (typeof _syncSubtitleGradientSwatch === 'function') {
+            _syncSubtitleGradientSwatch(colorTextEl, document.getElementById('reels-color-text-gradient-btn'));
+        }
+    }
+
+    const colorHighEl = document.getElementById('reels-color-high');
+    if (colorHighEl) {
+        if (style.color_high && style.color_high.includes(',')) {
+            colorHighEl.dataset.gradientValue = style.color_high;
+            colorHighEl.value = style.color_high.split(',')[0].trim();
+        } else {
+            delete colorHighEl.dataset.gradientValue;
+            colorHighEl.value = style.color_high || '#FFD700';
+        }
+        colorHighEl.dataset.gradientDirection = style.high_gradient_direction || 'horizontal';
+        if (typeof _syncSubtitleGradientSwatch === 'function') {
+            _syncSubtitleGradientSwatch(colorHighEl, document.getElementById('reels-color-high-gradient-btn'));
+        }
+    }
     setChk('reels-use-stroke', style.use_stroke !== false);
     set('reels-stroke-color', style.color_outline || '#3E2723');
     set('reels-stroke-width', style.border_width || 3);
@@ -4441,8 +4473,291 @@ document.addEventListener('DOMContentLoaded', () => {
         _reelsRefreshWatermarkUI();
         _refreshWatermarkPresetList();
         _initAllSubtitleNumberInputsDrag();
+        _initSubtitleGradientPickers();
     }, 500);
 });
+
+function _syncSubtitleGradientSwatch(colorEl, btn) {
+    if (!colorEl) return;
+    const gradVal = colorEl.dataset?.gradientValue;
+    const direction = colorEl.dataset?.gradientDirection || 'horizontal';
+
+    // 1. Locate wrapper or parent
+    let wrap = null;
+    try {
+        if (typeof colorEl.closest === 'function') {
+            wrap = colorEl.closest('.vk-color-picker-wrap');
+        }
+    } catch (_) {}
+    if (!wrap && colorEl.parentElement) {
+        wrap = colorEl.parentElement;
+    }
+    if (wrap && typeof window !== 'undefined' && window.getComputedStyle) {
+        try {
+            if (getComputedStyle(wrap).position === 'static') {
+                wrap.style.position = 'relative';
+            }
+        } catch (_) {}
+    }
+
+    // 2. Locate or create overlay preview badge
+    let overlay = null;
+    try {
+        if (wrap && typeof wrap.querySelector === 'function') {
+            overlay = wrap.querySelector(':scope > .vk-gradient-swatch-badge') || wrap.querySelector('.vk-gradient-swatch-badge');
+        }
+    } catch (_) {}
+
+    if (!overlay && wrap && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+        try {
+            overlay = document.createElement('div');
+            overlay.className = 'vk-gradient-swatch-badge';
+            overlay.style.display = 'none';
+            if (typeof overlay.addEventListener === 'function') {
+                overlay.addEventListener('click', (e) => {
+                    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+                    if (btn && typeof btn.click === 'function') btn.click();
+                });
+            }
+            if (typeof wrap.insertBefore === 'function') {
+                wrap.insertBefore(overlay, colorEl.nextSibling);
+            } else if (typeof wrap.appendChild === 'function') {
+                wrap.appendChild(overlay);
+            }
+        } catch (_) {}
+    }
+
+    if (gradVal && gradVal.includes(',')) {
+        const colors = gradVal.split(',').map(c => c.trim()).filter(Boolean);
+        const dirAngle = direction === 'horizontal' ? 'to right' : (direction === 'diagonal' ? '135deg' : 'to bottom');
+        const dirLabel = direction === 'horizontal' ? '水平渐变' : (direction === 'diagonal' ? '对角渐变' : '垂直渐变');
+        const gradCss = `linear-gradient(${dirAngle}, ${colors.join(', ')})`;
+
+        // 3. Update overlay swatch
+        if (overlay && overlay.style) {
+            overlay.style.display = 'block';
+            overlay.style.background = gradCss;
+            overlay.title = `已启用${dirLabel} (${colors.length}色: ${colors.join(' → ')})\n点击编辑渐变色`;
+            const w = colorEl.offsetWidth || 36;
+            const h = colorEl.offsetHeight || 28;
+            overlay.style.width = w + 'px';
+            overlay.style.height = h + 'px';
+            overlay.style.left = (colorEl.offsetLeft || 0) + 'px';
+            overlay.style.top = (colorEl.offsetTop || 0) + 'px';
+        }
+
+        // Webkit swatch fallback
+        if (colorEl.classList && typeof colorEl.classList.add === 'function') {
+            colorEl.classList.add('vk-has-gradient');
+        }
+        if (colorEl.style && typeof colorEl.style.setProperty === 'function') {
+            colorEl.style.setProperty('--vk-gradient-preview', gradCss);
+        }
+
+        // 4. Update button badge
+        if (btn) {
+            if (btn.classList && typeof btn.classList.add === 'function') {
+                btn.classList.add('vk-gradient-btn-active');
+            }
+            btn.innerHTML = `🌈 <span class="vk-grad-direction-tag" style="font-size:11px; font-weight:600;">${dirLabel}</span><span class="vk-grad-clear-btn" title="取消渐变，恢复为纯色">×</span>`;
+            btn.title = `已启用${dirLabel} (${colors.length}色: ${colors.join(' → ')})\n点击编辑渐变，点击 × 恢复纯色`;
+
+            const clearBtn = typeof btn.querySelector === 'function' ? btn.querySelector('.vk-grad-clear-btn') : null;
+            if (clearBtn && typeof clearBtn.addEventListener === 'function') {
+                clearBtn.addEventListener('click', (e) => {
+                    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+                    if (colorEl.dataset) delete colorEl.dataset.gradientValue;
+                    _syncSubtitleGradientSwatch(colorEl, btn);
+                    if (typeof colorEl.dispatchEvent === 'function') {
+                        colorEl.dispatchEvent(new Event('input', { bubbles: true }));
+                        colorEl.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    if (typeof _persistSubtitleStyleByScope === 'function') {
+                        _persistSubtitleStyleByScope(_readStyleFromUI());
+                    }
+                    if (typeof window !== 'undefined' && typeof window.reelsSaveHistory === 'function') {
+                        window.reelsSaveHistory();
+                    }
+                    if (typeof window !== 'undefined' && typeof window.reelsUpdatePreview === 'function') {
+                        window.reelsUpdatePreview();
+                    }
+                });
+            }
+        }
+    } else {
+        // Solid color mode
+        if (overlay && overlay.style) {
+            overlay.style.display = 'none';
+        }
+        if (colorEl.classList && typeof colorEl.classList.remove === 'function') {
+            colorEl.classList.remove('vk-has-gradient');
+        }
+        if (colorEl.style && typeof colorEl.style.removeProperty === 'function') {
+            colorEl.style.removeProperty('--vk-gradient-preview');
+        }
+
+        if (btn) {
+            if (btn.classList && typeof btn.classList.remove === 'function') {
+                btn.classList.remove('vk-gradient-btn-active');
+            }
+            btn.innerHTML = '🌈';
+            btn.title = (btn.id && btn.id.includes('high')) ? '高亮渐变色 (支持多节点自定义)' : '文字渐变色 (支持多节点自定义)';
+        }
+    }
+}
+
+function _initSubtitleGradientPickers() {
+    const btnText = document.getElementById('reels-color-text-gradient-btn');
+    const colorTextEl = document.getElementById('reels-color-text');
+    if (btnText && colorTextEl && !btnText.dataset.bound) {
+        btnText.dataset.bound = '1';
+
+        if (!colorTextEl._gradClickBound) {
+            colorTextEl._gradClickBound = true;
+            colorTextEl.addEventListener('click', (e) => {
+                if (colorTextEl.dataset.gradientValue && colorTextEl.dataset.gradientValue.includes(',')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    btnText.click();
+                }
+            });
+        }
+
+        colorTextEl.addEventListener('input', (e) => {
+            if (e.isTrusted && !colorTextEl._settingFromGradient) {
+                delete colorTextEl.dataset.gradientValue;
+                _syncSubtitleGradientSwatch(colorTextEl, btnText);
+            }
+        });
+
+        btnText.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!window.ReelsGradientPicker) return;
+            const currentVal = colorTextEl.dataset.gradientValue || colorTextEl.value || '#FFFFFF';
+            const curDir = colorTextEl.dataset.gradientDirection || 'horizontal';
+            window.ReelsGradientPicker.open({
+                title: '字幕文字渐变色',
+                value: currentVal,
+                direction: curDir,
+                anchorEl: btnText,
+                onChange: ({ value, direction }) => {
+                    colorTextEl._settingFromGradient = true;
+                    try {
+                        if (value.includes(',')) {
+                            colorTextEl.dataset.gradientValue = value;
+                            colorTextEl.value = value.split(',')[0].trim();
+                        } else {
+                            delete colorTextEl.dataset.gradientValue;
+                            colorTextEl.value = value;
+                        }
+                        colorTextEl.dataset.gradientDirection = direction;
+
+                        const ambient = document.getElementById('reels-ambient-text-color');
+                        if (ambient) ambient.value = colorTextEl.value;
+
+                        _syncSubtitleGradientSwatch(colorTextEl, btnText);
+
+                        // 1. 立即持久化字幕样式到当前任务/全局
+                        if (typeof _persistSubtitleStyleByScope === 'function') {
+                            _persistSubtitleStyleByScope(_readStyleFromUI());
+                        }
+
+                        // 2. 触发 input 事件通知样式修改并解除预设锁定
+                        colorTextEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+                        // 3. 记录历史操作
+                        if (typeof window.reelsSaveHistory === 'function') {
+                            window.reelsSaveHistory();
+                        }
+
+                        // 4. 实时刷新预览
+                        if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
+                    } finally {
+                        colorTextEl._settingFromGradient = false;
+                    }
+                }
+            });
+        });
+
+        _syncSubtitleGradientSwatch(colorTextEl, btnText);
+    }
+
+    const btnHigh = document.getElementById('reels-color-high-gradient-btn');
+    const colorHighEl = document.getElementById('reels-color-high');
+    if (btnHigh && colorHighEl && !btnHigh.dataset.bound) {
+        btnHigh.dataset.bound = '1';
+
+        if (!colorHighEl._gradClickBound) {
+            colorHighEl._gradClickBound = true;
+            colorHighEl.addEventListener('click', (e) => {
+                if (colorHighEl.dataset.gradientValue && colorHighEl.dataset.gradientValue.includes(',')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    btnHigh.click();
+                }
+            });
+        }
+
+        colorHighEl.addEventListener('input', (e) => {
+            if (e.isTrusted && !colorHighEl._settingFromGradient) {
+                delete colorHighEl.dataset.gradientValue;
+                _syncSubtitleGradientSwatch(colorHighEl, btnHigh);
+            }
+        });
+
+        btnHigh.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!window.ReelsGradientPicker) return;
+            const currentVal = colorHighEl.dataset.gradientValue || colorHighEl.value || '#FFD700';
+            const curDir = colorHighEl.dataset.gradientDirection || 'horizontal';
+            window.ReelsGradientPicker.open({
+                title: '高亮文字渐变色',
+                value: currentVal,
+                direction: curDir,
+                anchorEl: btnHigh,
+                onChange: ({ value, direction }) => {
+                    colorHighEl._settingFromGradient = true;
+                    try {
+                        if (value.includes(',')) {
+                            colorHighEl.dataset.gradientValue = value;
+                            colorHighEl.value = value.split(',')[0].trim();
+                        } else {
+                            delete colorHighEl.dataset.gradientValue;
+                            colorHighEl.value = value;
+                        }
+                        colorHighEl.dataset.gradientDirection = direction;
+
+                        _syncSubtitleGradientSwatch(colorHighEl, btnHigh);
+
+                        // 1. 立即持久化字幕样式到当前任务/全局
+                        if (typeof _persistSubtitleStyleByScope === 'function') {
+                            _persistSubtitleStyleByScope(_readStyleFromUI());
+                        }
+
+                        // 2. 触发 input 事件通知样式修改并解除预设锁定
+                        colorHighEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+                        // 3. 记录历史操作
+                        if (typeof window.reelsSaveHistory === 'function') {
+                            window.reelsSaveHistory();
+                        }
+
+                        // 4. 实时刷新预览
+                        if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
+                    } finally {
+                        colorHighEl._settingFromGradient = false;
+                    }
+                }
+            });
+        });
+
+        _syncSubtitleGradientSwatch(colorHighEl, btnHigh);
+    }
+}
 
 function _initAllSubtitleNumberInputsDrag() {
     const container = document.getElementById('inspector-tab-subtitle');
@@ -8608,7 +8923,13 @@ function reelsSelectTask(idx) {
     const audio = document.getElementById('reels-preview-audio');
     const playBtn = document.getElementById('reels-preview-play');
     const placeholder = document.getElementById('reels-preview-placeholder');
-    const previewBg = _resolvePreviewBackgroundPath(task);
+    let previewBg = _resolvePreviewBackgroundPath(task);
+    // 编辑覆层预设时的辅助背景只在这一处实时预览使用；不修改 task，
+    // 因而不会保存到预设或影响正式导出。
+    const overlayPresetPreview = _reelsState._overlayPresetPreviewBackground;
+    if (overlayPresetPreview?.path && overlayPresetPreview.taskIndex === _reelsState.selectedIdx) {
+        previewBg = { path: overlayPresetPreview.path, isMulti: false, temporary: true };
+    }
     const bgPath = previewBg.path;
     // Safety: if bgSrcUrl/srcUrl is a file:// URL that doesn't correspond to the
     // current bgPath, it's stale (left over from a previous file assignment). Clear it
@@ -9760,6 +10081,159 @@ function reelsOpenSubtitlePresetPicker(anchorEl) {
     window._openStyledPresetPicker(anchorEl, currentVal, (selectedVal) => {
         if (hiddenInput) {
             hiddenInput.value = selectedVal || '';
+            const scope = typeof _getSubtitleStyleScope === 'function' ? _getSubtitleStyleScope() : 'task';
+            const targets = scope === 'all' ? (_reelsState.tasks || []) : (scope === 'folder' ? _getCurrentReelsGroupTasks() : [_getSelectedTask()].filter(Boolean));
+            targets.forEach(t => { t._subtitlePreset = ''; });
+            if (typeof reelsLoadPresetQuick === 'function') reelsLoadPresetQuick();
+            else if (typeof reelsLoadPreset === 'function') reelsLoadPreset();
+        }
+        const span = anchorEl.querySelector('span');
+        if (span) span.textContent = selectedVal || '-- 改全部样式 --';
+    });
+}
+window.reelsOpenSubtitlePresetPicker = reelsOpenSubtitlePresetPicker;
+
+// 预设分组统一选择器：已有分组一键选择，也可输入新分组。
+function reelsChoosePresetGroup(title, currentGroup = '我的预设', groups = []) {
+    return new Promise(resolve => {
+        const current = String(currentGroup || '我的预设').trim() || '我的预设';
+        const options = [...new Set((groups || []).map(group => String(group || '').trim()).filter(Boolean))];
+        if (!options.includes(current)) options.unshift(current);
+        const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;';
+        overlay.innerHTML = `<div style="width:min(420px,calc(100vw - 36px));box-sizing:border-box;padding:22px;border-radius:12px;background:var(--bg-primary,#1e1e2e);border:1px solid var(--border-color,#4b5563);box-shadow:0 14px 40px rgba(0,0,0,.45);color:var(--text-primary,#fff);"><div style="font-size:16px;font-weight:700;margin-bottom:14px;">${escape(title)}</div><label style="display:block;font-size:12px;color:var(--text-secondary,#aab);margin-bottom:5px;">已有分组</label><select class="rpg-select" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid var(--border-color,#555);background:var(--bg-secondary,#28283b);color:var(--text-primary,#fff);font-size:14px;">${options.map(group => `<option value="${escape(group)}" ${group === current ? 'selected' : ''}>${escape(group)}</option>`).join('')}<option value="__new__">＋ 新建分组…</option></select><input class="rpg-new" type="text" placeholder="输入新分组名称" style="display:none;width:100%;box-sizing:border-box;margin-top:9px;padding:8px 10px;border-radius:6px;border:1px solid var(--border-color,#555);background:var(--bg-secondary,#28283b);color:var(--text-primary,#fff);font-size:14px;"><div style="display:flex;justify-content:flex-end;gap:9px;margin-top:18px;"><button class="rpg-cancel" style="padding:7px 16px;border-radius:6px;border:1px solid var(--border-color,#555);background:transparent;color:var(--text-secondary,#aab);cursor:pointer;">取消</button><button class="rpg-ok" style="padding:7px 16px;border:0;border-radius:6px;background:var(--accent-primary,#5b6abf);color:#fff;cursor:pointer;">确定</button></div></div>`;
+        document.body.appendChild(overlay);
+        const select = overlay.querySelector('.rpg-select');
+        const input = overlay.querySelector('.rpg-new');
+        const close = value => { overlay.remove(); resolve(value); };
+        select.onchange = () => { input.style.display = select.value === '__new__' ? '' : 'none'; if (select.value === '__new__') input.focus(); };
+        overlay.querySelector('.rpg-cancel').onclick = () => close(null);
+        overlay.querySelector('.rpg-ok').onclick = () => close(select.value === '__new__' ? (input.value || '').trim() : select.value);
+        overlay.onclick = event => { if (event.target === overlay) close(null); };
+    });
+}
+window.reelsChoosePresetGroup = reelsChoosePresetGroup;
+
+function reelsOpenSubtitlePresetLibrary() {
+    if (!window.ReelsStyleEngine?.getPresetsByCategory) return;
+    const hiddenInput = document.getElementById('reels-preset-select');
+    const { categorized = [], presetsMap = {} } = window.ReelsStyleEngine.getPresetsByCategory();
+    const myPresetNames = categorized.find(group => group.category === '💾 我的预设')?.names || [];
+    const modal = document.createElement('div');
+    modal.className = 'reels-subtitle-preset-library';
+    const groups = categorized.map(g => `<button data-group="${String(g.category).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}">${String(g.category).replace(/</g,'&lt;')} <small>${g.names.length}</small></button>`).join('');
+    const previewStyles = [];
+    const cards = categorized.flatMap(g => g.names.map(name => {
+        const style = presetsMap[name] || {};
+        const custom = g.category.startsWith('💾');
+        const title = String(name).replace(/</g,'&lt;');
+        const animated = style.anim_in_type && style.anim_in_type !== 'none' || style.dynamic_box || style.karaoke_highlight || style.word_pop;
+        const previewIndex = previewStyles.push(style) - 1;
+        // 画布显示时缩小，但渲染仍使用成片的 1080×1920 坐标系，保证预设
+        // 内保存的像素字号、X/Y 坐标与最终导出完全一致。
+        return `<article class="rsp-card" data-animated="${animated ? 'true' : 'false'}" data-group="${String(g.category).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" data-name="${String(name).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"><canvas class="rsp-preview-canvas" width="360" height="640" data-preview-index="${previewIndex}" aria-label="${title} 的字幕效果预览"></canvas><div class="rsp-name">${title}</div><div class="rsp-group">${String(g.category).replace(/</g,'&lt;')}${animated ? ' · 悬浮播放' : ''}</div><button class="rsp-use">选用</button>${custom ? '<button class="rsp-move-group">分组</button><button class="rsp-delete">删除</button>' : ''}</article>`;
+    })).join('');
+    modal.innerHTML = `<div class="rsp-shell"><header><h2>动态字幕预设库</h2><div style="display:flex;align-items:center;gap:10px;"><button class="rsp-clear-mine" ${myPresetNames.length ? '' : 'disabled'} title="只删除“我的预设”分组，不影响内置预设、模板同步或覆层预设">清空我的预设</button><button class="rsp-close">✕</button></div></header><div class="rsp-main"><aside><button data-group="all" class="active">全部预设</button>${groups}</aside><section><div class="rsp-grid">${cards || '<p>暂无预设</p>'}</div></section></div></div>`;
+    document.body.appendChild(modal);
+    // 卡片预览与导出/编辑面板使用同一个 Canvas 渲染器。悬浮时从 0 秒
+    // 重新播放，因而展示的是每套预设本身的入场、逐词、卡拉 OK 等真实效果。
+    // 静态卡片只看第一句最终版式；悬浮时按连续多条 SRT 播放，方便判断
+    // 逐词、入场、退场以及相邻字幕切换的真实效果。
+    const previewSegments = [
+        { start: 0, end: 3, text: '示例 字幕 动画 预览', words: [
+            { word: '示例', start: 0, end: 0.75 }, { word: '字幕', start: 0.75, end: 1.5 },
+            { word: '动画', start: 1.5, end: 2.25 }, { word: '预览', start: 2.25, end: 3 },
+        ] },
+        { start: 3, end: 6, text: '悬浮 即可 预览 效果', words: [
+            { word: '悬浮', start: 3, end: 3.75 }, { word: '即可', start: 3.75, end: 4.5 },
+            { word: '预览', start: 4.5, end: 5.25 }, { word: '效果', start: 5.25, end: 6 },
+        ] },
+        { start: 6, end: 9, text: '最终 位置 保持 不变', words: [
+            { word: '最终', start: 6, end: 6.75 }, { word: '位置', start: 6.75, end: 7.5 },
+            { word: '保持', start: 7.5, end: 8.25 }, { word: '不变', start: 8.25, end: 9 },
+        ] },
+    ];
+    const previewSegment = previewSegments[0];
+    const previewDuration = previewSegments[previewSegments.length - 1].end;
+    const activePreviewFrames = new Set();
+    const staticPreviewTime = previewSegment.end - 0.05;
+    const stopPreviewFrames = () => {
+        activePreviewFrames.forEach(id => cancelAnimationFrame(id));
+        activePreviewFrames.clear();
+    };
+    modal.querySelectorAll('.rsp-preview-canvas').forEach(canvas => {
+        const style = previewStyles[Number(canvas.dataset.previewIndex)] || {};
+        if (!window.ReelsCanvasRenderer) return;
+        const renderer = new window.ReelsCanvasRenderer(canvas);
+        // 全页打字机、滚动等字幕预设会读取整条 SRT 上下文；没有这一步会
+        // 只剩光标或空画布，而不是最终成片中的字幕。
+        renderer.setContextSegments(previewSegments);
+        const ctx = canvas.getContext('2d');
+        const outputWidth = 1080;
+        const outputHeight = 1920;
+        const renderScale = canvas.width / outputWidth;
+        // 卡片静止时必须是“动画完成后的成片样子”，不能停在淡入/淡出的
+        // 半透明中间帧。悬浮时才使用原始动画配置与真实 SRT 时间轴。
+        const finalStyle = {
+            ...style,
+            anim_in_type: 'none',
+            anim_out_type: 'none',
+            dynamic_box: false,
+            karaoke_highlight: false,
+            word_pop: false,
+            fullpage_typewriter: false,
+        };
+        const draw = (time, animated = false) => {
+            const activeSegment = animated
+                ? (previewSegments.find(segment => time >= segment.start && time <= segment.end) || previewSegment)
+                : previewSegment;
+            ctx.save();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#11111f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+            ctx.save();
+            ctx.scale(renderScale, renderScale);
+            renderer.renderSubtitle(animated ? style : finalStyle, activeSegment, time, outputWidth, outputHeight);
+            ctx.restore();
+        };
+        draw(staticPreviewTime, false);
+        const card = canvas.closest('.rsp-card');
+        let frameId = null;
+        card.addEventListener('mouseenter', () => {
+            if (frameId !== null) return;
+            const beganAt = performance.now();
+            const play = (now) => {
+                const seconds = ((now - beganAt) / 1000) % previewDuration;
+                draw(seconds, true);
+                frameId = requestAnimationFrame(play);
+                activePreviewFrames.add(frameId);
+            };
+            frameId = requestAnimationFrame(play);
+            activePreviewFrames.add(frameId);
+        });
+        card.addEventListener('mouseleave', () => {
+            if (frameId !== null) cancelAnimationFrame(frameId);
+            activePreviewFrames.delete(frameId);
+            frameId = null;
+            draw(staticPreviewTime, false);
+        });
+    });
+    modal.querySelectorAll('aside button').forEach(btn => btn.onclick = () => { modal.querySelectorAll('aside button').forEach(b => b.classList.remove('active')); btn.classList.add('active'); const group = btn.dataset.group; modal.querySelectorAll('.rsp-card').forEach(card => card.style.display = group === 'all' || card.dataset.group === group ? '' : 'none'); });
+    modal.querySelector('.rsp-close').onclick = () => { stopPreviewFrames(); modal.remove(); };
+    modal.querySelector('.rsp-clear-mine').onclick = () => {
+        if (!myPresetNames.length) return;
+        if (!confirm(`确定清空“我的预设”中的 ${myPresetNames.length} 个动态字幕预设吗？\n\n内置预设、模板同步分组和覆层预设不会删除。`)) return;
+        myPresetNames.forEach(name => window.ReelsStyleEngine.deleteSubtitlePreset(name));
+        stopPreviewFrames();
+        modal.remove();
+        reelsOpenSubtitlePresetLibrary();
+    };
+    modal.querySelectorAll('.rsp-use').forEach(btn => btn.onclick = event => {
+        const selectedVal = event.currentTarget.closest('.rsp-card').dataset.name;
+        if (hiddenInput) {
+            hiddenInput.value = selectedVal || '';
 
             // 从字幕面板选择预设应当“落地”为当前样式，而不是给任务留下
             // 高优先级的 _subtitlePreset 引用。后者会覆盖随后在面板中做的
@@ -9776,13 +10250,27 @@ function reelsOpenSubtitlePresetPicker(anchorEl) {
                 reelsLoadPreset();
             }
         }
-        const span = anchorEl.querySelector('span');
+        const span = document.querySelector('#reels-preset-select-trigger span');
         if (span) {
             span.textContent = selectedVal || '-- 改全部样式 --';
         }
+        stopPreviewFrames();
+        modal.remove();
+    });
+    modal.querySelectorAll('.rsp-delete').forEach(btn => btn.onclick = event => { const card = event.currentTarget.closest('.rsp-card'); const name = card.dataset.name; if (!confirm(`删除动态字幕预设「${name}」？`)) return; window.ReelsStyleEngine.deleteSubtitlePreset(name); card.remove(); });
+    modal.querySelectorAll('.rsp-move-group').forEach(btn => btn.onclick = async event => {
+        const card = event.currentTarget.closest('.rsp-card');
+        const currentGroup = String(card.dataset.group || '').replace(/^💾\s*/, '') || '我的预设';
+        const savedGroups = categorized.filter(group => group.category.startsWith('💾')).map(group => group.category.replace(/^💾\s*/, ''));
+        const nextGroup = await reelsChoosePresetGroup('移动动态字幕预设分组', currentGroup, savedGroups);
+        if (!nextGroup || !String(nextGroup).trim()) return;
+        window.ReelsStyleEngine.setSubtitlePresetGroup(card.dataset.name, String(nextGroup).trim());
+        stopPreviewFrames();
+        modal.remove();
+        reelsOpenSubtitlePresetLibrary();
     });
 }
-window.reelsOpenSubtitlePresetPicker = reelsOpenSubtitlePresetPicker;
+window.reelsOpenSubtitlePresetLibrary = reelsOpenSubtitlePresetLibrary;
 
 function _reelsRefreshPresetList() {
     const hidden = document.getElementById('reels-preset-select');
@@ -9988,7 +10476,8 @@ async function reelsSavePreset() {
                 const ok = confirm(`预设 "${name}" 已存在，是否覆盖？`);
                 if (!ok) return;
             }
-            const result = ReelsStyleEngine.saveNamedSubtitlePreset(name, style);
+            const group = (await _showInputDialog('字幕预设分组', '输入分组名称（留空为“我的预设”）')) || '我的预设';
+            const result = ReelsStyleEngine.saveNamedSubtitlePreset(name, style, group);
             if (result) {
                 _reelsRefreshPresetList();
                 const select = document.getElementById('reels-preset-select');
@@ -12342,6 +12831,9 @@ async function reelsStartExport(options = {}) {
                     showSubtitle: showSubtitle,
                     overlays: _getTaskRenderOverlays(task),
                     insertAudioClips: _getTaskInsertAudio(task),
+                    // 必须把任务实际层级传进 WYSIWYG 导出。缺失时导出函数会使用
+                    // 默认 true，造成“预览覆层在字幕下，导出却跑到字幕上”的不一致。
+                    overlayAboveSubtitle: task.overlayAboveSubtitle !== false,
                     backgroundPath: bgPath,
                     alphaOverlayBgPath: canUseAlpha ? bgPath : null,
                     bgMode: task.bgMode || 'single',
@@ -13098,7 +13590,13 @@ function applyRestoredProject(result) {
     }
 }
 
-function reelsSaveProject() {
+function reelsSaveProject(event) {
+    // 原生“另存为”窗口绝不能由启动恢复、热更新或脚本误触发；只响应用户
+    // 实际点击菜单项。当前没有其他合法的程序调用方。
+    if (!event?.isTrusted) {
+        console.warn('[Reels] 忽略非用户触发的保存工程请求');
+        return;
+    }
     if (!window.ReelsProject) { alert('项目管理模块未加载'); return; }
     _syncCurrentOverlayEditorToSelectedTask();
     const style = _readStyleFromUI();
@@ -13143,7 +13641,7 @@ function reelsSaveProject() {
         style: globalStyle,
         exportOpts,
         selectedIdx: _reelsState.selectedIdx,
-    });
+    }, { interactive: true });
 }
 
 async function reelsLoadProject() {
@@ -13478,10 +13976,6 @@ function _reelsUpdateResolution(w, h) {
     }
 
     _reelsUpdateResolutionUI(w, h);
-
-    if (typeof reelsSaveProject === 'function') {
-        reelsSaveProject();
-    }
 
     reelsUpdatePreview();
     _fitPreviewWhenReady();
