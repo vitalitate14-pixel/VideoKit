@@ -312,6 +312,7 @@
                     <span class="rpv2-zoom-label" data-role="zoom-label">100%</span>
                     <button class="rpv2-icon-btn" data-action="zoom-in" title="放大">+</button>
                     <button class="rpv2-icon-btn" data-action="zoom-reset" title="1:1">1:1</button>
+                    <button class="rpv2-icon-btn" data-action="snapshot" title="保存当前合成画面为 PNG">📸</button>
                     <button class="rpv2-icon-btn" data-action="refresh" title="重新加载当前任务">↻</button>
                 </div>
             </div>
@@ -337,6 +338,10 @@
         root.querySelector('[data-action="zoom-in"]').addEventListener('click', () => zoomView(1.25));
         root.querySelector('[data-action="zoom-out"]').addEventListener('click', () => zoomView(0.8));
         root.querySelector('[data-action="zoom-reset"]').addEventListener('click', resetZoomOneToOne);
+        // 用 onclick 覆盖式绑定，避免预览根节点重挂载后留下旧监听器；点击后
+        // 立即给出按钮状态，不能再出现“点了毫无反应”。
+        const snapshotBtn = root.querySelector('[data-action="snapshot"]');
+        if (snapshotBtn) snapshotBtn.onclick = event => { event.preventDefault(); captureCurrentFrame(snapshotBtn); };
         root.querySelector('[data-action="play"]').addEventListener('click', togglePlay);
         const subtitleToggle = root.querySelector('[data-role="subs"]');
         const exportSubtitleToggle = document.getElementById('reels-subtitle-toggle');
@@ -1610,6 +1615,25 @@
         let height = numberOr(ov.h, 100);
         let x = numberOr(ov.x, 0);
         let y = ov.type === 'textcard' && ov._renderedY != null ? numberOr(ov._renderedY, 0) : numberOr(ov.y, 0);
+        // 媒体的选择框表示外层窗口，而不是窗口内被移动/缩放后的素材。
+        if ((ov.type === 'image' || ov.type === 'video') && ov.media_window_mode) {
+            const win = ov.media_window || {};
+            if (ov.media_window_mode === 'bottom_half') {
+                x = 0; y = canvasH / 2; width = canvasW; height = canvasH / 2;
+            } else {
+                x = numberOr(win.x, x);
+                y = numberOr(win.y, y);
+                width = numberOr(win.w, width);
+                height = numberOr(win.h, height);
+                // PIP 的顶部“变换缩放”缩放的是整个窗口，选择框与预览辅助线
+                // 使用同一套中心缩放计算，避免框仍停留在未缩放的旧尺寸。
+                const outerScale = Math.max(0.01, numberOr(ov.scale, 1));
+                x += (width - width * outerScale) / 2;
+                y += (height - height * outerScale) / 2;
+                width *= outerScale;
+                height *= outerScale;
+            }
+        }
         if (ov.type === 'textcard' && ov._renderedH != null) height = numberOr(ov._renderedH, height);
 
         if (ov.anim_dest_enabled && ov.type !== 'scroll') {
@@ -1949,6 +1973,81 @@
     function updatePlayButton() {
         const btn = state.root?.querySelector('[data-action="play"]');
         if (btn) btn.textContent = state.isPlaying ? 'Ⅱ' : '▶';
+    }
+
+    async function captureCurrentFrame(button = null) {
+        const snapshotBtn = button || state.root?.querySelector('[data-action="snapshot"]');
+        if (!state.canvas || !state.canvas.width || !state.canvas.height) {
+            alert('当前预览画布尚未准备好，请等待画面显示后重试。');
+            return;
+        }
+        if (snapshotBtn?.dataset.saving === '1') return;
+        if (snapshotBtn) {
+            snapshotBtn.dataset.saving = '1';
+            snapshotBtn.disabled = true;
+            snapshotBtn.textContent = '⌛';
+        }
+        // 先强制按当前播放头重绘，确保 PNG 包含当前的背景、插入素材、字幕、
+        // 笔刷和水印，而不是浏览器显示层中某个旧帧。
+        render();
+        const api = window.electronAPI;
+        if (!api?.savePngFrame) {
+            alert('当前环境无法保存 PNG 截图');
+            return;
+        }
+        const task = getTask();
+        const time = Math.max(0, getCurrentTime());
+        const safeName = String(task?.fileName || task?.name || 'reels')
+            .replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `${safeName}_当前帧_${time.toFixed(3)}s_${stamp}.png`;
+        try {
+            let outputDir = localStorage.getItem('vk_default_output_dir') || '';
+            if (!outputDir && typeof api.getDownloadsPath === 'function') outputDir = await api.getDownloadsPath();
+            const sep = String(outputDir).includes('\\') ? '\\' : '/';
+            const defaultPath = outputDir
+                ? `${String(outputDir).replace(/[\\/]$/, '')}${sep}${filename}`
+                : filename;
+            // 截图是用户主动保存的文件，必须弹出系统保存窗口；此前静默写到
+            // 默认目录，路径不存在或不清楚时会让人以为按钮没有反应。
+            let outputPath = defaultPath;
+            if (typeof api.saveFile === 'function') {
+                const chosen = await api.saveFile({
+                    title: '保存当前合成画面',
+                    defaultPath,
+                    filters: [{ name: 'PNG 图片', extensions: ['png'] }],
+                });
+                if (chosen?.canceled) return;
+                if (!chosen?.success || !chosen.filePath) throw new Error(chosen?.error || '未获得保存路径');
+                outputPath = chosen.filePath;
+            } else if (!outputDir) {
+                throw new Error('当前环境不支持选择保存位置');
+            }
+            if (typeof api.ensureDirectory === 'function' && outputDir) await api.ensureDirectory(outputDir);
+            // 直接取合成画布 RGBA 像素交给主进程编码，避免 Electron 某些
+            // canvas 实现的 toBlob 回调不触发或返回空 Blob。
+            const frameCtx = state.canvas.getContext('2d', { willReadFrequently: true });
+            const rgba = frameCtx.getImageData(0, 0, state.canvas.width, state.canvas.height).data.buffer;
+            const result = await api.savePngFrame({
+                outputPath,
+                rawRGBA: rgba,
+                width: state.canvas.width,
+                height: state.canvas.height,
+                isPng: false,
+            });
+            if (result?.ok === false) throw new Error(result.error || '写入文件失败');
+            if (typeof window.showToast === 'function') window.showToast(`已保存当前帧：${outputPath}`, 'success');
+            else alert(`已保存当前帧：\n${outputPath}`);
+        } catch (error) {
+            console.error('[PreviewV2] snapshot failed', error);
+            alert(`保存当前帧失败：${error.message || error}`);
+        } finally {
+            if (snapshotBtn) {
+                delete snapshotBtn.dataset.saving;
+                snapshotBtn.disabled = false;
+                snapshotBtn.textContent = '📸';
+            }
+        }
     }
 
     function updateTitle(task) {
@@ -2752,8 +2851,8 @@
         const drawH = srcH * scale;
         const maxShiftX = Math.abs(targetW - drawW) / 2;
         const maxShiftY = Math.abs(targetH - drawH) / 2;
-        const x = (targetW - drawW) / 2 + maxShiftX * (numberOr(offsetX, 0) / 100);
-        const y = (targetH - drawH) / 2 + maxShiftY * (numberOr(offsetY, 0) / 100);
+        const x = (targetW - drawW) / 2 + targetW * (numberOr(offsetX, 0) / 100);
+        const y = (targetH - drawH) / 2 + targetH * (numberOr(offsetY, 0) / 100);
         drawImageMaybeFlipped(ctx, media, 0, 0, srcW, srcH, x, y, drawW, drawH, flipH, flipV, rotation);
     }
 
@@ -2775,8 +2874,8 @@
         const drawH = sh * scale;
         const maxShiftX = Math.abs(targetW - drawW) / 2;
         const maxShiftY = Math.abs(targetH - drawH) / 2;
-        const x = (targetW - drawW) / 2 + maxShiftX * (numberOr(offsetX, 0) / 100);
-        const y = (targetH - drawH) / 2 + maxShiftY * (numberOr(offsetY, 0) / 100);
+        const x = (targetW - drawW) / 2 + targetW * (numberOr(offsetX, 0) / 100);
+        const y = (targetH - drawH) / 2 + targetH * (numberOr(offsetY, 0) / 100);
         drawImageMaybeFlipped(ctx, media, sx, sy, sw, sh, x, y, drawW, drawH, flipH, flipV, rotation);
     }
 

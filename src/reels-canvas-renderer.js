@@ -1223,6 +1223,18 @@ class ReelsCanvasRenderer {
                     let boxW = (wordW * lineScale + dynPad * 2) * dynamicWordScale;
                     let boxH = (lineHScaled + dynPad * 2) * dynamicWordScale;
 
+                    // “贴合行宽”的底框使用实际字形边界和底框 Y 内距；若色块
+                    // 仍按整行高度+自己的内距绘制，就会与底框上下错位，甚至越过
+                    // 底框底部。此模式下让色块继承同一行底框的垂直范围，只保留
+                    // 它按当前词计算的横向宽度和独立圆角。
+                    if (s.use_box && s.box_adaptive_width && !advEnabled) {
+                        const glyphBounds = lineGlyphBounds[i] || { top: 0, height: lineH };
+                        const tightLine = canTightFitGlyphs;
+                        boxY = y + (tightLine ? glyphBounds.top : 0) - effectivePadTop + dynOffY;
+                        const lineContentH = tightLine ? glyphBounds.height : (lineHeights[i] || lineHScaled);
+                        boxH = lineContentH + effectivePadTop + effectivePadBottom;
+                    }
+
                     if (s.dyn_box_anim && anim) {
                         const dscale = anim.computeDynBoxScale(
                             currentTime, wordStart, wordEnd,

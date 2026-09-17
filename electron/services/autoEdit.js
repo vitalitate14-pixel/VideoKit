@@ -1934,6 +1934,19 @@ async function autoEditByScript(opts = {}) {
                 };
             });
 
+            // 所有请求已返回后，接下来会逐段整理词级时间轴并匹配文案。此前没有
+            // 单独的阶段事件，前端会把“已完成 N/N、无活动请求”的旧 transcribe
+            // 状态错误显示成“正在等待下一片段/服务响应”。
+            emitProgress({
+                percent: 50,
+                stage: 'transcribe_complete',
+                current: completedCount,
+                total: clipCount,
+                active_count: 0,
+                queued_count: 0,
+                message: `语音识别已完成 ${completedCount}/${clipCount}，正在整理时间轴并准备文案匹配...`,
+            });
+
             // 阶段二：严格按原始片段顺序进行文本匹配与时间线规划
             for (let i = 0; i < clipCount; i++) {
                 const clipPath = clips[i];

@@ -304,22 +304,9 @@ async function prepareBg(opts) {
     const framesDir = path.join(settings.getSecureTmpDir(), `reels_bg_${generateId()}`);
     fs.mkdirSync(framesDir, { recursive: true });
 
-    // 构建缩放+裁切滤镜
-    const rotationDeg = Math.max(-180, Math.min(180, Number(bgRotation) || 0));
-    const rotationFilter = Math.abs(rotationDeg) < 0.01 ? '' : `,rotate=${(rotationDeg * Math.PI / 180).toFixed(8)}:ow=rotw(iw):oh=roth(ih)`;
-    // Rotating a deliberately reduced background must still fill the canvas; otherwise its corners show black.
-    const scaleFactor = Math.abs(rotationDeg) < 0.01 ? (bgScale || 100) / 100 : Math.max(1, (bgScale || 100) / 100);
-    let scaleCropFilter;
-    const scaledW = Math.round(targetWidth * scaleFactor);
-    const scaledH = Math.round(targetHeight * scaleFactor);
-    if (scaleFactor >= 1.0) {
-        scaleCropFilter = `${normalizeDisplayAspectFilter()}${rotationFilter},scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:'max(0, min(in_w-out_w, ((in_w-out_w)/2)*(1-(${bgX}/100))))':'max(0, min(in_h-out_h, ((in_h-out_h)/2)*(1-(${bgY}/100))))',setsar=1`;
-    } else {
-        scaleCropFilter = `${normalizeDisplayAspectFilter()}${rotationFilter},scale=${scaledW}:${scaledH}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:'max(0, min(ow-iw, ((ow-iw)/2)*(1+(${bgX}/100))))':'max(0, min(oh-ih, ((oh-ih)/2)*(1+(${bgY}/100))))':color=black,setsar=1`;
-    }
-    if (bgFlipH) scaleCropFilter += ',hflip';
-    if (bgFlipV) scaleCropFilter += ',vflip';
-    console.log(`[WYSIWYG-BG] 背景缩放: ${bgScale}%, 旋转: ${rotationDeg}°, flipH: ${bgFlipH}, flipV: ${bgFlipV}, filter: ${scaleCropFilter}`);
+    const scaleCropFilter = require('./background-transform').backgroundTransform(targetWidth, targetHeight, {
+        bgScale, bgRotation, bgX, bgY, bgFlipH, bgFlipV,
+    });
 
     // ═══ 多素材拼接模式 ═══
     if (bgMode === 'multi' && Array.isArray(bgClipPool) && bgClipPool.length > 0) {
@@ -1109,6 +1096,8 @@ async function prepareOverlay(opts) {
         duration = 10,  // 需要提取的总时长（跟随背景或者设定视频时长）
         trimStart = null,
         trimEnd = null,
+        loop = true,
+        sourceFps = 30,
     } = opts;
 
     if (!overlayPath || !fs.existsSync(overlayPath)) {
@@ -1129,20 +1118,37 @@ async function prepareOverlay(opts) {
         }
         duration = Math.min(duration, end - start);
     }
-    const requiredFrames = expectedFrameCount(duration, fps);
     const isAnimatedGif = /\.gif$/i.test(overlayPath);
+    let playbackSpeed = 1;
+    if (isAnimatedGif && Number(sourceFps) > 0 && Number(sourceFps) !== 30) {
+        const { runCommand } = require('./ffmpeg');
+        const { stdout } = await runCommand('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=avg_frame_rate', '-of', 'json', overlayPath], { timeout: 10000 });
+        const rate = String(JSON.parse(stdout).streams?.[0]?.avg_frame_rate || '').split('/').map(Number);
+        const nativeFps = rate[0] / (rate[1] || 1);
+        if (!(nativeFps > 0)) throw new Error('无法读取 GIF 帧率');
+        playbackSpeed = Number(sourceFps) / nativeFps;
+    }
+    if (!loop || trimStart != null) {
+        const mediaDuration = await getMediaDuration(overlayPath);
+        if (mediaDuration > 0) duration = Math.min(duration, Math.max(0.001, mediaDuration - (Number(trimStart) || 0)) / playbackSpeed);
+    }
+    const requiredFrames = expectedFrameCount(duration, fps);
 
     const ffmpeg = findFFmpeg();
     const settings = require('./settings');
     const crypto = require('crypto');
     
     // 生成基于文件内容元特征和提取参数的唯一哈希值
+    // 帧序列在本次导出结束后会删除，因此每个导出使用独立目录，避免并行
+    // 导出共享同一目录时，一个任务先结束而删掉另一个任务仍在读取的帧。
     let cacheHash = `overlay_${generateId()}`;
     try {
         const stat = fs.statSync(overlayPath);
         // Version the cache because older extractions lost SAR metadata when
         // video frames were written as PNG files.
-        cacheHash = crypto.createHash('md5').update(`${overlayPath}_${stat.size}_${stat.mtimeMs}_${fps}_${duration}_${trimStart}_${trimEnd}_display-aspect-v2`).digest('hex');
+        const contentHash = crypto.createHash('md5').update(`${overlayPath}_${stat.size}_${stat.mtimeMs}_${fps}_${duration}_${trimStart}_${trimEnd}_display-aspect-v2`).digest('hex');
+        cacheHash = `${contentHash}_${generateId()}`;
     } catch(e) { /* fallback generates unique id */ }
 
     const cacheBase = path.join(settings.getSecureTmpDir(), 'videokit_overlay_cache');
@@ -1182,13 +1188,13 @@ async function prepareOverlay(opts) {
         let shouldLoop = true;
         try {
             const mediaDur = await getMediaDuration(overlayPath);
-            if (mediaDur > 0 && parseFloat(duration) <= mediaDur + 0.1) {
+            if (mediaDur > 0 && duration * playbackSpeed <= mediaDur + 0.1) {
                 shouldLoop = false;
             }
         } catch (e) {
             console.warn(`[WYSIWYG-OVERLAY] 获取素材时长失败，默认开启循环: ${e.message}`);
         }
-        if (shouldLoop) {
+        if (shouldLoop && loop) {
             args.push('-stream_loop', '-1');  // 无 trim 且确实需要时无限循环
         }
     }
@@ -1199,7 +1205,7 @@ async function prepareOverlay(opts) {
         '-r', String(fps),
         // Decode GIF through RGBA before scaling so palette transparency is
         // retained in the PNG sequence rather than composited onto black.
-        '-vf', isAnimatedGif ? `format=rgba,${normalizeDisplayAspectFilter()}` : normalizeDisplayAspectFilter(),
+        '-vf', `${isAnimatedGif ? 'format=rgba,' : ''}${normalizeDisplayAspectFilter()},setpts=(PTS-STARTPTS)/${playbackSpeed}`,
         // `-t` limits elapsed timestamps, but malformed GIF timing metadata
         // can prevent it from terminating under `-stream_loop`.  Bound the
         // output count as well, so the requested timeline duration is exact.
@@ -1223,7 +1229,7 @@ async function prepareOverlay(opts) {
         );
     }
     console.log(`[WYSIWYG-OVERLAY] 覆层提取完成: ${files.length} 帧 (${framesDir})`);
-    return { framesDir, frameCount: files.length };
+    return { framesDir, frameCount: files.length, preparedDuration: duration };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1393,6 +1399,9 @@ async function startSession(opts) {
             args.push('-stream_loop', '-1', '-i', opts.alphaOverlayBgPath);
         }
         
+        const nativeMedia = require('./direct-media').appendMedia(
+            args, opts.directMedia || [], bgInputCount, fps, targetDuration
+        );
         args.push(
             '-f', 'rawvideo',
             '-pix_fmt', 'rgba',
@@ -1403,20 +1412,9 @@ async function startSession(opts) {
             '-an'
         );
 
-        // Build scaling filter for alpha overlay background
-        const rotationDeg = Math.max(-180, Math.min(180, Number(bgRotation) || 0));
-        const rotationFilter = Math.abs(rotationDeg) < 0.01 ? '' : `,rotate=${(rotationDeg * Math.PI / 180).toFixed(8)}:ow=rotw(iw):oh=roth(ih)`;
-        const scaleFactor = Math.abs(rotationDeg) < 0.01 ? (bgScale || 100) / 100 : Math.max(1, (bgScale || 100) / 100);
-        let scaleCropFilter;
-        const scaledW = Math.round(width * scaleFactor);
-        const scaledH = Math.round(height * scaleFactor);
-        if (scaleFactor >= 1.0) {
-            scaleCropFilter = `${normalizeDisplayAspectFilter()}${rotationFilter},scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${width}:${height}:'max(0, min(in_w-out_w, ((in_w-out_w)/2)*(1-(${bgX}/100))))':'max(0, min(in_h-out_h, ((in_h-out_h)/2)*(1-(${bgY}/100))))',setsar=1`;
-        } else {
-            scaleCropFilter = `${normalizeDisplayAspectFilter()}${rotationFilter},scale=${scaledW}:${scaledH}:force_original_aspect_ratio=decrease,pad=${width}:${height}:'max(0, min(ow-iw, ((ow-iw)/2)*(1+(${bgX}/100))))':'max(0, min(oh-ih, ((oh-ih)/2)*(1+(${bgY}/100))))':color=black,setsar=1`;
-        }
-        if (opts.bgFlipH) scaleCropFilter += ',hflip';
-        if (opts.bgFlipV) scaleCropFilter += ',vflip';
+        const scaleCropFilter = require('./background-transform').backgroundTransform(width, height, {
+            bgScale, bgRotation, bgX, bgY, bgFlipH: opts.bgFlipH, bgFlipV: opts.bgFlipV,
+        });
 
         // Build speed filter for background video (only if not an image)
         let ptsFilter = 'setpts=PTS-STARTPTS';
@@ -1453,8 +1451,12 @@ async function startSession(opts) {
             // Normalize before overlay just like the xfade branch already did.
             bgFilter = normalizedDirectBackgroundFilter(0, scaleCropFilter, ptsFilter, fps, 'bg');
         }
-        const fgInput = bgInputCount;
-        const filterComplex = `${bgFilter};[${fgInput}:v]scale=in_range=full:in_color_matrix=bt709:out_range=limited:out_color_matrix=bt709,format=yuva420p[fg];[bg][fg]overlay=0:0:format=auto:shortest=1,fps=${fps}[outv]`;
+        const fgInput = bgInputCount + (opts.directMedia || []).length;
+        const nativeFilters = nativeMedia.filters.length ? `;${nativeMedia.filters.join(';')}` : '';
+        // Every native input is already normalized to fps. A second fps filter
+        // after shortest=1 can discard the last Canvas frame at EOF.
+        const outputRate = nativeMedia.filters.length ? '' : `,fps=${fps}`;
+        const filterComplex = `${bgFilter}${nativeFilters};[${fgInput}:v]scale=in_range=full:in_color_matrix=bt709:out_range=limited:out_color_matrix=bt709,format=yuva420p[fg];[${nativeMedia.output}][fg]overlay=0:0:format=auto:shortest=1${outputRate}[outv]`;
         args.push('-filter_complex', filterComplex, '-map', '[outv]');
 
     } else {
@@ -2341,18 +2343,20 @@ function cleanup(session) {
 
 function cleanupBg(framesDir) {
     if (!framesDir || !fs.existsSync(framesDir)) return;
-    
-    // 覆层的 PNG 序列作为长期重复使用的资源，不在这里直接随临时目录清理（依赖外部应用清理或用户手动清理临时区）
-    if (framesDir.includes('videokit_overlay_cache')) {
-        return;
-    }
 
     try {
-        const files = fs.readdirSync(framesDir);
-        for (const f of files) {
-            try { fs.unlinkSync(path.join(framesDir, f)); } catch (_) { }
+        // prepare-bg / prepare-overlay 生成的帧都在 VideoKit 的临时目录内。
+        // 导出无论成功、失败还是取消，渲染端都会调用这里；不要保留 PNG
+        // 序列作为跨导出缓存，否则每种素材/时长/帧率组合都会持续占用磁盘。
+        const tmpRoot = path.resolve(require('./settings').getSecureTmpDir());
+        const target = path.resolve(framesDir);
+        const relative = path.relative(tmpRoot, target);
+        if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+            console.warn(`[WYSIWYG] 跳过临时区外的帧目录: ${framesDir}`);
+            return;
         }
-        fs.rmdirSync(framesDir);
+
+        fs.rmSync(target, { recursive: true, force: true });
         console.log(`[WYSIWYG] 清理帧目录: ${framesDir}`);
     } catch (e) {
         console.warn(`[WYSIWYG] 清理帧目录失败: ${e.message}`);
@@ -2734,6 +2738,8 @@ async function handleWysiwygIPC(action, data) {
         }
         case 'prepare-overlay':
             return prepareOverlay(data);
+        case 'plan-direct-media':
+            return require('./direct-media').planMedia(data.overlays, data.width, data.height, data.duration);
         case 'prepare-bg':
             return prepareBg(data);
         case 'start':

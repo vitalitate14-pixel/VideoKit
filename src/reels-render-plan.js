@@ -152,20 +152,33 @@
         // 编辑投影；sourceTrim/timelineStart 等编辑后会同步回 task.insertClips。
         const insertClips = Array.isArray(task.insertClips) ? task.insertClips : [];
         const insertTrack = trackFor(timeline, 'video', '插入素材', 'insert_video');
-        const insertKey = JSON.stringify(insertClips.map(item => [item.id, item.sourcePath, item.timelineStart, item.duration, item.sourceTrimStart, item.sourceTrimEnd]));
+        // 位置/缩放同样是插入轨投影的一部分。若只监听时长，检查器改完
+        // transform 后会马上被旧时间线 clip 的坐标反写，表现为“数字变了、
+        // 画面没动”。
+        const insertKey = JSON.stringify(insertClips.map(item => [
+            item.id, item.sourcePath, item.timelineStart, item.duration,
+            item.sourceTrimStart, item.sourceTrimEnd,
+            item.transform?.x, item.transform?.y, item.transform?.scale,
+            item.transform?.rotation, item.transform?.fit,
+        ]));
         if (timeline._extra.insertClipKey !== insertKey) {
             insertTrack.clips = insertTrack.clips.filter(clip => clip?._extra?.role !== 'insert_video');
             insertClips.filter(item => item && item.sourcePath).forEach((item, index) => {
                 const start = Math.max(0, finite(item.timelineStart));
                 const sourceIn = Math.max(0, finite(item.sourceTrimStart));
-                const requestedDuration = Math.max(.05, finite(item.duration, 1.5));
+                const requestedDuration = Math.max(.05, finite(item.duration, 10));
                 const sourceOut = Math.max(sourceIn + .05, finite(item.sourceTrimEnd, sourceIn + requestedDuration));
                 const sourceDuration = Math.max(sourceOut, finite(item.sourceDuration, sourceOut));
                 const sourceId = sourceFor(timeline, item.sourcePath, sourceDuration, 'insert_video');
-                const clip = new TimelineLib.Clip(sourceId, sourceIn, sourceOut, start);
+                // 时间线的 outT 是片段在成片上的可见长度，不能误用“原片出点”。
+                // 否则 10 秒原片循环 170 秒时，时间线只会显示前 10 秒，并在
+                // 随后的同步中把用户设置的 170 秒又覆写回 10 秒。
+                const clip = new TimelineLib.Clip(sourceId, sourceIn, sourceIn + requestedDuration, start);
                 clip._extra.role = 'insert_video';
                 clip._extra.insertId = item.id || `insert_${index + 1}`;
                 clip._extra.insertIndex = index;
+                clip._extra.sourceTrimStart = sourceIn;
+                clip._extra.sourceTrimEnd = sourceOut;
                 clip.fitMode = item.transform?.fit || 'fill';
                 clip.x = finite(item.transform?.x);
                 clip.y = finite(item.transform?.y);
@@ -666,8 +679,9 @@
                 sourceType: old.sourceType || 'video',
                 timelineStart: clip.startT,
                 duration,
-                sourceTrimStart: clip.inT,
-                sourceTrimEnd: clip.outT,
+                // 原片取段与时间线可见长度是两套坐标；循环片段尤其不能混用。
+                sourceTrimStart: clip._extra?.sourceTrimStart ?? clip.inT,
+                sourceTrimEnd: clip._extra?.sourceTrimEnd ?? clip.outT,
                 mode: old.mode || 'replace-video-keep-main-audio',
                 audioMode: old.audioMode || 'keep-main',
                 // 新建/旧项目未设置过音量时默认静音；已明确保存的值（包括 0）保留。
@@ -680,7 +694,12 @@
             };
         });
         task.insertClips = next;
-        timeline._extra.insertClipKey = JSON.stringify(next.map(item => [item.id, item.sourcePath, item.timelineStart, item.duration, item.sourceTrimStart, item.sourceTrimEnd]));
+        timeline._extra.insertClipKey = JSON.stringify(next.map(item => [
+            item.id, item.sourcePath, item.timelineStart, item.duration,
+            item.sourceTrimStart, item.sourceTrimEnd,
+            item.transform?.x, item.transform?.y, item.transform?.scale,
+            item.transform?.rotation, item.transform?.fit,
+        ]));
         return next;
     }
 
@@ -688,14 +707,17 @@
         if (!task || !data.sourcePath) return null;
         task.insertClips = Array.isArray(task.insertClips) ? task.insertClips : [];
         const id = data.id || `insert_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const duration = Math.max(.05, finite(data.duration, 1.5));
+        // 普通手动插入默认使用原素材完整时长；只有无法读取原时长时才回退 10 秒。
+        // 批量停顿插入会显式传入 duration，因此仍遵从用户设置的批量时长。
+        const sourceDuration = Math.max(0, finite(data.sourceDuration));
+        const duration = Math.max(.05, finite(data.duration, sourceDuration || 10));
         const sourceStart = Math.max(0, finite(data.sourceTrimStart));
         const item = {
             id, sourcePath: data.sourcePath, sourceType: data.sourceType || 'video',
             timelineStart: Math.max(0, finite(data.timelineStart)), duration,
             sourceTrimStart: sourceStart, sourceTrimEnd: finite(data.sourceTrimEnd, sourceStart + duration),
-            sourceDuration: Math.max(0, finite(data.sourceDuration)),
-            mode: data.mode || 'replace-video-keep-main-audio', audioMode: data.audioMode || 'keep-main',
+            sourceDuration,
+            mode: data.mode || task.insertLayoutMode || 'pip', audioMode: data.audioMode || 'keep-main',
             generatedBy: data.generatedBy || 'manual', locked: !!data.locked,
             volume: data.volume == null ? 0 : data.volume,
             transform: { x: 0, y: 0, scale: 100, rotation: 0, opacity: 100, fit: 'fill', ...(data.transform || {}) },
@@ -718,13 +740,21 @@
             const transform = item.transform || {};
             const isImage = item.sourceType === 'image' || /\.(png|jpe?g|webp)$/i.test(item.sourcePath);
             const start = Math.max(0, finite(item.timelineStart));
-            const duration = Math.max(.05, finite(item.duration, 1.5));
+            const duration = Math.max(.05, finite(item.duration, 10));
             const mode = item.mode || 'replace-video-keep-main-audio';
             const pip = mode === 'pip' || mode === 'overlay';
-            const baseW = transform.w != null ? finite(transform.w, Math.round(canvasW * .38)) : (pip ? Math.round(canvasW * .38) : canvasW);
-            const baseH = transform.h != null ? finite(transform.h, Math.round(canvasH * .28)) : (pip ? Math.round(canvasH * .28) : canvasH);
+            const bottomHalf = mode === 'bottom-half';
+            // 两种常用构图：保留原有画中画，或让插入素材铺在下半屏。
+            // transform 的 x/y/w/h 始终优先，因此用户后续可自由拖动和微调。
+            const baseW = transform.w != null ? finite(transform.w, pip ? Math.round(canvasW * .38) : canvasW) : (pip ? Math.round(canvasW * .38) : canvasW);
+            const baseH = transform.h != null ? finite(transform.h, pip ? Math.round(canvasH * .28) : (bottomHalf ? Math.round(canvasH * .5) : canvasH)) : (pip ? Math.round(canvasH * .28) : (bottomHalf ? Math.round(canvasH * .5) : canvasH));
             const defaultX = pip ? (canvasW - baseW - 48) : 0;
+            // 下半屏的 transform.y 是窗口内偏移；默认必须从窗口内 0 开始，
+            // 不能再写成整张画布中的 y=960，否则会被 windowY 再加一次。
             const defaultY = pip ? (canvasH - baseH - 160) : 0;
+            // 下半屏是固定窗口：transform.x/y 只移动窗口里的素材内容，不能
+            // 移动窗口本身。crop_fill 让横/竖素材均以 cover 方式自动裁切铺满。
+            const windowX = 0, windowY = Math.round(canvasH / 2);
             const animInType = item.transitionIn?.type !== undefined ? item.transitionIn.type : 'fade';
             const animOutType = item.transitionOut?.type !== undefined ? item.transitionOut.type : 'fade';
             const animInDur = finite(item.transitionIn?.duration, animInType !== 'none' ? 0.35 : 0);
@@ -733,8 +763,8 @@
                 id: `insert_overlay_${item.id || index}`, type: isImage ? 'image' : 'video',
                 content: item.sourcePath, start, end: start + duration, _insertClip: true,
                 video_start_offset: Math.max(0, finite(item.sourceTrimStart)),
-                x: finite(transform.x, defaultX),
-                y: finite(transform.y, defaultY),
+                x: bottomHalf ? windowX + finite(transform.x) : finite(transform.x, defaultX),
+                y: bottomHalf ? windowY + finite(transform.y) : finite(transform.y, defaultY),
                 w: baseW, h: baseH, scale: finite(transform.scale, 100) / 100,
                 rotation: finite(transform.rotation),
                 // ReelsOverlay 的通用覆层透明度使用 0–255；插入素材编辑器
@@ -742,6 +772,8 @@
                 opacity: Math.max(0, Math.min(100, finite(transform.opacity, 100))) * 2.55,
                 flip_x: !!transform.flipH, flip_y: !!transform.flipV,
                 keep_aspect: transform.fit !== 'stretch', z_index: 9000 + index,
+                crop_fill: bottomHalf,
+                clip_rect: bottomHalf ? { x: windowX, y: windowY, w: canvasW, h: canvasH - windowY } : null,
                 anim_in_type: animInType,
                 anim_out_type: animOutType,
                 anim_in_duration: animInDur,

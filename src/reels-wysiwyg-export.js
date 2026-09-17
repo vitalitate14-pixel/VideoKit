@@ -323,8 +323,8 @@ function _drawCroppedVideoCover(ctx, videoEl, cropX, cropY, cropW, cropH, target
     const drawH = sHeight * scale;
     const maxShiftX = Math.abs(targetW - drawW) / 2;
     const maxShiftY = Math.abs(targetH - drawH) / 2;
-    const drawX = (targetW - drawW) / 2 + maxShiftX * (offsetX / 100);
-    const drawY = (targetH - drawH) / 2 + maxShiftY * (offsetY / 100);
+    const drawX = (targetW - drawW) / 2 + targetW * ((Number(offsetX) || 0) / 100);
+    const drawY = (targetH - drawH) / 2 + targetH * ((Number(offsetY) || 0) / 100);
     if (!rotation) {
         _drawImageFlipped(ctx, videoEl, sx, sy, sWidth, sHeight, drawX, drawY, drawW, drawH, flipH, flipV);
         return;
@@ -459,10 +459,27 @@ async function reelsWysiwygExport(params) {
         // 使图片缓存的 key 与校验路径脱节；连续任务时可能复用到前一任务的图。
         // taskOverlays 已是本次 job 的深拷贝，改写不会影响编辑器预览或其他任务。
         ov.content = mediaPath;
+        // 文件夹循环也是本次导出的确定输入：把每一个候选文件预先校验并
+        // 绑定，不能只用编辑器中当前显示的第一条素材。
+        const folderFiles = Array.isArray(ov.media_folder_files) ? ov.media_folder_files : [];
+        if (folderFiles.length) {
+            const validFolderFiles = [];
+            for (const source of folderFiles) {
+                const local = _normalizeOverlayLocalPath(source);
+                if (local && await _overlayLocalPathExists(local)) validFolderFiles.push(local);
+            }
+            ov.media_folder_files = validFolderFiles;
+        }
         // 静态图片必须在导出开始前绑定到本 job 的私有 Image 对象。不要让
         // 逐帧绘制回落到跨任务常驻的预览图片缓存。
         if (ov.type === 'image') {
             ov._exportImage = await _loadImage(mediaPath);
+            if (ov.media_folder_files?.length) {
+                ov._exportFolderImages = {};
+                for (const source of ov.media_folder_files) {
+                    ov._exportFolderImages[source] = await _loadImage(source);
+                }
+            }
         }
         overlayMediaBindings.push(`${ov.name || ov.id || '未命名覆层'}=${mediaPath}`);
     }
@@ -679,6 +696,26 @@ async function reelsWysiwygExport(params) {
     // 注意：OfflineAudioContext 在 Electron contextIsolation:true 下会崩溃
     // 所有音频效果由 FFmpeg afir 卷积滤镜处理（使用相同 seeded PRNG 的 IR）
 
+    // Native media sits between the background and the Canvas foreground. Only
+    // use it when there is no intervening content/mask/subtitle that it would
+    // cross; the backend also stops at the first unsupported overlay layer.
+    let directMedia = [];
+    const directMediaSet = new Set();
+    if (backgroundPath && !isMultiClip && !_hasBlendOverlay && !contentVideoPath
+        && !contentVideoDirectBg && !contentVideoBlurBg && !style.global_mask_enabled
+        && !style.ambient_lighting_enabled && !style.ambient_glow_enabled
+        && !(overlayAboveSubtitle && showSubtitle && segments?.length)) {
+        directMedia = await window.electronAPI.reelsComposeWysiwyg('plan-direct-media', {
+            overlays: _cloneOverlaysForWysiwygExport(taskOverlays),
+            width: targetWidth, height: targetHeight, duration: outputDuration,
+        });
+        if (Array.isArray(directMedia) && directMedia.length) {
+            params.alphaOverlayBgPath = backgroundPath;
+            for (const media of directMedia) directMediaSet.add(taskOverlays[media.index]);
+            log(`⚡ 媒体直通：${directMedia.length} 个视频/图片层由 FFmpeg 直接合成，跳过逐帧抽图与 Canvas 绘制。`);
+        } else directMedia = [];
+    }
+
     // ═══ 阶段 1: 让主进程用 FFmpeg 预处理背景 + 提取帧序列 ═══
     let framesDir = null;
     let totalBgFrames = 0;
@@ -757,11 +794,11 @@ async function reelsWysiwygExport(params) {
         progress(18);
     }
 
-    const videoOverlays = (taskOverlays || []).filter(ov => ov.type === 'video' && !ov.disabled);
+    const videoOverlays = (taskOverlays || []).filter(ov => ov.type === 'video' && !ov.disabled && !directMediaSet.has(ov));
     if (videoOverlays.length > 0) {
         log(`阶段1.5: 预处理 ${videoOverlays.length} 个视频/动图覆层...`);
         for (const ov of videoOverlays) {
-            if (!ov.content) continue;
+            if (!ov.content || ov.is_img_sequence) continue;
             const opath = await _resolveMissingOverlayPath(ov, taskOverlays, log);
             if (!opath || /^blob:/i.test(opath)) {
                 throw new Error(`覆层素材不是可导出的本地文件路径: ${ov.name || ov.content}`);
@@ -769,27 +806,38 @@ async function reelsWysiwygExport(params) {
             const videoOffset = Math.max(0, parseFloat(ov.video_start_offset || 0));
             const overlayStart = Math.max(0, parseFloat(ov.start || 0));
             const configuredEnd = parseFloat(ov.end);
-            // `9999` is the editor's “show for the whole project” sentinel.
-            // Passing it to GIF preparation made FFmpeg produce up to 300,000
-            // transparent PNG frames for a normal ~20 second task.
-            const overlayEnd = !Number.isFinite(configuredEnd) || configuredEnd >= 9999
-                ? duration
-                : configuredEnd;
-            const overlayPlayDur = Math.max(0.1, overlayEnd - overlayStart);
-            const oPrep = await window.electronAPI.reelsComposeWysiwyg('prepare-overlay', {
-                overlayPath: opath,
-                fps,
-                duration: videoOffset + overlayPlayDur + 1,
-            });
-            if (oPrep && oPrep.framesDir) {
-                ov._framesDir = oPrep.framesDir;
-                ov._frameCount = oPrep.frameCount;
+            // Clamp “whole project” (9999) and out-of-range ends to the actual export.
+            const overlayEnd = Number.isFinite(configuredEnd) && configuredEnd < 9999
+                ? Math.min(duration, configuredEnd) : duration;
+            if (overlayStart >= overlayEnd) continue;
+            let overlayPlayDur = overlayEnd - overlayStart;
+            // Folder playback restarts each source at every interval, so frames
+            // beyond that interval are never read, even on later cycles.
+            if (ov.media_folder_files?.length) {
+                const interval = Math.max(0.1, parseFloat(ov.media_folder_interval || 5) || 5);
+                overlayPlayDur = Math.min(overlayPlayDur, interval);
+            }
+            const sources = ov.media_folder_files?.length ? ov.media_folder_files : [opath];
+            if (sources.length > 1) ov._folderFramesByPath = {};
+            for (const source of sources) {
+                const oPrep = await window.electronAPI.reelsComposeWysiwyg('prepare-overlay', {
+                    overlayPath: source,
+                    fps,
+                    duration: videoOffset + overlayPlayDur + 1,
+                    loop: ov.media_loop !== false,
+                    sourceFps: ov.fps || 30,
+                });
+                if (oPrep && oPrep.framesDir) {
+                    if (ov._folderFramesByPath) ov._folderFramesByPath[source] = { framesDir: oPrep.framesDir, frameCount: oPrep.frameCount };
+                    else { ov._framesDir = oPrep.framesDir; ov._frameCount = oPrep.frameCount; }
+                }
             }
         }
     }
 
     let cvFramesDir = null;
     let cvFrameCount = 0;
+    let cvPreparedDuration = duration;
     let cvIsImageSequence = false;
     // 任务私有：并发导出时不能共用 window 上的图片序列文件列表，
     // 否则后启动的任务会覆盖前一个任务的帧索引，造成静帧/错帧。
@@ -830,11 +878,12 @@ async function reelsWysiwygExport(params) {
             if (cvPrep && cvPrep.framesDir) {
                 cvFramesDir = cvPrep.framesDir;
                 cvFrameCount = cvPrep.frameCount;
+                cvPreparedDuration = cvPrep.preparedDuration ?? duration;
             }
         }
 
         if (contentVideoBlurBg || contentVideoDirectBg) {
-            let requiredDuration = Number(duration);
+            let requiredDuration = Math.min(Number(duration), cvPreparedDuration);
             const trimStart = Number(contentVideoTrimStart);
             const trimEnd = Number(contentVideoTrimEnd);
             if (Number.isFinite(trimStart) && Number.isFinite(trimEnd) && trimEnd > trimStart) {
@@ -864,6 +913,7 @@ async function reelsWysiwygExport(params) {
         bgVolume,
         backgroundPath: isMultiClip ? bgAudioPath : backgroundPath,
         alphaOverlayBgPath: params.alphaOverlayBgPath || null,
+        directMedia,
         alphaBgDuration: params.alphaOverlayBgPath && !_isImageFile(params.alphaOverlayBgPath)
             ? await window.electronAPI.getMediaDuration(params.alphaOverlayBgPath)
             : 0,
@@ -876,6 +926,8 @@ async function reelsWysiwygExport(params) {
         bgmStart: Math.max(0, parseFloat(bgmStart) || 0),
         bgScale: bgScale || 100,
         bgRotation: bgRotation || 0,
+        bgFlipH,
+        bgFlipV,
         bgX: bgX || 0,
         bgY: bgY || 0,
         bgDurScale: bgDurScale || 100,
@@ -988,10 +1040,10 @@ async function reelsWysiwygExport(params) {
 
             // ── 预加载内容视频帧 ──
             if (contentVideoPath && cvFramesDir) {
-                // Clamped to the last frame to prevent 1-frame wrap-around glitch at the end
+                // Preview loops the selected content range until the task ends.
                 let frameIdxCv = frameIdx;
                 if (cvFrameCount > 0) {
-                    frameIdxCv = Math.min(frameIdxCv, cvFrameCount - 1);
+                    frameIdxCv %= cvFrameCount;
                 }
                 if (frameIdxCv !== currentCvIdx) {
                     const previousCvImg = currentCvImg;
@@ -1044,24 +1096,41 @@ async function reelsWysiwygExport(params) {
             // ── 预加载视频覆层帧 ──
             if (taskOverlays && taskOverlays.length > 0) {
                 for (const ov of taskOverlays) {
-                    if (ov.type === 'video' && !ov.disabled) {
+                    if (ov.type === 'video' && !ov.disabled && !directMediaSet.has(ov)) {
                         const ovStart = parseFloat(ov.start || 0);
+                        const ovEnd = Number.isFinite(parseFloat(ov.end)) ? parseFloat(ov.end) : duration;
+                        // Hidden overlays need neither disk reads nor image decoding.
+                        if (t < ovStart || t > ovEnd) {
+                            ov._currentFrameImage = null;
+                            continue;
+                        }
                         let relTime = Math.max(0, t - ovStart);
-                        let frameIdxOv = Math.floor(relTime * fps);
+                        let prepared = null;
+                        if (ov.media_folder_files?.length) {
+                            const interval = Math.max(0.1, parseFloat(ov.media_folder_interval || 5) || 5);
+                            const source = ov.media_folder_files[Math.floor(relTime / interval) % ov.media_folder_files.length];
+                            prepared = ov._folderFramesByPath?.[source] || null;
+                            relTime %= interval;
+                        }
+                        relTime += Math.max(0, Number(ov.video_start_offset) || 0);
+                        const sourceRate = ov.is_img_sequence ? (Number(ov.fps) || 30) : fps;
+                        let frameIdxOv = Math.floor(relTime * sourceRate);
                         
                         let fPath = null;
                         if (ov.is_img_sequence && ov.sequence_frames && ov.sequence_frames.length > 0) {
                             if (frameIdxOv >= ov.sequence_frames.length) {
-                                frameIdxOv = frameIdxOv % Math.max(1, ov.sequence_frames.length);
+                                frameIdxOv = ov.media_loop === false ? ov.sequence_frames.length - 1 : frameIdxOv % Math.max(1, ov.sequence_frames.length);
                             }
                             // sequence_frames 已经是合法的 url，若为原生路径等由外部处理（通常已处理好）
                             fPath = ov.sequence_frames[frameIdxOv];
-                        } else if (ov._framesDir) {
-                            if (frameIdxOv >= ov._frameCount) {
-                                frameIdxOv = frameIdxOv % Math.max(1, ov._frameCount);
+                        } else if (prepared || ov._framesDir) {
+                            const framesDir = prepared?.framesDir || ov._framesDir;
+                            const frameCount = prepared?.frameCount || ov._frameCount;
+                            if (frameIdxOv >= frameCount) {
+                                frameIdxOv = ov.media_loop === false ? Math.max(0, frameCount - 1) : frameIdxOv % Math.max(1, frameCount);
                             }
                             const frameName = `frame_${String(frameIdxOv + 1).padStart(6, '0')}.png`;
-                            fPath = `${ov._framesDir}/${frameName}`;
+                            fPath = `${framesDir}/${frameName}`;
                         }
 
                         if (fPath) {
@@ -1130,11 +1199,11 @@ async function reelsWysiwygExport(params) {
                 
                 if (contentVideoX && contentVideoX !== 'center') {
                     const relX = parseFloat(contentVideoX);
-                    if (!isNaN(relX)) Math.abs(relX) <= 1 ? drawX += targetWidth * relX : drawX += relX;
+                    if (!isNaN(relX)) Math.abs(relX) <= 1 ? drawX += targetWidth * relX : drawX += relX * targetWidth / 1080;
                 }
                 if (contentVideoY && contentVideoY !== 'center') {
                     const relY = parseFloat(contentVideoY);
-                    if (!isNaN(relY)) Math.abs(relY) <= 1 ? drawY += targetHeight * relY : drawY += relY;
+                    if (!isNaN(relY)) Math.abs(relY) <= 1 ? drawY += targetHeight * relY : drawY += relY * targetHeight / 1920;
                 }
                 
                 _drawImageFlipped(ctx, currentCvImg, sx, sy, sWidth, sHeight, drawX, drawY, drawW, drawH, contentVideoFlipH, contentVideoFlipV);
@@ -1167,7 +1236,7 @@ async function reelsWysiwygExport(params) {
             // ── 覆盖层（文字卡片等）──
             if (taskOverlays && taskOverlays.length > 0 && window.ReelsOverlay) {
                 // 与主预览/分层导出一致：滚动覆层先绘制，其余按时间线层级顺序。
-                const sortedOvs = taskOverlays.filter(ov => !ov.disabled).slice().sort((a, b) => {
+                const sortedOvs = taskOverlays.filter(ov => !ov.disabled && !directMediaSet.has(ov)).slice().sort((a, b) => {
                     return (Number(a.z_index) || 0) - (Number(b.z_index) || 0);
                 });
                 for (const ov of sortedOvs) {
@@ -1240,6 +1309,8 @@ async function reelsWysiwygExport(params) {
         for (const ov of taskOverlays || []) {
             if (ov._exportImage) ov._exportImage.src = '';
             delete ov._exportImage;
+            if (ov._exportFolderImages) Object.values(ov._exportFolderImages).forEach(img => { if (img) img.src = ''; });
+            delete ov._exportFolderImages;
             if (ov._currentFrameImage) ov._currentFrameImage.src = '';
             delete ov._currentFrameImage;
             delete ov._allOverlays;
@@ -1255,6 +1326,10 @@ async function reelsWysiwygExport(params) {
             if (ov._framesDir) {
                 try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: ov._framesDir }); } catch (_) { }
             }
+            for (const prep of Object.values(ov._folderFramesByPath || {})) {
+                try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: prep.framesDir }); } catch (_) { }
+            }
+            delete ov._folderFramesByPath;
         }
         if (cvFramesDir && !cvIsImageSequence) {
             try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: cvFramesDir }); } catch (_) { }
@@ -1274,6 +1349,8 @@ async function reelsWysiwygExport(params) {
         for (const ov of taskOverlays || []) {
             if (ov._exportImage) ov._exportImage.src = '';
             delete ov._exportImage;
+            if (ov._exportFolderImages) Object.values(ov._exportFolderImages).forEach(img => { if (img) img.src = ''; });
+            delete ov._exportFolderImages;
             if (ov._currentFrameImage) ov._currentFrameImage.src = '';
             delete ov._currentFrameImage;
             delete ov._allOverlays;
@@ -1288,6 +1365,10 @@ async function reelsWysiwygExport(params) {
             if (ov._framesDir) {
                 try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: ov._framesDir }); } catch (_) { }
             }
+            for (const prep of Object.values(ov._folderFramesByPath || {})) {
+                try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: prep.framesDir }); } catch (_) { }
+            }
+            delete ov._folderFramesByPath;
         }
         if (cvFramesDir && !cvIsImageSequence) {
             try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: cvFramesDir }); } catch (_) { }

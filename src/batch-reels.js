@@ -753,6 +753,26 @@ function _initReelsModule() {
         _reelsState.timelineEditor.onTrackOrderChange = (trackIdx, direction, editorTrack, targetTrack) => {
             const task = _getSelectedTask();
             if (!task) return;
+            // 字幕不是普通 Overlay，它在合成器中是独立绘制的一层。字幕轨与
+            // 插入/覆层轨互相跨越时，必须同步切换真正的合成先后，而不只是
+            // 交换时间线中的两行。
+            const isSubtitleTrack = track => track?.type === 'subs' || track?.role === 'subs';
+            const isCompositedTrack = track => !!(track && (
+                track.role === 'insert_video' || track._overlayId ||
+                track.clips?.some(clip => clip?._timelineRole === 'insert_video' || clip?._overlayId)
+            ));
+            if ((isSubtitleTrack(editorTrack) && isCompositedTrack(targetTrack)) ||
+                (isCompositedTrack(editorTrack) && isSubtitleTrack(targetTrack))) {
+                // “上”代表更高层。字幕上移，或覆层下移越过字幕 → 字幕在最上。
+                const subtitleAbove = (isSubtitleTrack(editorTrack) && direction === 'up') ||
+                    (isCompositedTrack(editorTrack) && direction === 'down');
+                task.overlayAboveSubtitle = !subtitleAbove;
+                _updateTimelineForTask(task);
+                if (typeof window.reelsSaveHistory === 'function') window.reelsSaveHistory();
+                if (typeof reelsUpdatePreview === 'function') reelsUpdatePreview();
+                if (typeof window.ReelsPreviewV2?.render === 'function') window.ReelsPreviewV2.render();
+                return;
+            }
             // 覆层轨和插入素材轨是同一合成栈。以前后面的绑定覆盖了这里，
             // 时间线会移动但画面顺序不会改变。
             if (window.ReelsRenderPlan?.moveCompositedOverlay?.(task, editorTrack, targetTrack)) {
@@ -4976,8 +4996,9 @@ function _drawVideoCover(ctx, videoEl, targetW, targetH, scalePct, offsetX = 0, 
     const drawH = srcH * scale;
     const maxShiftX = Math.abs(targetW - drawW) / 2;
     const maxShiftY = Math.abs(targetH - drawH) / 2;
-    const drawX = (targetW - drawW) / 2 + maxShiftX * (offsetX / 100);
-    const drawY = (targetH - drawH) / 2 + maxShiftY * (offsetY / 100);
+    // 背景位置是纯位移：允许移出画布并露出黑边，不因位置自动缩放。
+    const drawX = (targetW - drawW) / 2 + targetW * ((Number(offsetX) || 0) / 100);
+    const drawY = (targetH - drawH) / 2 + targetH * ((Number(offsetY) || 0) / 100);
     _drawImageFlipped(ctx, drawSource, drawX, drawY, drawW, drawH, undefined, undefined, undefined, undefined, flipH, flipV, rotation);
 }
 
@@ -5021,8 +5042,8 @@ function _drawCroppedVideoCover(ctx, videoEl, cropX, cropY, cropW, cropH, target
     const drawH = sHeight * scale;
     const maxShiftX = Math.abs(targetW - drawW) / 2;
     const maxShiftY = Math.abs(targetH - drawH) / 2;
-    const drawX = (targetW - drawW) / 2 + maxShiftX * (offsetX / 100);
-    const drawY = (targetH - drawH) / 2 + maxShiftY * (offsetY / 100);
+    const drawX = (targetW - drawW) / 2 + targetW * ((Number(offsetX) || 0) / 100);
+    const drawY = (targetH - drawH) / 2 + targetH * ((Number(offsetY) || 0) / 100);
     _drawImageFlipped(ctx, drawSource, sx, sy, sWidth, sHeight, drawX, drawY, drawW, drawH, flipH, flipV, rotation);
 }
 
@@ -8869,9 +8890,14 @@ function _renderTaskList() {
                 <span class="reels-task-name" style="font-size:12px; font-weight:${selected ? '600' : '400'}; color:${selected ? '#fff' : 'var(--text-primary)'}; ${taskNameStyle}">${escapeTaskText(shortName)}</span>${versionBadge}
                 ${alphaIcon}
                 ${ovPreview}
-                ${task.autoEditProject ? `<button class="btn" style="padding:1px 5px;font-size:10px;border:1px solid rgba(134,239,172,.35);background:rgba(74,222,128,.08);color:#86efac;" onclick="event.stopPropagation(); reelsRefreshAutoEditTask(${i})" title="手动用自动剪辑最新成片和字幕更新这条旧任务">更新旧任务</button>` : ''}
                 <span style="font-size:10px; white-space:nowrap; opacity:0.8; margin-left:auto;">${statusText}</span>
-                <button class="btn reels-task-duplicate-btn" style="padding:1px 4px; font-size:10px; opacity:0.65; border:none; background:transparent; color:#a78bfa; cursor:pointer;" onclick="event.stopPropagation(); reelsDuplicateTask(${i})" title="复制此任务为新版本副本">📋</button>
+                <details style="position:relative;flex-shrink:0;" onclick="event.stopPropagation()">
+                    <summary class="btn" style="list-style:none;padding:1px 5px;font-size:13px;line-height:16px;opacity:.7;border:none;background:transparent;color:#a78bfa;cursor:pointer;" title="更多任务操作">⋯</summary>
+                    <div style="position:absolute;right:0;top:22px;z-index:1000;min-width:126px;padding:4px;border:1px solid rgba(148,163,184,.38);border-radius:6px;background:#1b2230;box-shadow:0 8px 22px rgba(0,0,0,.45);">
+                        <button class="btn" style="display:block;width:100%;padding:5px 7px;text-align:left;font-size:11px;border:none;background:transparent;color:#c4b5fd;cursor:pointer;" onclick="event.stopPropagation(); reelsDuplicateTask(${i})" title="复制此任务为新版本副本">📋 复制任务</button>
+                        ${task.autoEditProject ? `<button class="btn" style="display:block;width:100%;padding:5px 7px;text-align:left;font-size:11px;border:none;background:transparent;color:#86efac;cursor:pointer;" onclick="event.stopPropagation(); reelsRefreshAutoEditTask(${i})" title="手动用自动剪辑最新成片和字幕更新这条旧任务">↻ 更新旧任务</button>` : ''}
+                    </div>
+                </details>
                 <button class="btn" style="padding:1px 4px; font-size:10px; opacity:0.5; border:none; background:transparent; color:var(--text-secondary);" onclick="event.stopPropagation(); reelsRemoveTask(${i})" title="删除">✕</button>
             </div>
         `;
@@ -11419,8 +11445,8 @@ async function _exportCoverVideo(task, taskStyle, outputDirTrimmed, baseName) {
             bgVolume: 0,
             bgScale: task.cover.bgScale || task.bgScale || 100,
             bgRotation: task.cover.bgRotation ?? task.bgRotation ?? 0,
-            bgX: task.cover.bgX || task.bgX || 0,
-            bgY: task.cover.bgY || task.bgY || 0,
+            bgX: task.cover.bgX ?? task.bgX ?? 0,
+            bgY: task.cover.bgY ?? task.bgY ?? 0,
             bgFlipH: task.cover.bgFlipH || task.bgFlipH || false,
             bgFlipV: task.cover.bgFlipV || task.bgFlipV || false,
             targetWidth: tw,
@@ -14217,6 +14243,7 @@ window.reelsInsertSingleMediaAtPlayhead = async function() {
         sourceType,
         sourceDuration: await _getInsertMediaSourceDuration(selected, sourceType),
         timelineStart: playhead,
+        mode: task.insertLayoutMode || 'pip',
     });
     _updateTimelineForTask(task);
     if (typeof window.reelsSaveHistory === 'function') window.reelsSaveHistory();
@@ -14252,6 +14279,7 @@ window.reelsInsertMediaAtPlayhead = async function() {
         sourceType,
         sourceDuration: await _getInsertMediaSourceDuration(selected, sourceType),
         timelineStart: playhead,
+        mode: task.insertLayoutMode || 'pip',
     });
     _updateTimelineForTask(task);
     if (typeof window.reelsSaveHistory === 'function') window.reelsSaveHistory();
@@ -14296,8 +14324,8 @@ window.reelsInsertAtSilences = async function(options = {}) {
         }
         if (!selected.length) { if (typeof showToast === 'function') showToast('没有找到适合插入的停顿点；可降低最短停顿阈值后重试', 'warning'); return; }
         const durationRule = options.durationRule || {};
-        const fixedDuration = Math.max(.05, Math.min(120, Number(durationRule.fixedDuration) || 3));
-        const maxDuration = Math.max(.05, Math.min(120, Number(durationRule.maxDuration) || 3));
+        const fixedDuration = Math.max(.05, Math.min(120, Number(durationRule.fixedDuration) || 10));
+        const maxDuration = Math.max(.05, Math.min(120, Number(durationRule.maxDuration) || 10));
         selected.sort((a, b) => Number(a.start) - Number(b.start)).forEach((point, index) => {
             const time = Number(point.start);
             // 自动模式严格不越过检测出的停顿尾部，避免插入画面压到说话内容。
@@ -14312,6 +14340,7 @@ window.reelsInsertAtSilences = async function(options = {}) {
                 sourceType: _getInsertMediaSourceType(path),
                 timelineStart: time,
                 duration: clipDuration,
+                mode: durationRule.layoutMode || task.insertLayoutMode || 'pip',
                 generatedBy: 'batch-silence'
             });
         });
@@ -14418,8 +14447,8 @@ function _showInsertClipInspector(editorClip) {
         right: '16px',
         bottom: '60px',
         zIndex: '100',
-        width: '320px',
-        maxHeight: '80vh',
+        width: '300px',
+        maxHeight: '62vh',
         overflowY: 'auto',
         padding: '14px',
         borderRadius: '12px',
@@ -14437,7 +14466,7 @@ function _showInsertClipInspector(editorClip) {
     if (!item.transitionOut) item.transitionOut = { type: 'fade', duration: 0.35 };
     const isImage = item.sourceType === 'image' || /\.(png|jpe?g|webp)$/i.test(item.sourcePath || '');
     const filename = (item.sourcePath || '').split(/[/\\]/).pop() || '素材片段';
-    const shownDuration = Math.max(.05, Number(item.duration) || 1.5);
+    const shownDuration = Math.max(.05, Number(item.duration) || 10);
     const sourceDuration = Math.max(0, Number(item.sourceDuration) || 0);
     const loopCount = sourceDuration > .05 ? Math.ceil(shownDuration / sourceDuration) : 0;
     const durationInfo = isImage
@@ -14448,9 +14477,11 @@ function _showInsertClipInspector(editorClip) {
     const canvasW = _reelsState?.targetWidth || 1080;
     const canvasH = _reelsState?.targetHeight || 1920;
     const isPip = item.mode === 'pip' || item.mode === 'overlay';
+    const isBottomHalf = item.mode === 'bottom-half';
     const baseW = transform.w != null ? Number(transform.w) : (isPip ? Math.round(canvasW * 0.38) : canvasW);
-    const baseH = transform.h != null ? Number(transform.h) : (isPip ? Math.round(canvasH * 0.28) : canvasH);
+    const baseH = transform.h != null ? Number(transform.h) : (isPip ? Math.round(canvasH * 0.28) : (isBottomHalf ? Math.round(canvasH * .5) : canvasH));
     const curX = transform.x != null ? Number(transform.x) : (isPip ? canvasW - baseW - 48 : 0);
+    // 下半屏的 x/y 是“固定下半屏裁切窗口内”的偏移，不是整张 9:16 画布坐标。
     const curY = transform.y != null ? Number(transform.y) : (isPip ? canvasH - baseH - 160 : 0);
     const transInType = item.transitionIn?.type !== undefined ? item.transitionIn.type : 'fade';
     const transInDur = item.transitionIn?.duration != null ? Number(item.transitionIn.duration) : 0.35;
@@ -14458,7 +14489,7 @@ function _showInsertClipInspector(editorClip) {
     const transOutDur = item.transitionOut?.duration != null ? Number(item.transitionOut.duration) : 0.35;
 
     panel.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:8px">
+      <div id="reels-insert-drag-handle" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:8px;cursor:move" title="按住此处拖动窗口">
         <div style="font-weight:700;color:#6ee7b7;display:flex;align-items:center;gap:6px">
           <span>🎬 插入素材与画中画</span>
           <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#a7f3d0;border:1px solid rgba(16,185,129,0.35);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${filename}">${filename}</span>
@@ -14467,12 +14498,40 @@ function _showInsertClipInspector(editorClip) {
       </div>
       <div style="margin:-3px 0 10px;padding:6px 8px;border-radius:6px;background:rgba(16,185,129,.10);border:1px solid rgba(16,185,129,.25);font-size:11px;color:#a7f3d0">⏱ ${durationInfo}</div>
 
+      <!-- 插入片段的时长和原片取段放在一起，默认就是原片 0 秒到末尾。 -->
+      <div style="margin-bottom:10px;padding:8px;border-radius:8px;background:rgba(59,130,246,.08);border:1px solid rgba(96,165,250,.26)">
+        <div style="font-size:10px;color:#bfdbfe;margin-bottom:5px">插入素材：默认使用原片完整长度</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <div>
+          <label style="display:block;font-size:10px;color:#bfdbfe;margin-bottom:3px">显示时长</label>
+          <input data-d="duration" type="number" min="0.05" max="36000" step="0.1" value="${item.duration ?? 10}" style="width:100%;padding:4px;border-radius:5px;background:#1e2430;border:1px solid #374151;color:#fff;font-size:12px">
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;color:#bfdbfe;margin-bottom:3px">原片入点</label>
+          <input data-s="sourceTrimStart" type="number" min="0" step="0.1" value="${item.sourceTrimStart ?? 0}" style="width:100%;padding:4px;border-radius:5px;background:#1e2430;border:1px solid #374151;color:#fff;font-size:12px">
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;color:#bfdbfe;margin-bottom:3px">原片出点</label>
+          <input data-s="sourceTrimEnd" type="number" min="0" step="0.1" value="${item.sourceTrimEnd ?? ((item.sourceTrimStart || 0) + (item.duration || 10))}" style="width:100%;padding:4px;border-radius:5px;background:#1e2430;border:1px solid #374151;color:#fff;font-size:12px">
+        </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px;align-items:end">
+          <div>
+            <label style="display:block;font-size:10px;color:#bfdbfe;margin-bottom:3px">背景成片总时长 (s)</label>
+            <input id="reels-insert-bg-total-duration" type="number" min="0" max="36000" step="0.1" value="${task.customDuration || ''}" placeholder="自动" style="width:100%;padding:4px 6px;border-radius:5px;background:#1e2430;border:1px solid #374151;color:#fff;font-size:12px">
+          </div>
+          <button id="reels-insert-use-bg-duration" style="padding:5px;border-radius:4px;background:rgba(59,130,246,.2);border:1px solid rgba(96,165,250,.4);color:#dbeafe;font-size:10px;cursor:pointer">读取背景原片全长</button>
+        </div>
+      </div>
+      <button id="reels-insert-loop-whole-video" style="width:100%;margin:-2px 0 10px;padding:8px;border-radius:7px;background:rgba(16,185,129,.18);border:1px solid rgba(52,211,153,.55);color:#a7f3d0;font-size:12px;font-weight:700;cursor:pointer">♾ 使用整条素材，循环覆盖整条成片</button>
+
       <!-- 模式与音量 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
         <div>
           <label style="display:block;font-size:11px;color:#9ca3af;margin-bottom:3px">显示模式</label>
           <select data-key="mode" style="width:100%;padding:4px 6px;border-radius:6px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
-            <option value="pip" ${item.mode !== 'replace-video-keep-main-audio' ? 'selected' : ''}>画中画 / 画面叠层</option>
+            <option value="pip" ${(item.mode === 'pip' || item.mode === 'overlay' || !item.mode) ? 'selected' : ''}>画中画 / 画面叠层</option>
+            <option value="bottom-half" ${item.mode === 'bottom-half' ? 'selected' : ''}>下半屏（背景在上）</option>
             <option value="replace-video-keep-main-audio" ${item.mode === 'replace-video-keep-main-audio' ? 'selected' : ''}>全屏替换背景 (切镜)</option>
           </select>
         </div>
@@ -14488,16 +14547,16 @@ function _showInsertClipInspector(editorClip) {
           <span>快捷 9 宫格对齐</span>
           <span style="color:#6b7280;font-size:10px">画布 ${canvasW}×${canvasH}</span>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-width:140px;margin:0 auto">
-          <button data-align="top-left" class="reels-align-btn" title="左上" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↖</button>
-          <button data-align="top-center" class="reels-align-btn" title="中上" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">⬆</button>
-          <button data-align="top-right" class="reels-align-btn" title="右上" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↗</button>
-          <button data-align="center-left" class="reels-align-btn" title="左中" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">⬅</button>
-          <button data-align="center" class="reels-align-btn" title="居中" style="padding:4px 0;background:#059669;border:1px solid #10b981;border-radius:4px;color:#fff;cursor:pointer;font-size:11px">┼</button>
-          <button data-align="center-right" class="reels-align-btn" title="右中" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">➡</button>
-          <button data-align="bottom-left" class="reels-align-btn" title="左下" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↙</button>
-          <button data-align="bottom-center" class="reels-align-btn" title="中下" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">⬇</button>
-          <button data-align="bottom-right" class="reels-align-btn" title="右下" style="padding:4px 0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↘</button>
+        <div style="width:108px;aspect-ratio:9/16;margin:0 auto;padding:8px;box-sizing:border-box;border:1px solid ${isBottomHalf ? 'rgba(16,185,129,.7)' : 'rgba(96,165,250,.55)'};border-radius:8px;background:linear-gradient(to bottom,rgba(51,65,85,.32) 0 50%,${isBottomHalf ? 'rgba(16,185,129,.18)' : 'rgba(59,130,246,.12)'} 50% 100%);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:4px">
+          <button data-align="top-left" class="reels-align-btn" title="左上" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↖</button>
+          <button data-align="top-center" class="reels-align-btn" title="中上" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">⬆</button>
+          <button data-align="top-right" class="reels-align-btn" title="右上" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↗</button>
+          <button data-align="center-left" class="reels-align-btn" title="左中" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">⬅</button>
+          <button data-align="center" class="reels-align-btn" title="居中" style="padding:0;background:#059669;border:1px solid #10b981;border-radius:4px;color:#fff;cursor:pointer;font-size:11px">┼</button>
+          <button data-align="center-right" class="reels-align-btn" title="右中" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">➡</button>
+          <button data-align="bottom-left" class="reels-align-btn" title="左下" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↙</button>
+          <button data-align="bottom-center" class="reels-align-btn" title="中下" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">⬇</button>
+          <button data-align="bottom-right" class="reels-align-btn" title="右下" style="padding:0;background:#2d3748;border:1px solid #4a5568;border-radius:4px;color:#cbd5e1;cursor:pointer;font-size:11px">↘</button>
         </div>
       </div>
 
@@ -14505,13 +14564,13 @@ function _showInsertClipInspector(editorClip) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
         <div>
           <label style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
-            <span>X 坐标 (px)</span>
+            <span>${isBottomHalf ? '窗口内素材 X 偏移 (px)' : 'X 坐标 (px)'}</span>
           </label>
           <input data-t="x" type="number" value="${Math.round(curX)}" style="width:100%;padding:4px 6px;border-radius:6px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
         </div>
         <div>
           <label style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
-            <span>Y 坐标 (px)</span>
+            <span>${isBottomHalf ? '窗口内素材 Y 偏移 (px)' : 'Y 坐标 (px)'}</span>
           </label>
           <input data-t="y" type="number" value="${Math.round(curY)}" style="width:100%;padding:4px 6px;border-radius:6px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
         </div>
@@ -14520,7 +14579,7 @@ function _showInsertClipInspector(editorClip) {
       <!-- 缩放与旋转 -->
       <div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-          <span style="font-size:11px;color:#9ca3af">缩放比例</span>
+          <span style="font-size:11px;color:#9ca3af">${isBottomHalf ? '窗口内素材缩放' : '缩放比例'}</span>
           <div style="display:flex;align-items:center;gap:4px">
             <button data-scale-val="50" style="background:#2d3748;border:none;border-radius:3px;color:#94a3b8;padding:1px 4px;font-size:9px;cursor:pointer">50%</button>
             <button data-scale-val="100" style="background:#2d3748;border:none;border-radius:3px;color:#94a3b8;padding:1px 4px;font-size:9px;cursor:pointer">100%</button>
@@ -14533,7 +14592,7 @@ function _showInsertClipInspector(editorClip) {
 
       <div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-          <span style="font-size:11px;color:#9ca3af">旋转角度</span>
+          <span style="font-size:11px;color:#9ca3af">${isBottomHalf ? '窗口内素材旋转' : '旋转角度'}</span>
           <div style="display:flex;align-items:center;gap:4px">
             <button data-rot-val="0" style="background:#2d3748;border:none;border-radius:3px;color:#94a3b8;padding:1px 4px;font-size:9px;cursor:pointer">0°</button>
             <button data-rot-val="90" style="background:#2d3748;border:none;border-radius:3px;color:#94a3b8;padding:1px 4px;font-size:9px;cursor:pointer">90°</button>
@@ -14557,11 +14616,10 @@ function _showInsertClipInspector(editorClip) {
         </div>
       </div>
 
-      <!-- 入场 / 出场转场动画 -->
-      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:10px;margin-bottom:12px">
-        <div style="font-weight:600;color:#a7f3d0;margin-bottom:8px;font-size:11px;display:flex;align-items:center;gap:4px">
-          <span>✨ 转场动画 (淡入淡出 / 滑入 / 弹出)</span>
-        </div>
+      <!-- 转场属于低频设置：默认收起，避免检查器遮住时间线。 -->
+      <details style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:8px 10px;margin-bottom:12px">
+        <summary style="font-weight:600;color:#a7f3d0;font-size:11px;cursor:pointer">✨ 转场动画（需要时展开）</summary>
+        <div style="margin-top:8px">
         
         <!-- 入场动画 -->
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:6px;margin-bottom:6px;align-items:center">
@@ -14602,23 +14660,8 @@ function _showInsertClipInspector(editorClip) {
             <input data-anim="out-dur" type="number" min="0.05" max="2" step="0.05" value="${transOutDur}" style="width:100%;padding:3px 5px;border-radius:4px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
           </div>
         </div>
-      </div>
-
-      <!-- 时间与裁切 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:12px">
-        <div>
-          <label style="display:block;font-size:10px;color:#9ca3af;margin-bottom:2px">持续时长 (s)</label>
-          <input data-d="duration" type="number" min="0.05" max="120" step="0.1" value="${item.duration ?? 1.5}" style="width:100%;padding:3px 5px;border-radius:4px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
         </div>
-        <div>
-          <label style="display:block;font-size:10px;color:#9ca3af;margin-bottom:2px">源入点 (s)</label>
-          <input data-s="sourceTrimStart" type="number" min="0" step="0.1" value="${item.sourceTrimStart ?? 0}" style="width:100%;padding:3px 5px;border-radius:4px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
-        </div>
-        <div>
-          <label style="display:block;font-size:10px;color:#9ca3af;margin-bottom:2px">源出点 (s)</label>
-          <input data-s="sourceTrimEnd" type="number" min="0" step="0.1" value="${item.sourceTrimEnd ?? ((item.sourceTrimStart || 0) + (item.duration || 1.5))}" style="width:100%;padding:3px 5px;border-radius:4px;background:#1e2430;border:1px solid #374151;color:#e5e7eb;font-size:11px">
-        </div>
-      </div>
+      </details>
 
       <!-- 底部删除按钮 -->
       <div style="display:flex;justify-content:flex-end">
@@ -14630,6 +14673,38 @@ function _showInsertClipInspector(editorClip) {
     const closeBtn = panel.querySelector('#reels-insert-close-btn');
     if (closeBtn) closeBtn.onclick = _hideInsertClipInspector;
 
+    // 检查器默认停在右下角，但编辑时常会遮住时间线；标题栏可直接拖到
+    // 面板内任意空处。使用父容器坐标，窗口缩放/界面重绘后不会漂到屏幕外。
+    const dragHandle = panel.querySelector('#reels-insert-drag-handle');
+    dragHandle?.addEventListener('mousedown', (downEvent) => {
+        if (downEvent.target.closest('button')) return;
+        downEvent.preventDefault();
+        const parent = panel.parentElement;
+        if (!parent) return;
+        const panelRect = panel.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        const offsetX = downEvent.clientX - panelRect.left;
+        const offsetY = downEvent.clientY - panelRect.top;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+        panel.style.left = `${panelRect.left - parentRect.left}px`;
+        panel.style.top = `${panelRect.top - parentRect.top}px`;
+        const onMove = (moveEvent) => {
+            const maxLeft = Math.max(0, parentRect.width - panel.offsetWidth);
+            const maxTop = Math.max(0, parentRect.height - panel.offsetHeight);
+            const left = Math.max(0, Math.min(maxLeft, moveEvent.clientX - parentRect.left - offsetX));
+            const top = Math.max(0, Math.min(maxTop, moveEvent.clientY - parentRect.top - offsetY));
+            panel.style.left = `${left}px`;
+            panel.style.top = `${top}px`;
+        };
+        const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    });
+
     const syncLiveUpdate = () => {
         window.ReelsRenderPlan?.ensureTimeline(task);
         _updateTimelineForTask(task);
@@ -14638,24 +14713,132 @@ function _showInsertClipInspector(editorClip) {
         if (typeof window.ReelsPreviewV2?.render === 'function') window.ReelsPreviewV2.render();
     };
 
+    // 背景总时长属于任务，而非某一段插入素材。放在检查器内可在调整插入
+    // 片段时立即决定整条成片的长度，留空则恢复原先的自动时长计算。
+    const bgTotalDurationInput = panel.querySelector('#reels-insert-bg-total-duration');
+    const setBackgroundTotalDuration = () => {
+        const raw = String(bgTotalDurationInput?.value ?? '').trim();
+        const duration = raw === '' ? 0 : Number(raw);
+        task.customDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+        syncLiveUpdate();
+    };
+    bgTotalDurationInput?.addEventListener('change', setBackgroundTotalDuration);
+    bgTotalDurationInput?.addEventListener('input', setBackgroundTotalDuration);
+    const useBackgroundDurationBtn = panel.querySelector('#reels-insert-use-bg-duration');
+    useBackgroundDurationBtn?.addEventListener('click', async () => {
+        const backgroundPath = task.bgPath || task.videoPath;
+        if (!backgroundPath) { alert('请先为当前任务设置背景视频'); return; }
+        if (!window.electronAPI?.getMediaDuration) { alert('当前环境无法读取背景视频时长'); return; }
+        useBackgroundDurationBtn.disabled = true;
+        useBackgroundDurationBtn.textContent = '读取中…';
+        try {
+            const duration = Number(await window.electronAPI.getMediaDuration(backgroundPath));
+            if (!(Number.isFinite(duration) && duration > 0)) throw new Error('未读取到有效时长');
+            task.customDuration = Number(duration.toFixed(3));
+            if (bgTotalDurationInput) bgTotalDurationInput.value = task.customDuration;
+            syncLiveUpdate();
+        } catch (error) {
+            alert(`背景时长读取失败：${error.message || error}`);
+        } finally {
+            useBackgroundDurationBtn.disabled = false;
+            useBackgroundDurationBtn.textContent = '读取背景原片全长';
+        }
+    });
+
+    // 一键常用模式：不裁切、不分段，插入素材从 0 秒开始循环铺满整条成片。
+    // 总时长优先取用户刚填写的背景成片总时长；若尚未填写，则读取背景原片。
+    const loopWholeVideoBtn = panel.querySelector('#reels-insert-loop-whole-video');
+    loopWholeVideoBtn?.addEventListener('click', async () => {
+        let totalDuration = Number(task.customDuration) || 0;
+        if (!(totalDuration > 0)) {
+            const backgroundPath = task.bgPath || task.videoPath;
+            if (!backgroundPath || !window.electronAPI?.getMediaDuration) {
+                alert('请先填写“背景成片总时长”，或先设置背景视频');
+                return;
+            }
+            loopWholeVideoBtn.disabled = true;
+            loopWholeVideoBtn.textContent = '读取背景时长…';
+            try {
+                totalDuration = Number(await window.electronAPI.getMediaDuration(backgroundPath));
+                if (!(Number.isFinite(totalDuration) && totalDuration > 0)) throw new Error('未读取到有效时长');
+                task.customDuration = Number(totalDuration.toFixed(3));
+                if (bgTotalDurationInput) bgTotalDurationInput.value = task.customDuration;
+            } catch (error) {
+                alert(`背景时长读取失败：${error.message || error}`);
+                return;
+            } finally {
+                loopWholeVideoBtn.disabled = false;
+                loopWholeVideoBtn.textContent = '♾ 使用整条素材，循环覆盖整条成片';
+            }
+        }
+        item.timelineStart = 0;
+        item.duration = totalDuration;
+        item.sourceTrimStart = 0;
+        // sourceTrimEnd 只决定每轮从原片取到哪里；使用原片全长，渲染器会自动循环。
+        item.sourceTrimEnd = Number(item.sourceDuration) > 0 ? Number(item.sourceDuration) : totalDuration;
+        const clipDurationInput = panel.querySelector('[data-d="duration"]');
+        const sourceStartInput = panel.querySelector('[data-s="sourceTrimStart"]');
+        const sourceEndInput = panel.querySelector('[data-s="sourceTrimEnd"]');
+        if (clipDurationInput) clipDurationInput.value = totalDuration.toFixed(3);
+        if (sourceStartInput) sourceStartInput.value = '0';
+        if (sourceEndInput) sourceEndInput.value = item.sourceTrimEnd.toFixed(3);
+        syncLiveUpdate();
+        if (typeof showToast === 'function') showToast('已从 0 秒开始循环使用该素材，直到整条成片结束', 'success');
+    });
+
+    // X/Y 数字框既可键盘精确输入，也可像剪辑软件一样横向拖拽微调。
+    // 只有移动超过几个像素才进入拖拽状态，因此普通点击不会影响输入和选中文字。
+    panel.querySelectorAll('[data-t="x"], [data-t="y"]').forEach(input => {
+        input.style.cursor = 'ew-resize';
+        input.title = '单击输入数值；按住左右拖动微调（Shift 加速）';
+        input.addEventListener('mousedown', (downEvent) => {
+            if (downEvent.button !== 0) return;
+            const startX = downEvent.clientX;
+            const startValue = Number(input.value) || 0;
+            let dragging = false;
+            const onMove = (moveEvent) => {
+                const delta = moveEvent.clientX - startX;
+                if (!dragging && Math.abs(delta) < 3) return;
+                dragging = true;
+                moveEvent.preventDefault();
+                const multiplier = moveEvent.shiftKey ? 10 : 1;
+                const nextValue = Math.round(startValue + delta * multiplier);
+                if (Number(input.value) !== nextValue) {
+                    input.value = String(nextValue);
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            };
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        });
+    });
+
     // 快捷 9 宫格对齐处理
     panel.querySelectorAll('.reels-align-btn').forEach(btn => {
         btn.onclick = () => {
             const align = btn.dataset.align;
             const w = baseW * ((transform.scale || 100) / 100);
             const h = baseH * ((transform.scale || 100) / 100);
-            const padX = 48, padY = 48, bottomPadY = 160;
+            // 下半屏模式是固定裁切窗口；九宫格必须在该窗口内部计算，
+            // 不能再使用整张画布的 y=960~1920 坐标。
+            const alignW = canvasW;
+            const alignH = isBottomHalf ? canvasH / 2 : canvasH;
+            const padX = 48, padY = 48, bottomPadY = isBottomHalf ? 48 : 160;
             let targetX = curX, targetY = curY;
 
             if (align === 'top-left') { targetX = padX; targetY = padY; }
-            else if (align === 'top-center') { targetX = (canvasW - w) / 2; targetY = padY; }
-            else if (align === 'top-right') { targetX = canvasW - w - padX; targetY = padY; }
-            else if (align === 'center-left') { targetX = padX; targetY = (canvasH - h) / 2; }
-            else if (align === 'center') { targetX = (canvasW - w) / 2; targetY = (canvasH - h) / 2; }
-            else if (align === 'center-right') { targetX = canvasW - w - padX; targetY = (canvasH - h) / 2; }
-            else if (align === 'bottom-left') { targetX = padX; targetY = canvasH - h - bottomPadY; }
-            else if (align === 'bottom-center') { targetX = (canvasW - w) / 2; targetY = canvasH - h - bottomPadY; }
-            else if (align === 'bottom-right') { targetX = canvasW - w - padX; targetY = canvasH - h - bottomPadY; }
+            else if (align === 'top-center') { targetX = (alignW - w) / 2; targetY = padY; }
+            else if (align === 'top-right') { targetX = alignW - w - padX; targetY = padY; }
+            else if (align === 'center-left') { targetX = padX; targetY = (alignH - h) / 2; }
+            else if (align === 'center') { targetX = (alignW - w) / 2; targetY = (alignH - h) / 2; }
+            else if (align === 'center-right') { targetX = alignW - w - padX; targetY = (alignH - h) / 2; }
+            else if (align === 'bottom-left') { targetX = padX; targetY = alignH - h - bottomPadY; }
+            else if (align === 'bottom-center') { targetX = (alignW - w) / 2; targetY = alignH - h - bottomPadY; }
+            else if (align === 'bottom-right') { targetX = alignW - w - padX; targetY = alignH - h - bottomPadY; }
 
             transform.x = Math.round(targetX);
             transform.y = Math.round(targetY);
@@ -14737,6 +14920,16 @@ function _showInsertClipInspector(editorClip) {
         const handler = () => {
             if (input.dataset.key) {
                 item[input.dataset.key] = input.dataset.key === 'volume' ? Number(input.value) : input.value;
+                // 切换到下半屏时，固定窗口内的素材默认以窗口中心为基准。
+                // 后续用户调整 Y 才会形成相对这个居中基准的偏移。
+                if (input.dataset.key === 'mode' && input.value === 'bottom-half') {
+                    transform.x = 0;
+                    transform.y = 0;
+                    const xInput = panel.querySelector('[data-t="x"]');
+                    const yInput = panel.querySelector('[data-t="y"]');
+                    if (xInput) xInput.value = '0';
+                    if (yInput) yInput.value = '0';
+                }
             }
             if (input.dataset.t) {
                 transform[input.dataset.t] = Number(input.value);

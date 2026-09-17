@@ -1121,7 +1121,7 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
     if (!isPreviewingEnd && end < 9999 && ov.type !== 'scroll' && currentTime > end + 0.001) {
         if (ov._insertClip) { console.log('[InsertDraw] SKIPPED: currentTime', currentTime, '> end', end); return; }
         // 对于 video/image 覆层，如果 end 恰好等于视频时长（被 9999 覆盖的遗留问题），也视为全程
-        if ((ov.type === 'video' || ov.type === 'image') && end > 0) {
+        if ((ov.type === 'video' || ov.type === 'image') && end > 0 && ov.media_loop !== false) {
             // 允许继续绘制（循环播放）
         } else {
             return;
@@ -1131,8 +1131,40 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
     let x = parseFloat(ov.x || 0);
     let y = parseFloat(ov.y || 0);
     let destScaleOffset = 1.0;
-    const w = parseFloat(ov.w || 100);
-    const h = parseFloat(ov.h || 100);
+    let w = parseFloat(ov.w || 100);
+    let h = parseFloat(ov.h || 100);
+    // 媒体窗口有两层坐标：PIP 的 ov.x/y 是窗口位置，inner 是素材在
+    // 窗口内的位置；下半屏窗口固定，只有 inner 可移动。裁切始终固定在窗口。
+    let mediaWindowRect = null;
+    if ((ov.type === 'image' || ov.type === 'video') && ov.media_window_mode === 'pip') {
+        const savedWindow = ov.media_window || {};
+        const baseWindow = {
+            x: Number.isFinite(Number(savedWindow.x)) ? Number(savedWindow.x) : x,
+            y: Number.isFinite(Number(savedWindow.y)) ? Number(savedWindow.y) : y,
+            w: Number(savedWindow.w) > 0 ? Number(savedWindow.w) : w,
+            h: Number(savedWindow.h) > 0 ? Number(savedWindow.h) : h,
+        };
+        // 原“变换缩放”是整个覆层窗口的总缩放：PIP 的裁切框、素材与
+        // 预览辅助线必须同缩放。下半屏则保持固定裁切区，只缩放区内素材。
+        const outerScale = Math.max(0.01, parseFloat(ov.scale || 1) || 1);
+        mediaWindowRect = {
+            x: baseWindow.x + (baseWindow.w - baseWindow.w * outerScale) / 2,
+            y: baseWindow.y + (baseWindow.h - baseWindow.h * outerScale) / 2,
+            w: baseWindow.w * outerScale,
+            h: baseWindow.h * outerScale,
+        };
+        // 素材绘制尺寸由窗口尺寸决定；外层窗口与内层素材彻底分离。
+        x = mediaWindowRect.x;
+        y = mediaWindowRect.y;
+        w = mediaWindowRect.w;
+        h = mediaWindowRect.h;
+        x += (parseFloat(ov.media_inner_x || 0) || 0) * outerScale;
+        y += (parseFloat(ov.media_inner_y || 0) || 0) * outerScale;
+    } else if ((ov.type === 'image' || ov.type === 'video') && ov.media_window_mode === 'bottom_half') {
+        mediaWindowRect = { x: 0, y: canvasH / 2, w: canvasW, h: canvasH / 2 };
+        x = mediaWindowRect.x + parseFloat(ov.media_inner_x || 0);
+        y = mediaWindowRect.y + parseFloat(ov.media_inner_y || 0);
+    }
 
     // ── 跟随滚动字幕正文绑定 ──
     if (ov.bind_scroll_overlay_id && (ov.type === 'image' || ov.type === 'video')) {
@@ -1212,6 +1244,15 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
 
     ctx.save();
 
+    // 固定分屏窗口（例如“下半屏”）：先在画布坐标裁切，再在窗口内移动
+    // 素材本身。这样 X/Y 调整不会把窗口整体拖离下半屏。
+    const clipRect = mediaWindowRect || ov.clip_rect;
+    if (clipRect && Number(clipRect.w) > 0 && Number(clipRect.h) > 0) {
+        ctx.beginPath();
+        ctx.rect(Number(clipRect.x) || 0, Number(clipRect.y) || 0, Number(clipRect.w), Number(clipRect.h));
+        ctx.clip();
+    }
+
     // 旋转
     const cx = x + w / 2;
     const cy = y + h / 2;
@@ -1285,7 +1326,7 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
     }
 
     if (ov.type === 'image') {
-        _drawImageOverlay(ctx, ov, x, y, w, h);
+        _drawImageOverlay(ctx, ov, x, y, w, h, currentTime);
     } else if (ov.type === 'text') {
         _drawTextOverlay(ctx, ov, x, y, w, h, currentTime);
     } else if (ov.type === 'textcard') {
@@ -1299,21 +1340,59 @@ function drawOverlay(ctx, origOv, currentTime = 0, canvasW = 1920, canvasH = 108
     }
 
     ctx.restore();
+
+    // 仅编辑预览：画中画/下半屏的窗口是固定裁切区，给出边框提示，
+    // 方便区分“移动窗口”和“在窗口内移动素材”。导出对象标记为
+    // _exporting，因此成片和分层 PNG 中绝不会包含这条辅助线。
+    if (!ov._exporting && mediaWindowRect) {
+        const rx = Number(mediaWindowRect.x) || 0;
+        const ry = Number(mediaWindowRect.y) || 0;
+        const rw = Number(mediaWindowRect.w) || 0;
+        const rh = Number(mediaWindowRect.h) || 0;
+        if (rw > 0 && rh > 0) {
+            const isBottom = ov.media_window_mode === 'bottom_half';
+            ctx.save();
+            ctx.setLineDash([8, 5]);
+            ctx.lineWidth = ov._selected ? 3 : 1.5;
+            ctx.strokeStyle = isBottom ? 'rgba(255, 190, 70, .9)' : 'rgba(52, 211, 153, .9)';
+            ctx.strokeRect(rx + 0.5, ry + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1));
+            ctx.setLineDash([]);
+            ctx.font = '600 15px sans-serif';
+            const label = isBottom ? '下半屏固定裁切区' : '画中画固定窗口';
+            const labelW = ctx.measureText(label).width + 12;
+            const labelY = Math.max(0, ry - 23);
+            ctx.fillStyle = isBottom ? 'rgba(111, 78, 15, .88)' : 'rgba(6, 78, 59, .88)';
+            ctx.fillRect(rx, labelY, labelW, 21);
+            ctx.fillStyle = '#fff';
+            ctx.fillText(label, rx + 6, labelY + 15);
+            ctx.restore();
+        }
+    }
 }
 
 /**
  * 渲染图片覆层 (内部)。
  */
-function _drawImageOverlay(ctx, ov, x, y, w, h) {
-    const imgPath = ov.content || '';
+function _resolveFolderMediaPath(ov, currentTime) {
+    const files = Array.isArray(ov.media_folder_files) ? ov.media_folder_files.filter(Boolean) : [];
+    if (!files.length) return ov.content || '';
+    const elapsed = Math.max(0, currentTime - (parseFloat(ov.start || 0)));
+    const interval = Math.max(0.1, parseFloat(ov.media_folder_interval || 5) || 5);
+    return files[Math.floor(elapsed / interval) % files.length] || ov.content || '';
+}
+
+function _drawImageOverlay(ctx, ov, x, y, w, h, currentTime = 0) {
+    const imgPath = _resolveFolderMediaPath(ov, currentTime);
     if (!imgPath) return;
 
     // 导出时使用 job 私有的预加载图片。预览才走全局缓存；否则连续导出
     // 的不同任务可能在异步加载/缓存复用期间错误地画出上一任务的图片。
-    const img = (ov._exporting && ov._exportImage) || _getCachedImage(imgPath);
+    const img = (ov._exporting && (ov._exportFolderImages?.[imgPath] || ov._exportImage)) || _getCachedImage(imgPath);
     if (!img) return;
 
-    const scale = parseFloat(ov.scale || 1);
+    const scale = ov.media_window_mode === 'pip' ? 1 : parseFloat(ov.scale || 1);
+    const innerScale = Math.max(0.01, parseFloat(ov.media_inner_scale ?? 1) || 1);
+    const innerRotation = parseFloat(ov.media_inner_rotation || 0);
     const flipX = ov.flip_x || false;
     const flipY = ov.flip_y || false;
     const keepAspect = ov.keep_aspect !== false;
@@ -1324,13 +1403,20 @@ function _drawImageOverlay(ctx, ov, x, y, w, h) {
 
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
-    ctx.scale(flipX ? -scale : scale, flipY ? -scale : scale);
+    if (innerRotation) ctx.rotate(innerRotation * Math.PI / 180);
+    ctx.scale(flipX ? -scale * innerScale : scale * innerScale, flipY ? -scale * innerScale : scale * innerScale);
 
     let drawW = w, drawH = h;
     if (keepAspect) {
         const imgRatio = img.naturalWidth / img.naturalHeight;
         const boxRatio = w / h;
-        if (imgRatio > boxRatio) {
+        if (ov.crop_fill && imgRatio > boxRatio) {
+            drawH = h;
+            drawW = h * imgRatio;
+        } else if (ov.crop_fill) {
+            drawW = w;
+            drawH = w / imgRatio;
+        } else if (imgRatio > boxRatio) {
             drawH = w / imgRatio;
         } else {
             drawW = h * imgRatio;
@@ -1347,10 +1433,12 @@ function _drawImageOverlay(ctx, ov, x, y, w, h) {
  * 支持导出模式 (PNG序列) 和 预览模式(<video> / <img>)
  */
 function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
-    const videoPath = ov.content || '';
+    const videoPath = _resolveFolderMediaPath(ov, currentTime);
     if (!videoPath) return;
 
-    const scale = parseFloat(ov.scale || 1);
+    const scale = ov.media_window_mode === 'pip' ? 1 : parseFloat(ov.scale || 1);
+    const innerScale = Math.max(0.01, parseFloat(ov.media_inner_scale ?? 1) || 1);
+    const innerRotation = parseFloat(ov.media_inner_rotation || 0);
     const flipX = ov.flip_x || false;
     const flipY = ov.flip_y || false;
     const keepAspect = ov.keep_aspect !== false;
@@ -1360,6 +1448,11 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
     const start = parseFloat(ov.start || 0);
     const videoOffset = parseFloat(ov.video_start_offset || 0);
     let relTime = Math.max(0, currentTime - start) + videoOffset;
+    // 文件夹轮换时，每条视频从自己的开头开始播放；导出预取和预览保持一致。
+    if (Array.isArray(ov.media_folder_files) && ov.media_folder_files.length) {
+        const interval = Math.max(0.1, parseFloat(ov.media_folder_interval || 5) || 5);
+        relTime = (Math.max(0, currentTime - start) % interval) + videoOffset;
+    }
 
     let drawable = null;
     const isGif = videoPath ? videoPath.toLowerCase().endsWith('.gif') : false;
@@ -1369,22 +1462,27 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
         const fps = ov.fps || 30;
         let frameIdx = Math.floor(relTime * fps);
         if (frameIdx >= ov.sequence_frames.length) {
-            frameIdx = frameIdx % ov.sequence_frames.length; // loop
+            frameIdx = ov.media_loop === false ? ov.sequence_frames.length - 1 : frameIdx % ov.sequence_frames.length;
         }
         if (ov._exporting && ov._currentFrameImage) {
             drawable = ov._currentFrameImage;
         } else {
             drawable = _getCachedImage(ov.sequence_frames[frameIdx]);
         }
-    } else if (ov._exporting && ov._framesDir) {
+    } else if (ov._exporting && (ov._folderFramesByPath?.[videoPath] || ov._framesDir)) {
         // ═══ 导出模式：读取预处理的 PNG 序列 ═══
+        const prepared = ov._folderFramesByPath?.[videoPath] || ov._framesDir && {
+            framesDir: ov._framesDir,
+            frameCount: ov._frameCount,
+        };
+        if (!prepared?.framesDir) return;
         const fps = 30; // 假设提取是30fps
         let frameIdx = Math.floor(relTime * fps);
-        if (frameIdx >= ov._frameCount) {
-            frameIdx = frameIdx % Math.max(1, ov._frameCount); // loop
+        if (frameIdx >= prepared.frameCount) {
+            frameIdx = ov.media_loop === false ? Math.max(0, prepared.frameCount - 1) : frameIdx % Math.max(1, prepared.frameCount);
         }
         const frameName = `frame_${String(frameIdx + 1).padStart(6, '0')}.png`;
-        const fPath = `${ov._framesDir}/${frameName}`;
+        const fPath = `${prepared.framesDir}/${frameName}`;
         if (ov._currentFrameImage) {
             drawable = ov._currentFrameImage;
         } else {
@@ -1401,7 +1499,9 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
                 const speedMul = (ov.fps && ov.fps !== 30) ? (ov.fps / nativeFps) : 1;
                 const adjustedTime = relTime * speedMul;
                 const totalGifDur = gifData.totalDuration || 1;
-                const loopedTime = adjustedTime % totalGifDur;
+                const loopedTime = ov.media_loop === false
+                    ? Math.min(adjustedTime, Math.max(0, totalGifDur - 0.000001))
+                    : adjustedTime % totalGifDur;
                 // 按累计帧时长查找当前帧
                 let accumulated = 0;
                 let targetFrame = 0;
@@ -1418,7 +1518,7 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
             if (vid && vid.readyState >= 2) {
                 drawable = vid;
                 const d = vid.duration || 1;
-                let targetTime = relTime % d;
+                let targetTime = ov.media_loop === false ? Math.min(relTime, Math.max(0, d - 0.001)) : relTime % d;
 
                 // 检测主时间轴是否在推进（预览是否正在播放）。状态必须保存在
                 // 真正长期存在的 video 元素上；独立预览会为每帧创建 ov 浅拷贝，
@@ -1466,7 +1566,8 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
     ctx.globalCompositeOperation = blendMode;
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
-    ctx.scale(flipX ? -scale : scale, flipY ? -scale : scale);
+    if (innerRotation) ctx.rotate(innerRotation * Math.PI / 180);
+    ctx.scale(flipX ? -scale * innerScale : scale * innerScale, flipY ? -scale * innerScale : scale * innerScale);
 
     let drawW = w, drawH = h;
     if (keepAspect) {
@@ -1474,7 +1575,16 @@ function _drawVideoOverlay(ctx, ov, x, y, w, h, currentTime) {
         const srcH = sourceH;
         const imgRatio = srcW / srcH;
         const boxRatio = w / h;
-        if (imgRatio > boxRatio) {
+        if (ov.crop_fill) {
+            // cover：填满固定窗口，多出的边缘交给 clip_rect 裁掉。
+            if (imgRatio > boxRatio) {
+                drawH = h;
+                drawW = h * imgRatio;
+            } else {
+                drawW = w;
+                drawH = w / imgRatio;
+            }
+        } else if (imgRatio > boxRatio) {
             drawH = w / imgRatio;
         } else {
             drawW = h * imgRatio;
@@ -2291,9 +2401,17 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
 
             const brushW = Number(ov[prefix + '_bg_brush_w']) || 0;
             const brushH = Number(ov[prefix + '_bg_brush_h']) || 0;
+            const brushScaleX = Number(ov[prefix + '_bg_brush_scale_x']);
+            const brushScaleY = Number(ov[prefix + '_bg_brush_scale_y']);
             const brushX = Number(ov[prefix + '_bg_brush_x']) || 0;
             const brushY = Number(ov[prefix + '_bg_brush_y']) || 0;
-            if (brushW > 0) {
+            // 新项目使用相对文字尺寸的倍率，不受 1080×1920 画布限制；
+            // 旧项目没有倍率字段时仍按保存的像素宽高渲染。
+            if (Number.isFinite(brushScaleX) && brushScaleX > 0) {
+                const cx = bx + bw / 2;
+                bw *= brushScaleX / 100;
+                bx = cx - bw / 2;
+            } else if (brushW > 0) {
                 const a = align || 'center';
                 if (a === 'left') {
                     bw = brushW;
@@ -2307,7 +2425,11 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
                     bx = cx - bw / 2;
                 }
             }
-            if (brushH > 0) {
+            if (Number.isFinite(brushScaleY) && brushScaleY > 0) {
+                const cy = by + bh / 2;
+                bh *= brushScaleY / 100;
+                by = cy - bh / 2;
+            } else if (brushH > 0) {
                 const cy = by + bh / 2;
                 bh = brushH;
                 by = cy - bh / 2;
@@ -2397,6 +2519,8 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
 
             const brushW = Number(ov[prefix + '_bg_brush_w']) || 0;
             const brushH = Number(ov[prefix + '_bg_brush_h']) || 0;
+            const brushScaleX = Number(ov[prefix + '_bg_brush_scale_x']);
+            const brushScaleY = Number(ov[prefix + '_bg_brush_scale_y']);
             const brushX = Number(ov[prefix + '_bg_brush_x']) || 0;
             const brushY = Number(ov[prefix + '_bg_brush_y']) || 0;
 
@@ -2407,12 +2531,20 @@ function _drawTextCardOverlay(ctx, ov, x, y, w, h, canvasW, canvasH, currentTime
                 let rw = b.lw + bgPadH * 2 + extraPadL + extraPadR + extLeft + extRight;
                 let rh = bgH + extraPadT + extraPadB;
 
-                if (brushW > 0) {
+                if (Number.isFinite(brushScaleX) && brushScaleX > 0) {
+                    const cx = rx + rw / 2;
+                    rw *= brushScaleX / 100;
+                    rx = cx - rw / 2;
+                } else if (brushW > 0) {
                     const cx = rx + rw / 2;
                     rw = brushW;
                     rx = cx - rw / 2;
                 }
-                if (brushH > 0) {
+                if (Number.isFinite(brushScaleY) && brushScaleY > 0) {
+                    const cy = ry + rh / 2;
+                    rh *= brushScaleY / 100;
+                    ry = cy - rh / 2;
+                } else if (brushH > 0) {
                     const cy = ry + rh / 2;
                     rh = brushH;
                     ry = cy - rh / 2;

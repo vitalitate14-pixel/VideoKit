@@ -741,14 +741,17 @@ class ReelsTimelineEditor {
         // 固定放在轨道名右侧，符合“越上层越靠前”的 NLE 直觉。
         const canReorder = track.domain === 'visual' && typeof this.onTrackOrderChange === 'function';
         if (canReorder) {
+            const visualPeers = this._tracks.map((item, index) => ({ item, index }))
+                .filter(item => item.item.domain === 'visual');
+            const visualPosition = visualPeers.findIndex(item => item.index === idx);
             const controls = [
-                { x: eyeX - 60, icon: '↑', title: '上移（更高层）' },
-                { x: eyeX - 40, icon: '↓', title: '下移（更低层）' },
+                { x: eyeX - 60, icon: '↑', title: visualPosition <= 0 ? '已在最高层' : '上移（更高层）', disabled: visualPosition <= 0 },
+                { x: eyeX - 40, icon: '↓', title: visualPosition >= visualPeers.length - 1 ? '已在最低层' : '下移（更低层）', disabled: visualPosition >= visualPeers.length - 1 },
                 { x: eyeX - 20, icon: '⋯', title: '更多轨道操作' },
             ];
             controls.forEach(control => {
-                ctx.fillStyle = 'rgba(255,255,255,0.06)';
-                ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+                ctx.fillStyle = control.disabled ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.06)';
+                ctx.strokeStyle = control.disabled ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.16)';
                 ctx.lineWidth = 1;
                 if (typeof ctx.roundRect === 'function') {
                     ctx.beginPath(); ctx.roundRect(control.x, eyeY, 16, eyeSize, 3); ctx.fill(); ctx.stroke();
@@ -756,7 +759,7 @@ class ReelsTimelineEditor {
                     ctx.fillRect(control.x, eyeY, 16, eyeSize); ctx.strokeRect(control.x, eyeY, 16, eyeSize);
                 }
                 ctx.font = control.icon === '⋯' ? 'bold 14px system-ui' : 'bold 13px system-ui';
-                ctx.fillStyle = '#cbd5e1';
+                ctx.fillStyle = control.disabled ? '#475569' : '#cbd5e1';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(control.icon, control.x + 8, eyeY + eyeSize / 2 - (control.icon === '⋯' ? 2 : 0));
@@ -1286,11 +1289,13 @@ class ReelsTimelineEditor {
                     const inControlY = my >= cy && my <= cy + 18;
                     const eyeX = TL_HEADER_W - 24;
                     if (inControlY && mx >= eyeX - 60 && mx < eyeX - 44) {
-                        this.moveTrack(trackIdx, 'up');
+                        const hasHigherVisualTrack = this._tracks.slice(0, trackIdx).some(item => item.domain === 'visual');
+                        if (hasHigherVisualTrack) this.moveTrack(trackIdx, 'up');
                         return;
                     }
                     if (inControlY && mx >= eyeX - 40 && mx < eyeX - 24) {
-                        this.moveTrack(trackIdx, 'down');
+                        const hasLowerVisualTrack = this._tracks.slice(trackIdx + 1).some(item => item.domain === 'visual');
+                        if (hasLowerVisualTrack) this.moveTrack(trackIdx, 'down');
                         return;
                     }
                     if (inControlY && mx >= eyeX - 20 && mx < eyeX - 4) {
@@ -1652,7 +1657,10 @@ class ReelsTimelineEditor {
                 this.canvas.style.cursor = 'grab';
             }
             this.canvas.removeAttribute('title');
-            this._showTooltip(hitInfo, mx, my);
+            // 普通悬停只显示可拖拽的鼠标样式，不再弹出大卡片遮挡时间线。
+            // 如需核对完整字幕/片段信息，按住 Alt 再悬停即可临时查看。
+            if (e.altKey) this._showTooltip(hitInfo, mx, my);
+            else this._hideTooltip();
             this._render();
         } else {
             this._hideTooltip();

@@ -16,6 +16,8 @@ const _bulkState = {
     // templates: [{ task: {...}, label: '', bindings: { title_text: colIdx, ... } }]
     templates: [],
     backgroundFolders: [],
+    // 独立于背景库：只用于替换覆层里的 image/video，不会改 bgPath 或时间线插入片段。
+    overlayMediaFolders: [],
     musicFiles: [],
     groupAssignments: null,
     allowTemplateReuse: false,
@@ -52,6 +54,7 @@ function _bcNormalizeStateShape() {
     if (!Array.isArray(_bulkState.rows)) _bulkState.rows = [];
     if (!Array.isArray(_bulkState.templates)) _bulkState.templates = [];
     if (!Array.isArray(_bulkState.backgroundFolders)) _bulkState.backgroundFolders = [];
+    if (!Array.isArray(_bulkState.overlayMediaFolders)) _bulkState.overlayMediaFolders = [];
     if (!Array.isArray(_bulkState.musicFiles)) _bulkState.musicFiles = [];
     if (typeof _bulkState.allowTemplateReuse !== 'boolean') _bulkState.allowTemplateReuse = false;
     if (typeof _bulkState.allowBackgroundReuse !== 'boolean') _bulkState.allowBackgroundReuse = false;
@@ -88,6 +91,7 @@ function _bcLoadDraftOnce() {
         if (!Array.isArray(draft.columns)) return;
 
         _bulkState.backgroundFolders = draft.backgroundFolders || [];
+        _bulkState.overlayMediaFolders = draft.overlayMediaFolders || [];
         _bulkState.musicFiles = draft.musicFiles || [];
         _bulkState.groupAssignments = draft.groupAssignments || null;
         _bulkState.allowTemplateReuse = !!draft.allowTemplateReuse;
@@ -184,6 +188,7 @@ function _bcSaveDraftNow() {
         const draft = {
             type: 'bulk_create_draft',
             backgroundFolders: _bulkState.backgroundFolders,
+            overlayMediaFolders: _bulkState.overlayMediaFolders,
             musicFiles: _bulkState.musicFiles,
             groupAssignments: _bulkState.groupAssignments,
             allowTemplateReuse: _bulkState.allowTemplateReuse,
@@ -194,7 +199,7 @@ function _bcSaveDraftNow() {
             filterUnassignedMusic: _bulkState.filterUnassignedMusic,
             filterUnassignedGroups: _bulkState.filterUnassignedGroups,
             collapsedSections: _bulkState.collapsedSections || {},
-            version: 5,
+            version: 6,
             columns: JSON.parse(JSON.stringify(_bulkState.columns)),
             rows: JSON.parse(JSON.stringify(_bulkState.rows)),
             templates: _bulkState.templates.map(t => ({
@@ -344,6 +349,43 @@ function _bcPickBgCycleFiles(tpl, ti) {
 }
 
 const BC_FOLDER_BG_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp']);
+const BC_FOLDER_OVERLAY_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp']);
+
+async function _bcImportOverlayMediaFolders(paths) {
+    if (!window.electronAPI?.scanDirectoryRecursive) { alert('请在桌面版中导入覆层媒体文件夹'); return; }
+    const errors = [];
+    for (const path of [...new Set(paths)]) {
+        try {
+            const entries = await window.electronAPI.scanDirectoryRecursive(path, { maxDepth: 20 });
+            const files = (entries || []).filter(item => !item.isDirectory && item.path && BC_FOLDER_OVERLAY_EXTS.has(_bcFileExt(item.name || item.path)))
+                .sort((a, b) => String(a.name || a.path).localeCompare(String(b.name || b.path), undefined, { numeric: true })).map(item => item.path);
+            const folder = { path, name: _bcFileName(path), files, recursive: true };
+            const i = _bulkState.overlayMediaFolders.findIndex(item => item.path === path);
+            if (i < 0) _bulkState.overlayMediaFolders.push(folder); else _bulkState.overlayMediaFolders[i] = folder;
+        } catch (error) { errors.push(`${_bcFileName(path)}：${error.message || error}`); }
+    }
+    _bcRenderBindings(); _bcScheduleDraftSave();
+    if (errors.length) alert(`部分覆层媒体文件夹读取失败：\n${errors.join('\n')}`);
+}
+
+function _bcApplyAssignedOverlayMedia(task, tpl, index) {
+    if (!tpl.assignedOverlayMediaFolder) return;
+    const folder = _bulkState.overlayMediaFolders.find(item => item.path === tpl.assignedOverlayMediaFolder);
+    if (!folder?.files?.length) throw new Error('所选覆层媒体文件夹为空或已移除，请重新分配');
+    const overlays = task.overlays || [];
+    const mediaIndices = overlays.map((ov, i) => ['image', 'video'].includes(ov?.type) ? i : -1).filter(i => i >= 0);
+    const target = Number.isInteger(tpl.assignedOverlayMediaSlot) ? tpl.assignedOverlayMediaSlot : mediaIndices[0];
+    if (!Number.isInteger(target) || !overlays[target]) throw new Error('所选模板没有可替换的覆层媒体；请先在模板中添加图片或视频覆层');
+    const files = folder.files;
+    const file = files[index % files.length];
+    const ext = _bcFileExt(file);
+    overlays[target].content = file;
+    overlays[target].type = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v'].includes(ext) ? 'video' : 'image';
+    // 明确记录文件夹循环来源，后续编辑时仍能辨认；单条任务只绑定自己的文件，导出和预览一致。
+    overlays[target].mediaFolderPath = folder.path;
+    overlays[target].mediaFolderFiles = files.slice();
+    overlays[target].mediaLoop = true;
+}
 
 async function _bcImportBackgroundFolders(paths) {
     if (!window.electronAPI?.scanDirectoryRecursive) { alert('请在桌面版中导入背景文件夹'); return; }
@@ -408,28 +450,67 @@ function _bcOpenSelectedBackgroundPicker(groupKey) {
     const selected = new Set((entry.selectedBackgroundFiles || []).filter(path => folder.files.includes(path)));
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:1000002;background:rgba(0,0,0,.76);display:flex;align-items:center;justify-content:center;padding:24px;';
+    let sortMode = 'name';
+    const getSortedFiles = () => folder.files.slice().sort((left, right) => {
+        if (sortMode === 'time') {
+            const leftTime = Number(window.electronAPI?.fsStat?.(left)?.mtimeMs) || 0;
+            const rightTime = Number(window.electronAPI?.fsStat?.(right)?.mtimeMs) || 0;
+            // 同一时间时仍按文件名稳定排序；最新文件排在前面。
+            if (rightTime !== leftTime) return rightTime - leftTime;
+        }
+        return _bcFileName(left).localeCompare(_bcFileName(right), undefined, { numeric: true, sensitivity: 'base' });
+    });
     const render = () => {
-        const cards = folder.files.map((path, index) => {
+        const files = getSortedFiles();
+        const cards = files.map((path, index) => {
             const kind = _bcMediaKind(path);
             const checked = selected.has(path);
             const url = _bcFileUrl(path);
+            const fileName = _bcFileName(path);
             const preview = kind === 'video'
-                ? `<video src="${_bcEsc(url)}#t=1" muted preload="metadata" playsinline style="width:100%;height:auto;max-height:260px;object-fit:contain;display:block;background:#070710;"></video><span style="position:absolute;left:5px;bottom:29px;padding:1px 4px;border-radius:3px;background:rgba(0,0,0,.72);font-size:10px;">▶ 预览</span>`
-                : `<img src="${_bcEsc(url)}" loading="lazy" style="width:100%;height:auto;max-height:260px;object-fit:contain;display:block;background:#070710;">`;
-            return `<label data-path="${_bcEsc(path)}" style="position:relative;display:block;cursor:pointer;border:2px solid ${checked ? '#8b5cf6' : '#303145'};border-radius:6px;overflow:hidden;background:#141525;box-shadow:${checked ? '0 0 0 1px rgba(139,92,246,.35)' : 'none'};">
-                ${preview}<input type="checkbox" ${checked ? 'checked' : ''} style="position:absolute;top:5px;right:5px;accent-color:#8b5cf6;width:16px;height:16px;"><div style="padding:4px 5px;font-size:10px;color:#d5d7e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${_bcEsc(path)}">${index + 1}. ${_bcEsc(_bcFileName(path))}</div>
-            </label>`;
+                ? `<div style="width:100%;height:259.5556px;min-height:259.5556px;max-height:259.5556px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#070710;"><video src="${_bcEsc(url)}#t=1" muted preload="metadata" playsinline style="position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;object-fit:contain!important;pointer-events:none;"></video><button type="button" data-action="preview" data-preview-path="${_bcEsc(path)}" title="预览 ${_bcEsc(fileName)}" style="position:absolute;left:6px;bottom:6px;padding:3px 7px;border:0;border-radius:4px;background:rgba(0,0,0,.76);color:#fff;font-size:11px;cursor:pointer;">▶ 预览</button></div>`
+                : `<div style="width:100%;height:259.5556px;min-height:259.5556px;max-height:259.5556px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#070710;"><img src="${_bcEsc(url)}" loading="lazy" style="position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;object-fit:contain!important;"></div>`;
+            return `<div data-path="${_bcEsc(path)}" data-material-card style="position:relative;display:block;align-self:start;min-width:0;cursor:pointer;border:2px solid ${checked ? '#8b5cf6' : '#303145'};border-radius:6px;overflow:hidden;background:#141525;box-shadow:${checked ? '0 0 0 1px rgba(139,92,246,.35)' : 'none'};">
+                ${preview}<input type="checkbox" ${checked ? 'checked' : ''} title="选择 ${_bcEsc(fileName)}" style="position:absolute;top:5px;right:5px;z-index:2;accent-color:#8b5cf6;width:16px;height:16px;"><div data-file-name style="display:block!important;min-height:39px;padding:5px 6px;font-size:10px;line-height:1.4;color:#d5d7e8;word-break:break-all;background:#141525;" title="${_bcEsc(path)}"><span style="color:#8b8fb1;">${index + 1}.</span> ${_bcEsc(fileName)}</div>
+            </div>`;
         }).join('');
         ov.innerHTML = `<div style="width:min(920px,96vw);max-height:88vh;display:flex;flex-direction:column;background:#151622;border:1px solid #464765;border-radius:10px;overflow:hidden;box-shadow:0 18px 70px #000;">
-            <div style="padding:12px 15px;border-bottom:1px solid #303145;display:flex;align-items:center;gap:10px;"><div style="flex:1;"><b style="color:#f3f4ff;">指定素材循环 · ${_bcEsc(groupKey)}</b><div style="font-size:10px;color:#9b9db8;margin-top:3px;">${_bcEsc(folder.name)}（含子文件夹）· 按原始比例显示；勾选 1 个或多个素材，视频可点击预览</div></div><button data-action="all" class="bc-btn bc-btn-default bc-btn-xs">全选</button><button data-action="none" class="bc-btn bc-btn-default bc-btn-xs">全不选</button></div>
-            <div data-grid style="padding:12px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:9px;">${cards}</div>
+            <div style="padding:12px 15px;border-bottom:1px solid #303145;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><div style="flex:1;min-width:220px;"><b style="color:#f3f4ff;">指定素材循环 · ${_bcEsc(groupKey)}</b><div style="font-size:10px;color:#9b9db8;margin-top:3px;">${_bcEsc(folder.name)}（含子文件夹）· 缩略图完整显示原始比例；点击“预览”播放视频</div></div><label style="font-size:11px;color:#c4b5fd;display:flex;align-items:center;gap:5px;">排序 <select data-sort style="background:#10111c;color:#e5e7eb;border:1px solid #4b4d68;border-radius:4px;padding:3px 5px;"><option value="name" ${sortMode === 'name' ? 'selected' : ''}>文件名 A→Z</option><option value="time" ${sortMode === 'time' ? 'selected' : ''}>时间（最新优先）</option></select></label><button data-action="all" class="bc-btn bc-btn-default bc-btn-xs">全选</button><button data-action="none" class="bc-btn bc-btn-default bc-btn-xs">全不选</button></div>
+            <div data-grid style="padding:12px;min-height:0;flex:1 1 auto;overflow:auto;display:grid;grid-auto-rows:max-content;align-content:start;align-items:start;grid-template-columns:repeat(auto-fill,150px);justify-content:start;gap:11px;">${cards}</div>
             <div style="padding:10px 15px;border-top:1px solid #303145;display:flex;align-items:center;justify-content:space-between;"><span data-count style="font-size:11px;color:#c4b5fd;">已选 ${selected.size} 个</span><div style="display:flex;gap:7px;"><button data-action="cancel" class="bc-btn bc-btn-default bc-btn-sm">取消</button><button data-action="save" class="bc-btn bc-btn-purple bc-btn-sm">保存选择</button></div></div>
         </div>`;
-        ov.querySelectorAll('video').forEach(video => video.addEventListener('click', e => { e.preventDefault(); video.paused ? video.play().catch(() => {}) : video.pause(); }));
     };
     const updateCount = () => { const el = ov.querySelector('[data-count]'); if (el) el.textContent = `已选 ${selected.size} 个`; };
-    ov.addEventListener('change', e => { const card = e.target.closest('[data-path]'); if (!card) return; const path = card.dataset.path; e.target.checked ? selected.add(path) : selected.delete(path); card.style.borderColor = e.target.checked ? '#8b5cf6' : '#303145'; updateCount(); });
-    ov.addEventListener('click', e => { const action = e.target.dataset.action; if (!action) return; if (action === 'cancel') ov.remove(); else if (action === 'all') { folder.files.forEach(path => selected.add(path)); render(); } else if (action === 'none') { selected.clear(); render(); } else if (action === 'save') { if (!selected.size) { alert('至少选择 1 个素材'); return; } entry.selectedBackgroundFiles = folder.files.filter(path => selected.has(path)); entry.backgroundMode = 'selected-cycle'; ov.remove(); _bcRenderBindings(); _bcScheduleDraftSave(); } });
+    ov.addEventListener('change', e => {
+        if (e.target.matches('[data-sort]')) { sortMode = e.target.value === 'time' ? 'time' : 'name'; render(); return; }
+        const card = e.target.closest('[data-path]'); if (!card) return;
+        const path = card.dataset.path; e.target.checked ? selected.add(path) : selected.delete(path);
+        card.style.borderColor = e.target.checked ? '#8b5cf6' : '#303145'; updateCount();
+    });
+    ov.addEventListener('click', e => {
+        const actionEl = e.target.closest('[data-action]');
+        const action = actionEl?.dataset.action;
+        if (action === 'preview') {
+            e.preventDefault(); e.stopPropagation();
+            const path = actionEl.dataset.previewPath || '';
+            if (path && typeof window.playVideoClip === 'function') window.playVideoClip(path, 0, 0);
+            return;
+        }
+        if (!action) {
+            // 保留原来“点卡片即可勾选”的习惯；复选框自身交给 change 处理。
+            const card = e.target.closest('[data-material-card]');
+            if (card && !e.target.matches('input[type="checkbox"]')) {
+                const path = card.dataset.path;
+                const checkbox = card.querySelector('input[type="checkbox"]');
+                if (path && checkbox) {
+                    checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+            return;
+        }
+        if (action === 'cancel') ov.remove(); else if (action === 'all') { folder.files.forEach(path => selected.add(path)); render(); } else if (action === 'none') { selected.clear(); render(); } else if (action === 'save') { if (!selected.size) { alert('至少选择 1 个素材'); return; } entry.selectedBackgroundFiles = folder.files.filter(path => selected.has(path)); entry.backgroundMode = 'selected-cycle'; ov.remove(); _bcRenderBindings(); _bcScheduleDraftSave(); }
+    });
     render(); document.body.appendChild(ov);
 }
 
@@ -456,7 +537,7 @@ function _bcClearMusicFiles() {
 
 function _bcCreateEmptyProject() {
     const hasCurrentWork = _bulkState.columns.length > 0 || _bulkState.rows.length > 0 || _bulkState.templates.length > 0
-        || _bulkState.backgroundFolders.length > 0 || _bulkState.musicFiles.length > 0 || (_bulkState.groupAssignments || []).length > 0;
+        || _bulkState.backgroundFolders.length > 0 || _bulkState.overlayMediaFolders.length > 0 || _bulkState.musicFiles.length > 0 || (_bulkState.groupAssignments || []).length > 0;
     if (hasCurrentWork && !confirm('新建空工程会清空当前大量制作页面的表格、模板、背景、配乐和编号任务组。\n\n不会删除已保存的爆帖工程组合库、工程模板或覆层预设。是否继续？')) return;
     _bulkState.columns = [
         { name: '原始完整文案', type: 'text' },
@@ -466,6 +547,7 @@ function _bcCreateEmptyProject() {
     _bulkState.rows = [];
     _bulkState.templates = [];
     _bulkState.backgroundFolders = [];
+    _bulkState.overlayMediaFolders = [];
     _bulkState.musicFiles = [];
     _bulkState.groupAssignments = null;
     _bulkState.allowTemplateReuse = false;
@@ -1527,6 +1609,10 @@ function _bcAssignedTemplate(assignment, group) {
     tpl.assignedMusicPath = assignment.musicPath || '';
     tpl.assignedMusicMode = assignment.musicMode || 'suite';
     if (Array.isArray(assignment.overlayOverrides)) tpl.task = { ...source.task, overlays: JSON.parse(JSON.stringify(assignment.overlayOverrides)) };
+    // 覆层媒体预设与媒体文件夹完全分开：预设替换覆层样式，文件夹只替换指定媒体槽。
+    if (Array.isArray(assignment.overlayMediaPresetLayers)) tpl.task = { ...tpl.task, overlays: JSON.parse(JSON.stringify(assignment.overlayMediaPresetLayers)) };
+    tpl.assignedOverlayMediaFolder = assignment.overlayMediaFolder || '';
+    tpl.assignedOverlayMediaSlot = Number.isInteger(assignment.overlayMediaSlot) ? assignment.overlayMediaSlot : null;
     if (assignment.overlayAboveSubtitle != null) tpl.task = { ...tpl.task, overlayAboveSubtitle: assignment.overlayAboveSubtitle };
     _bcBindNumberedGroup(tpl, group);
     Object.entries(assignment.bindings || {}).forEach(([field, name]) => {
@@ -1636,6 +1722,21 @@ function _bcClearBackgroundAssignments() {
     _bcRenderBindings();
     _bcScheduleDraftSave();
     if (typeof showToast === 'function') showToast('已清空全部编号组的背景素材分配', 'info');
+}
+
+function _bcAssignOverlayMediaGroups() {
+    const folders = _bulkState.overlayMediaFolders.filter(folder => folder.files?.length);
+    const groups = _bcNumberedColumnGroups();
+    if (!folders.length) { alert('请先添加含图片或视频的覆层媒体文件夹'); return; }
+    if (!groups.length) { alert('未找到编号组，请先建立编号列组'); return; }
+    if (!_bulkState.groupAssignments?.length) _bcAssignNumberedGroups();
+    groups.forEach((group, i) => {
+        let entry = _bulkState.groupAssignments.find(item => item.key === group.key);
+        if (!entry) { entry = { key: group.key, templateIndex: -1, bindings: {} }; _bulkState.groupAssignments.push(entry); }
+        entry.overlayMediaFolder = folders[i % folders.length].path;
+    });
+    _bcRenderBindings(); _bcScheduleDraftSave();
+    if (typeof showToast === 'function') showToast(`已把 ${folders.length} 个覆层媒体文件夹顺序分配给 ${groups.length} 个任务组`, 'success');
 }
 
 function _bcAssignMusicGroups(random = false) {
@@ -2749,6 +2850,9 @@ function _bcRenderBindings() {
     const cols = _bulkState.columns;
     const assignments = _bulkState.groupAssignments;
     const numberedGroups = _bcNumberedColumnGroups();
+    let overlayMediaPresets = [];
+    try { overlayMediaPresets = JSON.parse(localStorage.getItem('reels_custom_presets') || '[]'); } catch (_) { }
+    overlayMediaPresets = overlayMediaPresets.filter(p => Array.isArray(p?.overlays) && p.overlays.some(ov => ['image', 'video'].includes(ov?.type)));
     const templateGroupKeys = _bulkState.templates.map(tpl => {
         const textIndices = Object.values(tpl.bindings || {}).filter(ci => ci >= 0 && cols[ci]?.type === 'text');
         return numberedGroups.find(group => textIndices.length && textIndices.every(ci => group.columns.some(col => col.ci === ci)))?.key;
@@ -3067,7 +3171,17 @@ function _bcRenderBindings() {
             return assignedEntries.length === 0;
         });
 
-    // 🎵 4. 模块三：配乐库（可折叠）
+    // 🖼 4. 覆层媒体库：与背景库分离，按编号组（该组内每一任务行）轮换替换媒体。
+    html += `<div id="bc-overlay-media-library" class="bc-library-box" style="background:rgba(14,165,233,.035);border:1px solid rgba(56,189,248,.25);border-radius:8px;padding:9px 10px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <div><span style="font-weight:700;font-size:11.5px;color:#bae6fd;">🖼 覆层媒体批量替换</span><span style="font-size:10px;color:#7dd3fc;margin-left:6px;">${_bulkState.overlayMediaFolders.length} 个文件夹</span></div>
+            <div style="display:flex;gap:4px;"><button id="bc-add-overlay-media-folders" class="bc-btn bc-btn-blue bc-btn-xs">+ 添加文件夹</button><button id="bc-seq-overlay-media" class="bc-btn bc-btn-default bc-btn-xs">顺序分配给任务组</button><button id="bc-clear-overlay-media" class="bc-btn bc-btn-danger bc-btn-xs">清空库</button></div>
+        </div>
+        <div style="margin-top:6px;color:#8e92b2;font-size:10px;line-height:1.45;">拖入多个文件夹到此处；每个编号组选择一个文件夹，组内每一任务行按顺序取一个素材。它只替换“覆层媒体槽”，不会改背景、正文视频或时间线插入素材。</div>
+        ${_bulkState.overlayMediaFolders.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;">${_bulkState.overlayMediaFolders.map((folder, fi) => `<span style="display:inline-flex;gap:5px;align-items:center;padding:3px 6px;border-radius:4px;background:rgba(14,165,233,.10);border:1px solid rgba(56,189,248,.25);font-size:10px;color:#dbeafe;" title="${_bcEsc(folder.path)}">📁 ${_bcEsc(folder.name)} · ${folder.files?.length || 0}<button class="bc-overlay-folder-remove" data-fi="${fi}" title="从覆层媒体库移除" style="border:0;background:transparent;color:#fda4af;cursor:pointer;padding:0 0 0 2px;">×</button></span>`).join('')}</div>` : ''}
+    </div>`;
+
+    // 🎵 5. 模块三：配乐库（可折叠）
     html += `<div id="bc-music-library" class="bc-library-box bc-music-library-box" style="background:rgba(16,185,129,0.02);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:9px 10px;margin-bottom:10px;">
         <div data-toggle-section="music" style="display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap;" title="点击折叠 / 展开配乐库">
             <div style="display:flex;align-items:center;gap:6px;">
@@ -3155,6 +3269,7 @@ function _bcRenderBindings() {
                 visibleGroups.forEach(group => {
                     const entry = assignments?.find(item => item.key === group.key);
                     const assigned = entry ? _bcAssignedTemplate(entry, group) : null;
+                    const mediaLayers = (assigned?.task?.overlays || []).map((ov, i) => ({ ov, i })).filter(({ ov }) => ['image', 'video'].includes(ov?.type));
                     gHtml += `<div class="bc-group-card" data-bc-group-card="${_bcEsc(group.key)}">
             <div style="display:flex;align-items:center;gap:6px;">
                 <span class="bc-group-badge" title="内部编号：${_bcEsc(group.key)}">${_bcEsc(group.key)}</span>
@@ -3194,6 +3309,26 @@ function _bcRenderBindings() {
                     <select class="bc-group-music" data-group="${_bcEsc(group.key)}" style="width:100%;" ${entry?.musicMode === 'cycle' ? 'disabled' : ''}>
                         <option value="">沿用模板 / 不指定配乐</option>
                         ${_bulkState.musicFiles.map(music => `<option value="${_bcEsc(music.path)}" ${entry?.musicPath === music.path ? 'selected' : ''}>${_bcEsc(music.name)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="bc-group-field-item">
+                    <label>🖼 覆层媒体文件夹</label>
+                    <select class="bc-group-overlay-media" data-group="${_bcEsc(group.key)}" style="width:100%;">
+                        <option value="">沿用模板覆层媒体</option>
+                        ${_bulkState.overlayMediaFolders.map(folder => `<option value="${_bcEsc(folder.path)}" ${entry?.overlayMediaFolder === folder.path ? 'selected' : ''}>${_bcEsc(folder.name)}（${folder.files.length} 个，组内任务轮换）</option>`).join('')}
+                    </select>
+                </div>
+                <div class="bc-group-field-item">
+                    <label>🎨 覆层媒体样式模板</label>
+                    <select class="bc-group-overlay-preset" data-group="${_bcEsc(group.key)}" style="width:100%;">
+                        <option value="">沿用已选任务模板的覆层</option>
+                        ${overlayMediaPresets.map((p, pi) => `<option value="${_bcEsc(p.name || `覆层预设${pi + 1}`)}" ${entry?.overlayMediaPresetName === p.name ? 'selected' : ''}>${_bcEsc(p.name || `覆层预设${pi + 1}`)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="bc-group-field-item">
+                    <label>🎯 替换哪个覆层媒体</label>
+                    <select class="bc-group-overlay-slot" data-group="${_bcEsc(group.key)}" style="width:100%;" ${mediaLayers.length ? '' : 'disabled'}>
+                        ${mediaLayers.length ? mediaLayers.map(({ ov, i }, n) => `<option value="${i}" ${entry?.overlayMediaSlot === i || (entry?.overlayMediaSlot == null && n === 0) ? 'selected' : ''}>第 ${i + 1} 层 · ${_bcEsc(ov.name || (ov.type === 'video' ? '视频媒体' : '图片媒体'))}</option>`).join('') : '<option>模板尚无图片/视频覆层</option>'}
                     </select>
                 </div>
             </div>
@@ -3739,6 +3874,9 @@ function _bcGenerateTasks() {
     const missingFolder = generationUnits.find(({ tpl }) => tpl.assignedBackgroundFolder
         && !_bulkState.backgroundFolders.find(folder => folder.path === tpl.assignedBackgroundFolder)?.files?.length);
     if (missingFolder) { alert('所选背景分类为空或已移除，请刷新文件夹或重新分配背景分类。'); return 0; }
+    const missingOverlayFolder = generationUnits.find(({ tpl }) => tpl.assignedOverlayMediaFolder
+        && !_bulkState.overlayMediaFolders.find(folder => folder.path === tpl.assignedOverlayMediaFolder)?.files?.length);
+    if (missingOverlayFolder) { alert('所选覆层媒体文件夹为空或已移除，请重新分配覆层媒体。'); return 0; }
 
     const backgroundIndices = new Map();
     const tasksByTemplate = _bulkState.templates.map(() => []);
@@ -3752,6 +3890,7 @@ function _bcGenerateTasks() {
             const backgroundIndex = backgroundIndices.get(tpl) || 0;
             _bcApplyAssignedBackground(task, tpl, backgroundIndex);
             _bcApplyAssignedMusic(task, tpl, presetRowIdx);
+            _bcApplyAssignedOverlayMedia(task, tpl, presetRowIdx);
             backgroundIndices.set(tpl, backgroundIndex + 1);
             unit.tasks.push(task);
             if (tasksByTemplate[ti]) tasksByTemplate[ti].push(task);
@@ -4012,6 +4151,7 @@ function _bcProjectSnapshot() {
             bgCycle: t.bgCycle || null, source: t.source || null, materialFolder: t.materialFolder || null,
         })),
         backgroundFolders: JSON.parse(JSON.stringify(_bulkState.backgroundFolders)),
+        overlayMediaFolders: JSON.parse(JSON.stringify(_bulkState.overlayMediaFolders)),
         musicFiles: JSON.parse(JSON.stringify(_bulkState.musicFiles)),
         groupAssignments: JSON.parse(JSON.stringify(_bulkState.groupAssignments || [])),
         allowTemplateReuse: !!_bulkState.allowTemplateReuse,
@@ -4047,6 +4187,7 @@ function _bcOpenViralProjectLibrary() {
         _bulkState.columns = JSON.parse(JSON.stringify(p.columns || []));
         _bulkState.templates = (p.templates || []).map(item => ({ task: item.task || {}, label: item.label || '', bindings: { ...(item.bindings || {}) }, bgCycle: item.bgCycle || null, source: item.source || null, materialFolder: item.materialFolder || null }));
         _bulkState.backgroundFolders = JSON.parse(JSON.stringify(p.backgroundFolders || []));
+        _bulkState.overlayMediaFolders = JSON.parse(JSON.stringify(p.overlayMediaFolders || []));
         _bulkState.musicFiles = JSON.parse(JSON.stringify(p.musicFiles || []));
         _bulkState.groupAssignments = JSON.parse(JSON.stringify(p.groupAssignments || []));
         _bulkState.allowTemplateReuse = !!p.allowTemplateReuse; _bulkState.allowBackgroundReuse = !!p.allowBackgroundReuse; _bulkState.allowMusicReuse = !!p.allowMusicReuse;
@@ -4251,6 +4392,7 @@ async function _bcSavePreset(category = 'regular') {
         // 保存的是当前组合的完整快照；编号组与原始绑定不会被移动或重写。
         category: isViral ? 'viral' : 'regular',
         backgroundFolders: _bulkState.backgroundFolders,
+        overlayMediaFolders: _bulkState.overlayMediaFolders,
         musicFiles: _bulkState.musicFiles,
         groupAssignments: _bulkState.groupAssignments,
         allowTemplateReuse: _bulkState.allowTemplateReuse,
@@ -4316,6 +4458,7 @@ function _bcLoadPreset() {
             if (!p) return;
             _bulkState.columns = JSON.parse(JSON.stringify(p.columns || []));
             _bulkState.backgroundFolders = p.backgroundFolders || [];
+            _bulkState.overlayMediaFolders = p.overlayMediaFolders || [];
             _bulkState.musicFiles = p.musicFiles || [];
             _bulkState.groupAssignments = p.groupAssignments || null;
             _bulkState.allowTemplateReuse = !!p.allowTemplateReuse;
@@ -4815,6 +4958,9 @@ function _showBulkCreateModal() {
             .bc-group-template,
             .bc-group-background,
             .bc-group-background-mode,
+            .bc-group-overlay-media,
+            .bc-group-overlay-preset,
+            .bc-group-overlay-slot,
             .bc-group-music-mode,
             .bc-group-music,
             .bc-group-field,
@@ -4836,6 +4982,9 @@ function _showBulkCreateModal() {
             .bc-group-template:focus,
             .bc-group-background:focus,
             .bc-group-background-mode:focus,
+            .bc-group-overlay-media:focus,
+            .bc-group-overlay-preset:focus,
+            .bc-group-overlay-slot:focus,
             .bc-group-music-mode:focus,
             .bc-group-music:focus,
             .bc-group-field:focus,
@@ -4851,6 +5000,9 @@ function _showBulkCreateModal() {
             .bc-group-template option,
             .bc-group-background option,
             .bc-group-background-mode option,
+            .bc-group-overlay-media option,
+            .bc-group-overlay-preset option,
+            .bc-group-overlay-slot option,
             .bc-group-music-mode option,
             .bc-group-music option,
             .bc-group-field option,
@@ -5152,6 +5304,10 @@ function _showBulkCreateModal() {
             await _bcImportBackgroundFolders(dirs);
             return;
         }
+        if (e.target.closest?.('#bc-overlay-media-library')) {
+            await _bcImportOverlayMediaFolders(dirs);
+            return;
+        }
         if (typeof window.reelsImportFoldersAsTaskTabs !== 'function') {
             if (typeof showToast === 'function') showToast('文件夹任务导入器尚未加载，请重启应用', 'error');
             return;
@@ -5199,6 +5355,24 @@ function _showBulkCreateModal() {
             window.electronAPI.showOpenDialog({ title: '添加背景素材（每个文件夹为一组背景）', properties: ['openDirectory', 'multiSelections'] })
                 .then(result => _bcImportBackgroundFolders(result?.filePaths || [])).catch(error => alert(error.message));
             return;
+        }
+        if (t.id === 'bc-add-overlay-media-folders') {
+            if (!window.electronAPI?.showOpenDialog) { alert('请在桌面版中选择文件夹'); return; }
+            window.electronAPI.showOpenDialog({ title: '添加覆层媒体文件夹（每夹可分配给不同任务组）', properties: ['openDirectory', 'multiSelections'] })
+                .then(result => _bcImportOverlayMediaFolders(result?.filePaths || [])).catch(error => alert(error.message));
+            return;
+        }
+        if (t.id === 'bc-seq-overlay-media') { _bcAssignOverlayMediaGroups(); return; }
+        if (t.id === 'bc-clear-overlay-media') {
+            if (!confirm('清空覆层媒体文件夹库？已生成的任务不会受影响。')) return;
+            _bulkState.overlayMediaFolders = [];
+            (_bulkState.groupAssignments || []).forEach(entry => { entry.overlayMediaFolder = ''; });
+            _bcRenderBindings(); _bcScheduleDraftSave(); return;
+        }
+        if (t.classList.contains('bc-overlay-folder-remove')) {
+            const [folder] = _bulkState.overlayMediaFolders.splice(Number(t.dataset.fi), 1);
+            (_bulkState.groupAssignments || []).forEach(entry => { if (entry.overlayMediaFolder === folder?.path) entry.overlayMediaFolder = ''; });
+            _bcRenderBindings(); _bcScheduleDraftSave(); return;
         }
         if (t.id === 'bc-add-music') {
             if (!window.electronAPI?.showOpenDialog) { alert('请在桌面版中选择配乐文件'); return; }
@@ -5575,13 +5749,22 @@ function _showBulkCreateModal() {
             _bcChangeFolderGroupAssignment(folderPath, oldGroupKey, newGroupKey);
             return;
         }
-        if (t.classList.contains('bc-group-background') || t.classList.contains('bc-group-background-mode') || t.classList.contains('bc-group-music') || t.classList.contains('bc-group-music-mode')) {
+        if (t.classList.contains('bc-group-background') || t.classList.contains('bc-group-background-mode') || t.classList.contains('bc-group-music') || t.classList.contains('bc-group-music-mode') || t.classList.contains('bc-group-overlay-media') || t.classList.contains('bc-group-overlay-preset') || t.classList.contains('bc-group-overlay-slot')) {
             if (!_bulkState.groupAssignments) _bulkState.groupAssignments = [];
             let entry = _bulkState.groupAssignments.find(item => item.key === t.dataset.group);
             if (!entry) { entry = { key: t.dataset.group, templateIndex: -1, bindings: {} }; _bulkState.groupAssignments.push(entry); }
             if (t.classList.contains('bc-group-background')) { entry.backgroundFolder = t.value; entry.selectedBackgroundFiles = []; }
             else if (t.classList.contains('bc-group-background-mode')) entry.backgroundMode = t.value;
             else if (t.classList.contains('bc-group-music-mode')) entry.musicMode = t.value;
+            else if (t.classList.contains('bc-group-overlay-media')) entry.overlayMediaFolder = t.value;
+            else if (t.classList.contains('bc-group-overlay-slot')) entry.overlayMediaSlot = Number(t.value);
+            else if (t.classList.contains('bc-group-overlay-preset')) {
+                let presets = [];
+                try { presets = JSON.parse(localStorage.getItem('reels_custom_presets') || '[]'); } catch (_) { }
+                const preset = presets.find(item => item?.name === t.value);
+                entry.overlayMediaPresetName = preset?.name || '';
+                entry.overlayMediaPresetLayers = Array.isArray(preset?.overlays) ? JSON.parse(JSON.stringify(preset.overlays)) : null;
+            }
             else entry.musicPath = t.value;
             _bcRenderBindings();
             _bcScheduleDraftSave();

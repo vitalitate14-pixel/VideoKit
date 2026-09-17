@@ -16350,6 +16350,10 @@ function applyAutoEditBatchScripts(cells, options = {}) {
     autoEditBatchUnmatchedScripts = [];
     autoEditBatchSmartPairingComplete = false;
     autoEditBatchTasks.forEach((task, i) => setAutoEditBatchTaskScript(task, cells[i] || ''));
+    // 文案粘贴是批量任务最早产生、也最容易因崩溃丢失的编辑之一；不要等
+    // 分析、审核或关闭窗口时才写入恢复快照。
+    saveAutoEditTaskHistory?.();
+    saveAutoEditWorkspaceState?.();
     renderAutoEditBatchTasks();
     if (!options.silent) showToast(`已自动识别 ${cells.length} 个文案单元格`, !autoEditBatchTasks.length || cells.length === autoEditBatchTasks.length ? 'success' : 'info');
 }
@@ -16477,6 +16481,10 @@ async function loadAutoEditBatchFolders(dirs, { replace = false } = {}) {
         confirmed: false
     }));
     syncAutoEditBatchParallelLists();
+    // 文件夹一选完，任务清单已经足以恢复。缩略图生成是异步的，不能让它
+    // 成为首次落盘的前置条件，否则过程中崩溃会留下空白任务页。
+    saveAutoEditTaskHistory?.();
+    saveAutoEditWorkspaceState?.();
     renderAutoEditBatchTasks();
     const tasksNeedingThumbnail = replace ? autoEditBatchTasks : autoEditBatchTasks.slice(-added);
     for (const task of tasksNeedingThumbnail) {
@@ -16673,6 +16681,11 @@ function formatAutoEditBatchLiveMessage(progress = {}, updatedAt = 0) {
         const active = Math.max(0, Number(progress.active_count) || 0);
         const queued = Math.max(0, Number(progress.queued_count) || 0);
         const provider = progress.provider_label ? ` · 平台 ${progress.provider_label}` : '';
+        // N/N 且没有活动请求并非“下一片段没有响应”：后台已经开始把词级
+        // 识别结果整理为时间轴，随后才会进入 matching 阶段。
+        if (total > 0 && current >= total && active === 0 && queued === 0) {
+            return `✅ 语音识别已完成${provider} · ${current}/${total} · 正在整理时间轴并准备文案匹配…`;
+        }
         const waitedSeconds = updatedAt ? Math.floor((Date.now() - updatedAt) / 1000) : 0;
         const waitHint = waitedSeconds >= 15
             ? ` · 🟠 等待服务响应 ${waitedSeconds}s${waitedSeconds >= 45 ? '（可能网络慢或服务无响应，可停止后重试）' : ''}`
@@ -16681,6 +16694,9 @@ function formatAutoEditBatchLiveMessage(progress = {}, updatedAt = 0) {
             return `🟢 识别进行中${provider} · 已完成 ${current}/${total}${active ? ` · 正在识别 ${active}` : ''}${queued ? ` · 排队 ${queued}` : ' · 无排队'}${waitHint}`;
         }
         return `🟢 识别进行中${provider} · 已完成 ${current}/${total} · 正在等待下一片段${waitHint}`;
+    }
+    if (progress.stage === 'transcribe_complete') {
+        return `✅ 语音识别已完成 · ${current}/${total} · 正在整理时间轴并准备文案匹配…`;
     }
     if (progress.stage === 'matching') {
         return `🟢 文案匹配进行中 · 已核对 ${current}/${total}`;
@@ -18139,13 +18155,24 @@ async function exportAutoEditBatchTask(index, options = {}) {
     if (ownsLock && autoEditBatchRunning) return showToast('批量任务正在运行，请稍候', 'info');
     if(task.status==='analyzing')return;
     if (ownsLock) setAutoEditBatchRunning(true);
-    task.status='analyzing'; task.message='正在正式导出'; renderAutoEditBatchTasks();
+    // 正式导出不能沿用分析阶段最后一次的 progress。否则卡片在导出已经
+    // 开始后，仍会把旧的“转录 N/N”按等待服务响应来计时，造成假卡住。
+    task.status = 'analyzing';
+    task.progress = { stage: 'export_prepare', current: 0, total: 0, message: '正在准备正式导出…' };
+    task.progressUpdatedAt = Date.now();
+    task.message = '正在准备正式导出…';
+    renderAutoEditBatchTasks();
     const requestId=`autoedit-batch-export-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     autoEditActiveRequestIds.add(requestId);
     document.getElementById('autoedit-batch-stop-btn')?.removeAttribute('disabled');
     const unsubscribe=window.electronAPI?.onAutoEditProgress?.(progress=>{
         if(progress?.request_id!==requestId)return;
-        task.message=progress.message||'正在正式导出'; renderAutoEditBatchTasks();
+        // 保存本次导出的实时阶段，不能只改 message；渲染时 analyzing 状态会
+        // 以 progress 为准格式化，否则旧分析进度会再次覆盖这里的显示。
+        task.progress = { ...progress };
+        task.progressUpdatedAt = Date.now();
+        task.message = progress.message || '正在正式导出';
+        renderAutoEditBatchTasks();
     });
     try {
         let exportStage = '准备审核时间线';
@@ -18310,15 +18337,28 @@ async function startAutoEditBatchExportProject() {
     } catch (error) { showToast(`工程保存失败：${error.message}`, 'error', 12000); }
 }
 let autoEditBatchProjectLoading = false;
-async function loadAutoEditBatchReelsProject() {
+const AUTOEDIT_BATCH_REELS_PROJECT_KEY = 'videokit-last-autoedit-batch-reels-project-v1';
+
+function getLastAutoEditBatchReelsProjectPath() {
+    try { return localStorage.getItem(AUTOEDIT_BATCH_REELS_PROJECT_KEY) || ''; } catch (_) { return ''; }
+}
+
+function rememberAutoEditBatchReelsProjectPath(projectPath) {
+    try { localStorage.setItem(AUTOEDIT_BATCH_REELS_PROJECT_KEY, projectPath); } catch (_) {}
+}
+
+async function loadAutoEditBatchReelsProjectPath(projectPath, { isRecent = false } = {}) {
     if (autoEditBatchProjectLoading) return;
-    const paths = await window.electronAPI.selectFiles({ properties: ['openFile'], filters: [{ name: '自动剪辑批量工程', extensions: ['json'] }] });
-    if (!paths?.length) return;
     autoEditBatchProjectLoading = true;
     try {
-        const project = JSON.parse(await window.electronAPI.readFileText(paths[0]));
-        if (project.type !== 'videokit-autoedit-batch' || project.version !== 1 || !Array.isArray(project.tasks)) throw new Error('不是支持的自动剪辑批量工程');
+        const content = await window.electronAPI.readFileText(projectPath);
+        if (!content) throw new Error(isRecent ? '上次工程文件已不存在或无法读取，请重新选择文件' : '无法读取工程文件');
+        const project = JSON.parse(content);
+        if (project.type !== 'videokit-autoedit-batch' || project.version !== 1 || !Array.isArray(project.tasks)) {
+            throw new Error('这不是自动剪辑批量工程。请选择“导出并保存 Reels 任务工程”生成的、文件名以 .autoedit-batch.json 结尾的文件');
+        }
         if (!confirm(`加载 ${project.tasks.length} 个已完成任务到 Reels？成片采用路径引用，不复制视频。`)) return;
+        rememberAutoEditBatchReelsProjectPath(projectPath);
         let loaded = 0, failed = 0;
         for (const entry of project.tasks.slice().sort((a, b) => a.order - b.order)) {
             try {
@@ -18331,6 +18371,24 @@ async function loadAutoEditBatchReelsProject() {
         showToast(`恢复完成：${loaded} 成功，${failed} 失败${failed ? '；请检查原成片和字幕是否仍在原路径' : ''}`, failed ? 'warning' : 'success', 10000);
     } catch (error) { showToast(`加载失败：${error.message}`, 'error'); }
     finally { autoEditBatchProjectLoading = false; }
+}
+
+async function loadAutoEditBatchReelsProject() {
+    const paths = await window.electronAPI.selectFiles({
+        properties: ['openFile'],
+        filters: [{ name: '自动剪辑批量工程（*.autoedit-batch.json）', extensions: ['json'] }]
+    });
+    if (!paths?.length) return;
+    return loadAutoEditBatchReelsProjectPath(paths[0]);
+}
+
+async function reloadLastAutoEditBatchReelsProject() {
+    const projectPath = getLastAutoEditBatchReelsProjectPath();
+    if (!projectPath) {
+        showToast('还没有成功加载过自动剪辑批量工程；请先点击“加载自动剪辑批量工程”选择一次文件', 'info', 7000);
+        return;
+    }
+    return loadAutoEditBatchReelsProjectPath(projectPath, { isRecent: true });
 }
 function playAutoEditBatchCompletionSound(success = true) {
     try {
@@ -18423,6 +18481,63 @@ let autoEditProjectPersistTimer = null;
 let autoEditProgressUnsubscribe = null;
 const autoEditWorkspaces = [{ name: '单套任务 1', state: null }];
 let autoEditWorkspaceIndex = 0;
+const AUTOEDIT_TASK_HISTORY_KEY = 'videokit-autoedit-task-history-v1';
+let autoEditTaskHistoryFingerprint = '';
+
+function saveAutoEditTaskHistory() {
+    if (!autoEditBatchTasks.length) return;
+    const tasks = autoEditBatchTasks.map(task => ({
+        taskOrder: task.taskOrder, folder: task.folder, name: task.name, outputName: task.outputName,
+        sendToReels: task.sendToReels, clips: task.clips || [], script: task.script || '',
+        manualSubtitleMap: task.manualSubtitleMap || {}, status: task.status === 'analyzing' ? 'waiting' : task.status,
+        message: task.status === 'analyzing' ? '等待分析' : task.message || '等待分析'
+    }));
+    const fingerprint = JSON.stringify(tasks.map(task => [task.folder, task.outputName, task.clips, task.script, task.sendToReels]));
+    if (fingerprint === autoEditTaskHistoryFingerprint) return;
+    autoEditTaskHistoryFingerprint = fingerprint;
+    try {
+        const previous = JSON.parse(localStorage.getItem(AUTOEDIT_TASK_HISTORY_KEY) || '[]');
+        const history = Array.isArray(previous) ? previous : [];
+        history.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, savedAt: new Date().toISOString(), tasks, cells: autoEditBatchScriptCells.slice() });
+        localStorage.setItem(AUTOEDIT_TASK_HISTORY_KEY, JSON.stringify(history.slice(0, 12)));
+    } catch (error) { console.warn('任务历史保存失败', error); }
+}
+
+function showAutoEditTaskHistory() {
+    let history = [];
+    try { history = JSON.parse(localStorage.getItem(AUTOEDIT_TASK_HISTORY_KEY) || '[]'); } catch (_) {}
+    if (!Array.isArray(history) || !history.length) return showToast('还没有可恢复的批量任务历史', 'info');
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:24px';
+    const modal = document.createElement('div');
+    modal.style.cssText = 'width:min(680px,100%);max-height:min(680px,90vh);overflow:auto;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:10px;padding:18px;color:var(--text-primary)';
+    modal.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>任务历史</b><div style="font-size:11px;color:var(--text-muted);margin-top:4px">恢复文件夹与文案清单，不会恢复未完成的分析进度或导出任务。</div></div><button class="btn btn-secondary" data-close>关闭</button></div><div data-list style="display:grid;gap:8px;margin-top:14px"></div>`;
+    const list = modal.querySelector('[data-list]');
+    history.forEach(record => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:10px;border:1px solid var(--border-color);border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:10px';
+        const taskNames = (record.tasks || []).slice(0, 3).map(task => task.name || task.folder?.split(/[/\\]/).pop()).filter(Boolean).join('、');
+        item.innerHTML = `<div><div style="font-size:12px">${escapeHtml(new Date(record.savedAt).toLocaleString())} · ${(record.tasks || []).length} 个任务</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">${escapeHtml(taskNames)}${(record.tasks || []).length > 3 ? '…' : ''}</div></div><button class="btn btn-secondary">恢复这条</button>`;
+        item.querySelector('button').onclick = () => {
+            if (!confirm(`恢复这条历史中的 ${(record.tasks || []).length} 个任务？当前任务列表会被替换。`)) return;
+            autoEditBatchTasks = (record.tasks || []).map(task => ({ ...task, result: null, thumbnail: '' }));
+            autoEditBatchScriptCells = Array.isArray(record.cells) ? record.cells.slice() : autoEditBatchTasks.map(task => task.script || '');
+            autoEditBatchUnmatchedScripts = [];
+            autoEditBatchSmartPairingComplete = false;
+            autoEditActiveBatchIndex = -1;
+            setAutoEditMode('batch', true);
+            syncAutoEditBatchParallelLists();
+            renderAutoEditBatchTasks();
+            saveAutoEditWorkspaceState();
+            overlay.remove();
+            showToast(`已恢复 ${(record.tasks || []).length} 个任务；可继续分析或重新编辑文案`, 'success');
+        };
+        list.append(item);
+    });
+    modal.querySelector('[data-close]').onclick = () => overlay.remove();
+    overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
+    overlay.append(modal); document.body.append(overlay);
+}
 function captureAutoEditWorkspace() {
     const fields = {};
     document.querySelectorAll('[id^="autoedit-"]').forEach(el => {
@@ -18507,6 +18622,9 @@ function renderAutoEditWorkspaceTabs() {
         button.textContent = mode === 'single' ? '＋ 单套标签' : '＋ 批量标签';
         button.onclick = () => switchAutoEditWorkspace(-1, mode); root.append(button);
     }
+    const history = document.createElement('button'); history.className = 'btn btn-secondary';
+    history.textContent = '🕘 任务历史'; history.title = '查看并手动恢复近期保存的批量任务文件夹和文案';
+    history.onclick = showAutoEditTaskHistory; root.append(history);
 }
 function closeAutoEditWorkspaceTab(index) {
     if (autoEditBatchRunning || autoEditActiveRequestIds.size) return showToast('请完成或停止任务后关闭标签', 'info');
@@ -18519,25 +18637,6 @@ function closeAutoEditWorkspaceTab(index) {
 }
 window.addEventListener('DOMContentLoaded', () => {
     renderAutoEditWorkspaceTabs();
-    // 明确恢复入口，避免启动时覆盖应用已有的项目恢复流程。
-    const saved = localStorage.getItem('videokit-autoedit-workspaces-v1');
-    if (saved) {
-        const button = document.createElement('button'); button.className = 'btn btn-secondary'; button.textContent = '恢复上次任务标签';
-        button.onclick = () => {
-            if (autoEditBatchRunning || autoEditActiveRequestIds.size) return;
-            if (!confirm('恢复上次保存的标签？当前未保存的工作请先导出项目。')) return;
-            try {
-                const data = JSON.parse(saved);
-                if (!Array.isArray(data.workspaces) || !data.workspaces.length) return;
-                autoEditWorkspaces.splice(0, autoEditWorkspaces.length, ...data.workspaces);
-                // 临时快照位置避免切换函数覆盖要恢复的标签。
-                autoEditWorkspaceIndex = autoEditWorkspaces.length;
-                autoEditWorkspaces.push({ name: '当前会话', state: null });
-                switchAutoEditWorkspace(Math.min(data.index || 0, autoEditWorkspaces.length - 2));
-            } catch (error) { showToast(`恢复失败：${error.message}`, 'error'); }
-        };
-        document.getElementById('autoedit-workspace-tabs')?.append(button);
-    }
 });
 window.addEventListener('beforeunload', saveAutoEditWorkspaceState);
 

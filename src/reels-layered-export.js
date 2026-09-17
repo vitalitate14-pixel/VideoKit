@@ -166,8 +166,8 @@ function _drawCroppedVideoCover(ctx, videoEl, cropX, cropY, cropW, cropH, target
     const drawH = sHeight * scale;
     const maxShiftX = Math.abs(targetW - drawW) / 2;
     const maxShiftY = Math.abs(targetH - drawH) / 2;
-    const drawX = (targetW - drawW) / 2 + maxShiftX * (offsetX / 100);
-    const drawY = (targetH - drawH) / 2 + maxShiftY * (offsetY / 100);
+    const drawX = (targetW - drawW) / 2 + targetW * ((Number(offsetX) || 0) / 100);
+    const drawY = (targetH - drawH) / 2 + targetH * ((Number(offsetY) || 0) / 100);
     _drawImageFlipped(ctx, videoEl, sx, sy, sWidth, sHeight, drawX, drawY, drawW, drawH, flipH, flipV);
 }
 
@@ -193,6 +193,9 @@ async function reelsLayeredExport(params) {
         bgTransition = 'crossfade',
         bgTransDur = 0.5,
         showSubtitle = true,
+        // PNG 分层本身不合成；把与预览相同的层级明确写入 info.json，
+        // 供外部软件按正确顺序叠放，避免误以为字幕始终在最上。
+        overlayAboveSubtitle = true,
         voicePath,
         outputDir,        // 输出基础目录
         taskName,         // 任务名（用于文件夹命名）
@@ -425,28 +428,60 @@ async function reelsLayeredExport(params) {
     progress(15);
 
     // ── 预处理视频覆层帧 ──
+    // 图片文件夹同样先绑定到本次导出的私有 Image，避免分层导出时异步图片缓存
+    // 造成空帧或沿用上一任务的图片。
+    for (const ov of (taskOverlays || [])) {
+        if (ov?.type !== 'image' || ov.disabled) continue;
+        const primary = _normalizeLocalPath(ov.content);
+        if (primary) ov._exportImage = await _layeredLoadImage(primary);
+        const sources = Array.isArray(ov.media_folder_files) ? ov.media_folder_files.map(_normalizeLocalPath).filter(Boolean) : [];
+        if (sources.length) {
+            ov.media_folder_files = sources;
+            ov._exportFolderImages = {};
+            for (const source of sources) ov._exportFolderImages[source] = await _layeredLoadImage(source);
+        }
+    }
     const videoOverlays = (taskOverlays || []).filter(ov => ov.type === 'video' && !ov.disabled);
     if (videoOverlays.length > 0) {
         log(`预处理 ${videoOverlays.length} 个视频/动图覆层...`);
         for (const ov of videoOverlays) {
-            if (!ov.content) continue;
+            if (!ov.content || ov.is_img_sequence) continue;
             const opath = _normalizeLocalPath(ov.content);
             const videoOffset = Math.max(0, parseFloat(ov.video_start_offset || 0));
-            const overlayPlayDur = Math.max(0.1, parseFloat(ov.end || duration) - parseFloat(ov.start || 0));
-            const oPrep = await window.electronAPI.reelsComposeWysiwyg('prepare-overlay', {
-                overlayPath: opath,
-                fps,
-                duration: videoOffset + overlayPlayDur + 1,
-            });
-            if (oPrep && oPrep.framesDir) {
-                ov._framesDir = oPrep.framesDir;
-                ov._frameCount = oPrep.frameCount;
+            const overlayStart = Math.max(0, parseFloat(ov.start || 0));
+            const configuredEnd = parseFloat(ov.end);
+            // Clamp “whole project” (9999) and out-of-range ends to the actual export.
+            const overlayEnd = Number.isFinite(configuredEnd) && configuredEnd < 9999
+                ? Math.min(duration, configuredEnd) : duration;
+            if (overlayStart >= overlayEnd) continue;
+            let overlayPlayDur = overlayEnd - overlayStart;
+            // Folder playback restarts each source at every interval, so frames
+            // beyond that interval are never read, even on later cycles.
+            if (ov.media_folder_files?.length) {
+                const interval = Math.max(0.1, parseFloat(ov.media_folder_interval || 5) || 5);
+                overlayPlayDur = Math.min(overlayPlayDur, interval);
+            }
+            const sources = ov.media_folder_files?.length ? ov.media_folder_files.map(_normalizeLocalPath).filter(Boolean) : [opath];
+            if (sources.length > 1) ov._folderFramesByPath = {};
+            for (const source of sources) {
+                const oPrep = await window.electronAPI.reelsComposeWysiwyg('prepare-overlay', {
+                    overlayPath: source,
+                    fps,
+                    duration: videoOffset + overlayPlayDur + 1,
+                    loop: ov.media_loop !== false,
+                    sourceFps: ov.fps || 30,
+                });
+                if (oPrep && oPrep.framesDir) {
+                    if (ov._folderFramesByPath) ov._folderFramesByPath[source] = { framesDir: oPrep.framesDir, frameCount: oPrep.frameCount };
+                    else { ov._framesDir = oPrep.framesDir; ov._frameCount = oPrep.frameCount; }
+                }
             }
         }
     }
 
     let cvFramesDir = null;
     let cvFrameCount = 0;
+    let cvPreparedDuration = duration;
     if (contentVideoPath) {
         log(`预处理内容视频源...`);
         const cvPathRaw = _normalizeLocalPath(contentVideoPath);
@@ -459,10 +494,11 @@ async function reelsLayeredExport(params) {
         });
         if (cvPrep && cvPrep.framesDir) {
             cvFramesDir = cvPrep.framesDir;
-            cvFrameCount = cvPrep.frameCount;
+                cvFrameCount = cvPrep.frameCount;
+                cvPreparedDuration = cvPrep.preparedDuration ?? duration;
         }
         if (contentVideoBlurBg || contentVideoDirectBg) {
-            let requiredDuration = Number(duration);
+            let requiredDuration = Math.min(Number(duration), cvPreparedDuration);
             const trimStart = Number(contentVideoTrimStart);
             const trimEnd = Number(contentVideoTrimEnd);
             if (Number.isFinite(trimStart) && Number.isFinite(trimEnd) && trimEnd > trimStart) {
@@ -512,7 +548,7 @@ async function reelsLayeredExport(params) {
             // ── 预加载内容视频帧 ──
             if (contentVideoPath && cvFramesDir) {
                 let frameIdxCv = frameIdx;
-                if (cvFrameCount > 0) frameIdxCv = Math.min(frameIdxCv, cvFrameCount - 1);
+                if (cvFrameCount > 0) frameIdxCv %= cvFrameCount;
                 if (frameIdxCv !== currentCvIdx) {
                     const cvFrameName = `frame_${String(frameIdxCv + 1).padStart(6, '0')}.png`;
                     try {
@@ -549,21 +585,38 @@ async function reelsLayeredExport(params) {
                 for (const ov of taskOverlays) {
                     if (ov.type === 'video' && !ov.disabled) {
                         const ovStart = parseFloat(ov.start || 0);
+                        const ovEnd = Number.isFinite(parseFloat(ov.end)) ? parseFloat(ov.end) : duration;
+                        // Hidden overlays need neither disk reads nor image decoding.
+                        if (t < ovStart || t > ovEnd) {
+                            ov._currentFrameImage = null;
+                            continue;
+                        }
                         let relTime = Math.max(0, t - ovStart);
-                        let frameIdxOv = Math.floor(relTime * fps);
+                        let prepared = null;
+                        if (ov.media_folder_files?.length) {
+                            const interval = Math.max(0.1, parseFloat(ov.media_folder_interval || 5) || 5);
+                            const source = _normalizeLocalPath(ov.media_folder_files[Math.floor(relTime / interval) % ov.media_folder_files.length]);
+                            prepared = ov._folderFramesByPath?.[source] || null;
+                            relTime %= interval;
+                        }
+                        relTime += Math.max(0, Number(ov.video_start_offset) || 0);
+                        const sourceRate = ov.is_img_sequence ? (Number(ov.fps) || 30) : fps;
+                        let frameIdxOv = Math.floor(relTime * sourceRate);
 
                         let fPath = null;
                         if (ov.is_img_sequence && ov.sequence_frames && ov.sequence_frames.length > 0) {
                             if (frameIdxOv >= ov.sequence_frames.length) {
-                                frameIdxOv = frameIdxOv % Math.max(1, ov.sequence_frames.length);
+                                frameIdxOv = ov.media_loop === false ? ov.sequence_frames.length - 1 : frameIdxOv % Math.max(1, ov.sequence_frames.length);
                             }
                             fPath = ov.sequence_frames[frameIdxOv];
-                        } else if (ov._framesDir) {
-                            if (frameIdxOv >= ov._frameCount) {
-                                frameIdxOv = frameIdxOv % Math.max(1, ov._frameCount);
+                        } else if (prepared || ov._framesDir) {
+                            const framesDir = prepared?.framesDir || ov._framesDir;
+                            const frameCount = prepared?.frameCount || ov._frameCount;
+                            if (frameIdxOv >= frameCount) {
+                                frameIdxOv = ov.media_loop === false ? Math.max(0, frameCount - 1) : frameIdxOv % Math.max(1, frameCount);
                             }
                             const ovFrameName = `frame_${String(frameIdxOv + 1).padStart(6, '0')}.png`;
-                            fPath = `${ov._framesDir}/${ovFrameName}`;
+                            fPath = `${framesDir}/${ovFrameName}`;
                         }
 
                         if (fPath) {
@@ -618,11 +671,11 @@ async function reelsLayeredExport(params) {
                 let drawY = (targetHeight - drawH) / 2;
                 if (contentVideoX && contentVideoX !== 'center') {
                     const relX = parseFloat(contentVideoX);
-                    if (!isNaN(relX)) Math.abs(relX) <= 1 ? drawX += targetWidth * relX : drawX += relX;
+                    if (!isNaN(relX)) Math.abs(relX) <= 1 ? drawX += targetWidth * relX : drawX += relX * targetWidth / 1080;
                 }
                 if (contentVideoY && contentVideoY !== 'center') {
                     const relY = parseFloat(contentVideoY);
-                    if (!isNaN(relY)) Math.abs(relY) <= 1 ? drawY += targetHeight * relY : drawY += relY;
+                    if (!isNaN(relY)) Math.abs(relY) <= 1 ? drawY += targetHeight * relY : drawY += relY * targetHeight / 1920;
                 }
                 _drawImageFlipped(ctx, currentCvImg, sx, sy, sWidth, sHeight, drawX, drawY, drawW, drawH, contentVideoFlipH, contentVideoFlipV);
             }
@@ -775,6 +828,8 @@ async function reelsLayeredExport(params) {
                 video: { dir: 'video', description: '画面层 (背景+蒙版+覆层)' },
                 subtitle: { dir: 'subtitle', description: '字幕层 (透明底)' },
             },
+            // 数组从底到顶。与 Reels 预览及 MP4 WYSIWYG 导出使用同一规则。
+            compositionOrder: overlayAboveSubtitle ? ['subtitle', 'video'] : ['video', 'subtitle'],
             audio: {
                 voice: voicePath ? 'audio.mp3' : null,
                 bgm: bgmPath ? 'bgm.mp3' : null,
@@ -794,6 +849,15 @@ async function reelsLayeredExport(params) {
             if (ov._framesDir) {
                 try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: ov._framesDir }); } catch (_) { }
             }
+            for (const prep of Object.values(ov._folderFramesByPath || {})) {
+                try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: prep.framesDir }); } catch (_) { }
+            }
+            delete ov._folderFramesByPath;
+        }
+        for (const ov of taskOverlays || []) {
+            if (ov._exportImage) ov._exportImage.src = '';
+            if (ov._exportFolderImages) Object.values(ov._exportFolderImages).forEach(img => { if (img) img.src = ''; });
+            delete ov._exportImage; delete ov._exportFolderImages;
         }
         if (cvFramesDir) {
             try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: cvFramesDir }); } catch (_) { }
@@ -813,6 +877,15 @@ async function reelsLayeredExport(params) {
             if (ov._framesDir) {
                 try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: ov._framesDir }); } catch (_) { }
             }
+            for (const prep of Object.values(ov._folderFramesByPath || {})) {
+                try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: prep.framesDir }); } catch (_) { }
+            }
+            delete ov._folderFramesByPath;
+        }
+        for (const ov of taskOverlays || []) {
+            if (ov._exportImage) ov._exportImage.src = '';
+            if (ov._exportFolderImages) Object.values(ov._exportFolderImages).forEach(img => { if (img) img.src = ''; });
+            delete ov._exportImage; delete ov._exportFolderImages;
         }
         if (cvFramesDir) {
             try { await window.electronAPI.reelsComposeWysiwyg('cleanup-bg', { framesDir: cvFramesDir }); } catch (_) { }

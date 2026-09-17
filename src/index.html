@@ -4184,7 +4184,6 @@
                   style="font-size:11px;padding:4px 8px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600;border:none;"
                   onclick="openTemplateLibrary()" title="视频模板库 — 保存/加载工程模板">📂 模板库</button>
 
-                <button class="btn btn-secondary" onclick="loadAutoEditBatchReelsProject()">加载自动剪辑批量工程</button>
                 <!-- ═══ 更多工具 下拉菜单 ═══ -->
                 <div style="position:relative;" id="reels-more-tools-wrap">
                   <button class="btn btn-secondary" style="font-size:11px;padding:4px 8px;"
@@ -4273,6 +4272,14 @@
                     <div style="padding:4px 12px;font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">项目管理</div>
                     <div class="reels-dropdown-item" onclick="reelsSaveProject(event)">💾 保存项目</div>
                     <div class="reels-dropdown-item" onclick="reelsLoadProject()">📂 加载项目</div>
+
+                    <div style="border-top:1px solid var(--border-color);margin:4px 0;"></div>
+
+                    <!-- 文案自动剪辑恢复：仅用于已完成自动剪辑导出后的 Reels 任务 -->
+                    <div style="padding:4px 12px;font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">文案自动剪辑 · 恢复已导出任务</div>
+                    <div style="padding:2px 12px 5px;color:var(--text-muted);font-size:10px;line-height:1.35;">仅恢复“导出并保存 Reels 任务工程”后生成的成片、字幕及 Reels 任务；未导出时无需使用。</div>
+                    <div class="reels-dropdown-item" onclick="loadAutoEditBatchReelsProject()" title="选择自动剪辑导出时生成的 .autoedit-batch.json 文件">📂 从工程文件恢复已导出任务</div>
+                    <div class="reels-dropdown-item" onclick="reloadLastAutoEditBatchReelsProject()" title="不再选择文件，直接重新恢复本机上次成功导入的自动剪辑 Reels 任务工程">↻ 恢复本机上次导入的任务</div>
 
                     <div style="border-top:1px solid var(--border-color);margin:4px 0;"></div>
 

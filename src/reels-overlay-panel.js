@@ -431,7 +431,25 @@ class ReelsOverlayPanel {
                 <!-- 图片属性 (图片/视频覆层) -->
                 <div id="rop-image-props" class="rop-group" style="display:none;">
                     <div class="rop-group-title">媒体(图/视/动图)</div>
+                    <div style="margin:0 0 8px;padding:7px;border:1px solid var(--border-color);border-radius:5px;background:rgba(255,255,255,.025);">
+                        <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px;">当前媒体路径</div>
+                        <div id="rop-media-source" style="font-size:10px;line-height:1.35;word-break:break-all;color:var(--text-primary);max-height:42px;overflow:auto;">—</div>
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;">
+                            <button type="button" id="rop-media-replace" class="rop-reset-all">替换媒体文件</button>
+                            <button type="button" id="rop-media-folder" class="rop-reset-all">选择循环文件夹</button>
+                            <button type="button" id="rop-media-folder-clear" class="rop-reset-all">清除文件夹循环</button>
+                        </div>
+                        <div id="rop-media-folder-status" style="font-size:10px;color:var(--text-muted);margin-top:5px;">未使用文件夹循环</div>
+                    </div>
                     <div class="rop-grid">
+                        <label>显示模式</label><select id="rop-media-window-mode" class="rop-select"><option value="none">原始覆层媒体（默认）</option><option value="pip">画中画（固定窗口）</option><option value="bottom_half">下半屏（固定裁切窗口）</option></select>
+                        <label>画中画窗口比例</label><select id="rop-media-window-ratio" class="rop-select"><option value="free">自由比例</option><option value="1:1">1:1 方形</option><option value="9:16" selected>9:16 竖屏</option><option value="3:4">3:4 竖图</option><option value="4:3">4:3 横图</option><option value="16:9">16:9 横屏</option></select>
+                        <label>循环播放</label><input type="checkbox" id="rop-media-loop" checked title="视频不足成片时长时自动循环">
+                        <label>文件夹切换间隔(秒)</label><input type="number" id="rop-media-folder-interval" class="rop-input" step="0.1" min="0.1" value="5" title="选择循环文件夹后，每隔多少秒切换到下一个素材">
+                        <label>窗口内素材 X</label><input type="number" id="rop-media-inner-x" class="rop-input" step="1" value="0" title="画中画：素材在窗口内横向移动；下半屏：素材在固定下半屏内横向移动">
+                        <label>窗口内素材 Y</label><input type="number" id="rop-media-inner-y" class="rop-input" step="1" value="0" title="画中画：素材在窗口内纵向移动；下半屏：素材在固定下半屏内纵向移动">
+                        <label>窗口内素材缩放%</label><input type="number" id="rop-media-inner-scale" class="rop-input" step="1" min="1" value="100" title="仅缩放固定窗口内的素材，不改变外层窗口">
+                        <label>窗口内素材旋转</label><input type="number" id="rop-media-inner-rotation" class="rop-input" step="1" min="-360" max="360" value="0" title="仅旋转固定窗口内的素材，不改变外层窗口">
                         <label>视频起始秒</label><input type="number" id="rop-video-offset" class="rop-input" step="0.1" min="0" value="0" title="从视频的第几秒开始播放">
                         <label>保持比例</label><input type="checkbox" id="rop-keep-aspect" checked>
                         <label>水平翻转</label><input type="checkbox" id="rop-flip-h">
@@ -443,6 +461,14 @@ class ReelsOverlayPanel {
                             <option value="screen">滤色</option>
                             <option value="overlay">叠加</option>
                         </select>
+                    </div>
+                    <div id="rop-media-window-align" style="margin-top:8px;padding-top:7px;border-top:1px solid var(--border-color);">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px;">画中画窗口快速定位</div>
+                        <div style="display:grid;grid-template-columns:repeat(3,32px);gap:4px;justify-content:start;">
+                            <button type="button" class="rop-media-align" data-align="tl" title="左上">↖</button><button type="button" class="rop-media-align" data-align="tc" title="上方居中">↑</button><button type="button" class="rop-media-align" data-align="tr" title="右上">↗</button>
+                            <button type="button" class="rop-media-align" data-align="cl" title="左侧居中">←</button><button type="button" class="rop-media-align" data-align="cc" title="居中">＋</button><button type="button" class="rop-media-align" data-align="cr" title="右侧居中">→</button>
+                            <button type="button" class="rop-media-align" data-align="bl" title="左下">↙</button><button type="button" class="rop-media-align" data-align="bc" title="下方居中">↓</button><button type="button" class="rop-media-align" data-align="br" title="右下">↘</button>
+                        </div>
                     </div>
                     <!-- 跟随滚动字幕绑定 -->
                     <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-color);">
@@ -823,15 +849,21 @@ class ReelsOverlayPanel {
                                 <option value="tornpaper">复古手撕纸边</option>
                                 <option value="custom">➕ 导入单张笔刷图...</option>
                             </select>
+                            <button id="rop-title-brush-gallery-btn" class="rop-btn" type="button" title="带缩略图选择笔刷" style="padding:4px 7px; font-size:11px; white-space:nowrap; cursor:pointer; background:#264b7d; border:1px solid #4d7fbd; border-radius:4px; color:#fff;">🖼 选样式</button>
                             <button id="rop-title-brush-upload-btn" class="rop-btn" type="button" title="选取单张笔刷图片导入 (PNG/JPG/WEBP)" style="padding:4px 7px; font-size:11px; white-space:nowrap; cursor:pointer; background:var(--bg-secondary, #333); border:1px solid var(--border-color, #555); border-radius:4px; color:var(--text-color, #fff);">📁 导入单图</button>
                             <button id="rop-title-brush-folder-btn" class="rop-btn" type="button" title="选取包含笔刷图片的文件夹批量导入" style="padding:4px 7px; font-size:11px; white-space:nowrap; cursor:pointer; background:var(--bg-secondary, #333); border:1px solid var(--border-color, #555); border-radius:4px; color:var(--text-color, #fff);">📂 导入文件夹</button>
                             <input type="file" id="rop-title-brush-file-input" accept="image/png,image/jpeg,image/webp,image/jpg" style="display:none;">
                             <input type="file" id="rop-title-brush-folder-input" webkitdirectory directory multiple style="display:none;">
                         </div>
-                        <label title="0表示自动根据文字宽度自适应，也可手动拖动指定固定宽度">笔刷宽度</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-title-bg-brush-w" class="rop-range rop-defaultable" data-default="0" min="0" max="1080" value="0"><input type="number" class="rop-num-readout" data-link="rop-title-bg-brush-w" min="0" max="1080" value="0"><button class="rop-reset-btn" data-target="rop-title-bg-brush-w" title="恢复默认(0=自动适配)">↺</button></div>
-                        <label title="0表示自动根据文字高度自适应，也可手动拖动指定固定高度">笔刷高度</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-title-bg-brush-h" class="rop-range rop-defaultable" data-default="0" min="0" max="600" value="0"><input type="number" class="rop-num-readout" data-link="rop-title-bg-brush-h" min="0" max="600" value="0"><button class="rop-reset-btn" data-target="rop-title-bg-brush-h" title="恢复默认(0=自动适配)">↺</button></div>
+                        <label title="选择“原始素材（不处理）”时，导入图片直接使用：不去底、不染色、不做任何图像处理">笔刷颜色</label>
+                        <select id="rop-title-bg-brush-colormode" class="rop-select rop-defaultable" data-default="tint">
+                            <option value="tint">跟随背景颜色</option>
+                            <option value="original">原始素材（不处理）</option>
+                        </select>
+                        <label title="相对文字自动适配尺寸的缩放倍数；100%=原始适配尺寸，可超过画布">笔刷宽度缩放</label>
+                        <div class="rop-slider-combo"><input type="range" id="rop-title-bg-brush-scale-x" class="rop-range rop-defaultable" data-default="100" min="10" max="1000" value="100"><input type="number" class="rop-num-readout" data-link="rop-title-bg-brush-scale-x" min="10" max="10000" value="100"><button class="rop-reset-btn" data-target="rop-title-bg-brush-scale-x" title="恢复默认(100%)">↺</button></div>
+                        <label title="相对文字自动适配尺寸的缩放倍数；100%=原始适配尺寸，可超过画布">笔刷高度缩放</label>
+                        <div class="rop-slider-combo"><input type="range" id="rop-title-bg-brush-scale-y" class="rop-range rop-defaultable" data-default="100" min="10" max="1000" value="100"><input type="number" class="rop-num-readout" data-link="rop-title-bg-brush-scale-y" min="10" max="10000" value="100"><button class="rop-reset-btn" data-target="rop-title-bg-brush-scale-y" title="恢复默认(100%)">↺</button></div>
                         <label title="强化笔刷主体不透明度，中间100%纯实心遮挡背景视频，同时保留边缘柔和羽化半透明（默认100%）">笔刷实心度</label>
                         <div class="rop-slider-combo"><input type="range" id="rop-title-bg-brush-solid" class="rop-range rop-defaultable" data-default="100" min="0" max="100" value="100"><input type="number" class="rop-num-readout" data-link="rop-title-bg-brush-solid" min="0" max="100" value="100"><button class="rop-reset-btn" data-target="rop-title-bg-brush-solid" title="恢复默认(100%)">↺</button></div>
                         <label title="笔刷横向位置微调偏移量（像素）">笔刷位置X</label>
@@ -949,15 +981,21 @@ class ReelsOverlayPanel {
                                 <option value="tornpaper">复古手撕纸边</option>
                                 <option value="custom">➕ 导入单张笔刷图...</option>
                             </select>
+                            <button id="rop-body-brush-gallery-btn" class="rop-btn" type="button" title="带缩略图选择笔刷" style="padding:4px 7px; font-size:11px; white-space:nowrap; cursor:pointer; background:#264b7d; border:1px solid #4d7fbd; border-radius:4px; color:#fff;">🖼 选样式</button>
                             <button id="rop-body-brush-upload-btn" class="rop-btn" type="button" title="选取单张笔刷图片导入 (PNG/JPG/WEBP)" style="padding:4px 7px; font-size:11px; white-space:nowrap; cursor:pointer; background:var(--bg-secondary, #333); border:1px solid var(--border-color, #555); border-radius:4px; color:var(--text-color, #fff);">📁 导入单图</button>
                             <button id="rop-body-brush-folder-btn" class="rop-btn" type="button" title="选取包含笔刷图片的文件夹批量导入" style="padding:4px 7px; font-size:11px; white-space:nowrap; cursor:pointer; background:var(--bg-secondary, #333); border:1px solid var(--border-color, #555); border-radius:4px; color:var(--text-color, #fff);">📂 导入文件夹</button>
                             <input type="file" id="rop-body-brush-file-input" accept="image/png,image/jpeg,image/webp,image/jpg" style="display:none;">
                             <input type="file" id="rop-body-brush-folder-input" webkitdirectory directory multiple style="display:none;">
                         </div>
-                        <label title="0表示自动根据文字宽度自适应，也可手动拖动指定固定宽度">笔刷宽度</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-body-bg-brush-w" class="rop-range rop-defaultable" data-default="0" min="0" max="1080" value="0"><input type="number" class="rop-num-readout" data-link="rop-body-bg-brush-w" min="0" max="1080" value="0"><button class="rop-reset-btn" data-target="rop-body-bg-brush-w" title="恢复默认(0=自动适配)">↺</button></div>
-                        <label title="0表示自动根据文字高度自适应，也可手动拖动指定固定高度">笔刷高度</label>
-                        <div class="rop-slider-combo"><input type="range" id="rop-body-bg-brush-h" class="rop-range rop-defaultable" data-default="0" min="0" max="600" value="0"><input type="number" class="rop-num-readout" data-link="rop-body-bg-brush-h" min="0" max="600" value="0"><button class="rop-reset-btn" data-target="rop-body-bg-brush-h" title="恢复默认(0=自动适配)">↺</button></div>
+                        <label title="选择“原始素材（不处理）”时，导入图片直接使用：不去底、不染色、不做任何图像处理">笔刷颜色</label>
+                        <select id="rop-body-bg-brush-colormode" class="rop-select rop-defaultable" data-default="tint">
+                            <option value="tint">跟随背景颜色</option>
+                            <option value="original">原始素材（不处理）</option>
+                        </select>
+                        <label title="相对文字自动适配尺寸的缩放倍数；100%=原始适配尺寸，可超过画布">笔刷宽度缩放</label>
+                        <div class="rop-slider-combo"><input type="range" id="rop-body-bg-brush-scale-x" class="rop-range rop-defaultable" data-default="100" min="10" max="1000" value="100"><input type="number" class="rop-num-readout" data-link="rop-body-bg-brush-scale-x" min="10" max="10000" value="100"><button class="rop-reset-btn" data-target="rop-body-bg-brush-scale-x" title="恢复默认(100%)">↺</button></div>
+                        <label title="相对文字自动适配尺寸的缩放倍数；100%=原始适配尺寸，可超过画布">笔刷高度缩放</label>
+                        <div class="rop-slider-combo"><input type="range" id="rop-body-bg-brush-scale-y" class="rop-range rop-defaultable" data-default="100" min="10" max="1000" value="100"><input type="number" class="rop-num-readout" data-link="rop-body-bg-brush-scale-y" min="10" max="10000" value="100"><button class="rop-reset-btn" data-target="rop-body-bg-brush-scale-y" title="恢复默认(100%)">↺</button></div>
                         <label title="强化笔刷主体不透明度，中间100%纯实心遮挡背景视频，同时保留边缘柔和羽化半透明（默认100%）">笔刷实心度</label>
                         <div class="rop-slider-combo"><input type="range" id="rop-body-bg-brush-solid" class="rop-range rop-defaultable" data-default="100" min="0" max="100" value="100"><input type="number" class="rop-num-readout" data-link="rop-body-bg-brush-solid" min="0" max="100" value="100"><button class="rop-reset-btn" data-target="rop-body-bg-brush-solid" title="恢复默认(100%)">↺</button></div>
                         <label title="笔刷横向位置微调偏移量（像素）">笔刷位置X</label>
@@ -1482,6 +1520,14 @@ class ReelsOverlayPanel {
         this.container.querySelector('#rop-add-scroll').addEventListener('click', () => this._addScrollOverlay());
         this.container.querySelector('#rop-duplicate').addEventListener('click', () => this._duplicateOverlay());
         this.container.querySelector('#rop-delete').addEventListener('click', () => this._deleteOverlay());
+        this.container.querySelector('#rop-media-replace')?.addEventListener('click', () => this._replaceSelectedMedia());
+        this.container.querySelector('#rop-media-folder')?.addEventListener('click', () => this._pickSelectedMediaFolder());
+        this.container.querySelector('#rop-media-folder-clear')?.addEventListener('click', () => {
+            const ov = this._selectedOv;
+            if (!ov) return;
+            delete ov.media_folder_path; delete ov.media_folder_files; delete ov.media_folder_items;
+            this._syncFromOverlay(ov); this._requestRender();
+        });
 
         // "显示终点" toggle
         const showEndBtn = this.container.querySelector('#rop-scroll-show-end');
@@ -1664,7 +1710,7 @@ class ReelsOverlayPanel {
             'rop-x', 'rop-y', 'rop-w', 'rop-h', 'rop-rotation', 'rop-opacity',
             'rop-start', 'rop-end', 'rop-content', 'rop-font', 'rop-fontsize',
             'rop-color', 'rop-bold', 'rop-font-weight', 'rop-use-stroke', 'rop-stroke-color', 'rop-stroke-width',
-            'rop-shadow-enabled', 'rop-shadow-color', 'rop-shadow-blur', 'rop-shadow-offset-x', 'rop-shadow-offset-y', 'rop-shadow-opacity', 'rop-scale', 'rop-flip-h', 'rop-video-offset', 'rop-keep-aspect',
+            'rop-shadow-enabled', 'rop-shadow-color', 'rop-shadow-blur', 'rop-shadow-offset-x', 'rop-shadow-offset-y', 'rop-shadow-opacity', 'rop-scale', 'rop-flip-h', 'rop-video-offset', 'rop-keep-aspect', 'rop-media-window-mode', 'rop-media-window-ratio', 'rop-media-loop', 'rop-media-folder-interval', 'rop-media-inner-x', 'rop-media-inner-y', 'rop-media-inner-scale', 'rop-media-inner-rotation',
             'rop-flip-v', 'rop-blend', 'rop-anim-in', 'rop-anim-out',
             'rop-bind-scroll-target', 'rop-bind-scroll-offset-y', 'rop-bind-scroll-offset-x',
             'rop-bind-scroll-clamp-min-y', 'rop-bind-scroll-clamp-max-y', 'rop-bind-scroll-follow-x',
@@ -1691,14 +1737,14 @@ class ReelsOverlayPanel {
             'rop-title-shadow-color', 'rop-title-shadow-blur', 'rop-title-shadow-x', 'rop-title-shadow-y',
             'rop-title-bg-enabled', 'rop-title-bg-mode', 'rop-title-bg-color', 'rop-title-bg-opacity', 'rop-title-bg-radius',
             'rop-title-bg-pad-h', 'rop-title-bg-pad-top', 'rop-title-bg-pad-bottom',
-            'rop-title-bg-brush', 'rop-title-bg-brush-style', 'rop-title-bg-brush-w', 'rop-title-bg-brush-h', 'rop-title-bg-brush-solid', 'rop-title-bg-brush-x', 'rop-title-bg-brush-y',
+            'rop-title-bg-brush', 'rop-title-bg-brush-style', 'rop-title-bg-brush-colormode', 'rop-title-bg-brush-scale-x', 'rop-title-bg-brush-scale-y', 'rop-title-bg-brush-solid', 'rop-title-bg-brush-x', 'rop-title-bg-brush-y',
             'rop-title-deco-enabled', 'rop-title-deco-position', 'rop-title-deco-style', 'rop-title-deco-align',
             'rop-title-deco-color', 'rop-title-deco-color2', 'rop-title-deco-thickness', 'rop-title-deco-length', 'rop-title-deco-gap', 'rop-title-deco-opacity',
             'rop-body-stroke-color', 'rop-body-stroke-width',
             'rop-body-shadow-color', 'rop-body-shadow-blur', 'rop-body-shadow-x', 'rop-body-shadow-y',
             'rop-body-bg-enabled', 'rop-body-bg-mode', 'rop-body-bg-color', 'rop-body-bg-opacity', 'rop-body-bg-radius',
             'rop-body-bg-pad-h', 'rop-body-bg-pad-top', 'rop-body-bg-pad-bottom',
-            'rop-body-bg-brush', 'rop-body-bg-brush-style', 'rop-body-bg-brush-w', 'rop-body-bg-brush-h', 'rop-body-bg-brush-solid', 'rop-body-bg-brush-x', 'rop-body-bg-brush-y',
+            'rop-body-bg-brush', 'rop-body-bg-brush-style', 'rop-body-bg-brush-colormode', 'rop-body-bg-brush-scale-x', 'rop-body-bg-brush-scale-y', 'rop-body-bg-brush-solid', 'rop-body-bg-brush-x', 'rop-body-bg-brush-y',
             'rop-footer-stroke-color', 'rop-footer-stroke-width',
             'rop-footer-shadow-color', 'rop-footer-shadow-blur', 'rop-footer-shadow-x', 'rop-footer-shadow-y',
             'rop-footer-bg-enabled', 'rop-footer-bg-mode', 'rop-footer-bg-color', 'rop-footer-bg-opacity', 'rop-footer-bg-radius',
@@ -1761,6 +1807,87 @@ class ReelsOverlayPanel {
             el.addEventListener('input', () => this._syncToOverlay());
             el.addEventListener('change', () => this._syncToOverlay());
         }
+        const mediaWindowMode = this.container.querySelector('#rop-media-window-mode');
+        mediaWindowMode?.addEventListener('change', () => {
+            const ov = this._selectedOv;
+            if (!ov || !['image', 'video'].includes(ov.type)) return;
+            if (mediaWindowMode.value === 'bottom_half') {
+                // 下半屏窗口固定；接下来的位置、缩放、旋转全都只操作窗口里的素材。
+                ov.media_window_mode = 'bottom_half';
+                ov.media_window = { x: 0, y: 960, w: 1080, h: 960, locked: true };
+                ov.clip_rect = { x: 0, y: 960, w: 1080, h: 960 };
+                ov.crop_fill = true;
+                ov.media_window_generated_clip = true;
+                ov.w = 1080; ov.h = 960; ov.x = 0; ov.y = 960;
+                ov.media_inner_x = 0; ov.media_inner_y = 0;
+                this._syncFromOverlay(ov);
+            } else if (mediaWindowMode.value === 'pip') {
+                ov.media_window_mode = 'pip';
+                // 进入 PIP 一律建立 9:16 的真实窗口。此前仅全屏媒体会重置，
+                // 非全屏旧覆层会保留原比例，造成“下拉是 9:16、提示框却不是”的错位。
+                ov.w = 540; ov.h = 960;
+                ov.x = 270; ov.y = 480;
+                ov.scale = 1;
+                // PIP 也必须有独立且固定的裁切窗，否则移动素材会视觉上像在拖整个画面。
+                ov.clip_rect = { x: ov.x || 0, y: ov.y || 0, w: ov.w || 720, h: ov.h || 720 };
+                ov.media_window = { x: ov.x || 0, y: ov.y || 0, w: ov.w || 720, h: ov.h || 720 };
+                ov.media_window_initialized = true;
+                ov.crop_fill = true;
+                ov.media_window_generated_clip = true;
+                ov.media_inner_x = 0; ov.media_inner_y = 0;
+                ov.media_inner_scale = 1; ov.media_inner_rotation = 0;
+                ov.media_window_ratio = '9:16';
+                this._syncFromOverlay(ov);
+            } else {
+                // 默认模式不建立窗口对象，不改写原有覆层的尺寸、位置或裁切行为。
+                delete ov.media_window_mode;
+                delete ov.media_window;
+                delete ov.media_window_initialized;
+                delete ov.media_inner_x;
+                delete ov.media_inner_y;
+                delete ov.media_inner_scale;
+                delete ov.media_inner_rotation;
+                if (ov.media_window_generated_clip) {
+                    delete ov.clip_rect;
+                    delete ov.crop_fill;
+                    delete ov.media_window_generated_clip;
+                }
+            }
+            this._requestRender();
+        });
+        const mediaWindowRatio = this.container.querySelector('#rop-media-window-ratio');
+        mediaWindowRatio?.addEventListener('change', () => {
+            const ov = this._selectedOv;
+            const choice = mediaWindowRatio.value;
+            if (!ov || !['image', 'video'].includes(ov.type) || ov.media_window_mode !== 'pip' || choice === 'free') return;
+            const [rw, rh] = choice.split(':').map(Number);
+            if (!(rw > 0 && rh > 0)) return;
+            // 只调外层窗口的宽高，保持窗口左上角和内部取景（inner 参数）不变。
+            const currentW = Math.max(1, Number(ov.w) || 720);
+            ov.w = currentW;
+            ov.h = Math.round(currentW * rh / rw);
+            ov.media_window = { x: ov.x || 0, y: ov.y || 0, w: ov.w, h: ov.h };
+            ov.clip_rect = { ...ov.media_window };
+            ov.media_window_ratio = choice;
+            this._syncFromOverlay(ov);
+            this._requestRender();
+        });
+        this.container.querySelectorAll('.rop-media-align').forEach(button => button.addEventListener('click', () => {
+            const ov = this._selectedOv;
+            if (!ov || !['image', 'video'].includes(ov.type) || ov.media_window_mode !== 'pip') return;
+            const w = Math.max(1, Number(ov.w) || 540);
+            const h = Math.max(1, Number(ov.h) || 960);
+            const align = button.dataset.align || 'cc';
+            const horizontal = align[1];
+            const vertical = align[0];
+            ov.x = horizontal === 'l' ? 0 : (horizontal === 'r' ? 1080 - w : (1080 - w) / 2);
+            ov.y = vertical === 't' ? 0 : (vertical === 'b' ? 1920 - h : (1920 - h) / 2);
+            ov.x = Math.round(ov.x); ov.y = Math.round(ov.y);
+            ov.media_window = { x: ov.x, y: ov.y, w, h };
+            ov.clip_rect = { ...ov.media_window };
+            this._syncFromOverlay(ov);
+            this._requestRender();
+        }));
 
         // ── Windows Electron 焦点修复 ──
         // 事件保护必须绑定在控件本身，不能绑在父容器捕获阶段；
@@ -2136,6 +2263,8 @@ class ReelsOverlayPanel {
 
         this._bindCustomBrushUpload('title');
         this._bindCustomBrushUpload('body');
+        this._bindBrushVisualPicker('title');
+        this._bindBrushVisualPicker('body');
 
         // VideoCanvas 回调
         if (this.videoCanvas) {
@@ -2191,6 +2320,76 @@ class ReelsOverlayPanel {
         if (typeof window.reelsSyncBoxBrushSelect === 'function') {
             window.reelsSyncBoxBrushSelect();
         }
+    }
+
+    _bindBrushVisualPicker(prefix) {
+        const button = this.container.querySelector(`#rop-${prefix}-brush-gallery-btn`);
+        const select = this.container.querySelector(`#rop-${prefix}-bg-brush-style`);
+        if (!button || !select) return;
+
+        const close = () => {
+            document.querySelectorAll('.rop-brush-gallery-popover').forEach(el => el.remove());
+        };
+
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const existing = document.querySelector('.rop-brush-gallery-popover');
+            if (existing) { existing.remove(); return; }
+
+            const engine = window.ReelsOverlay?.ReelsBrushEngine;
+            const customBrushes = engine?.getCustomBrushes?.() || {};
+            const builtins = [
+                ['acrylic', '丙烯干画拉丝'],
+                ['watercolor', '水彩通透水痕'],
+                ['drybrush', '粗砺宣纸飞白'],
+                ['tornpaper', '复古手撕纸边'],
+            ];
+            const choices = [
+                ...builtins.map(([value, label]) => ({ value, label, image: engine?._builtinB64?.[value] || '' })),
+                ...Object.entries(customBrushes).map(([value, item]) => ({
+                    value,
+                    label: item.displayName || value,
+                    image: item.dataUrl || '',
+                    custom: true,
+                })),
+            ];
+            const popover = document.createElement('div');
+            popover.className = 'rop-brush-gallery-popover';
+            popover.style.cssText = 'position:fixed;z-index:100000;display:grid;grid-template-columns:repeat(2,minmax(145px,1fr));gap:8px;width:min(380px,calc(100vw - 20px));max-height:360px;overflow:auto;padding:10px;background:#151923;border:1px solid #4d7fbd;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.55);';
+            choices.forEach(choice => {
+                const item = document.createElement('button');
+                const selected = select.value === choice.value;
+                item.type = 'button';
+                item.title = choice.label;
+                item.style.cssText = `display:flex;flex-direction:column;gap:5px;padding:6px;background:${selected ? '#1d4f81' : '#252b38'};border:1px solid ${selected ? '#61b9ff' : '#475166'};border-radius:6px;color:#fff;cursor:pointer;text-align:left;overflow:hidden;`;
+                const image = document.createElement('img');
+                image.alt = `${choice.label} 缩略图`;
+                image.src = choice.image;
+                image.style.cssText = 'display:block;width:100%;height:52px;object-fit:fill;background:linear-gradient(135deg,#355d87,#17202e);border-radius:3px;';
+                image.onerror = () => { image.style.display = 'none'; };
+                const label = document.createElement('span');
+                label.textContent = `${choice.custom ? '📁 ' : ''}${choice.label}`;
+                label.style.cssText = 'font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                item.append(image, label);
+                item.addEventListener('click', () => {
+                    select.value = choice.value;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                    close();
+                });
+                popover.appendChild(item);
+            });
+            document.body.appendChild(popover);
+            const rect = button.getBoundingClientRect();
+            const left = Math.min(Math.max(10, rect.right - popover.offsetWidth), window.innerWidth - popover.offsetWidth - 10);
+            const top = Math.min(rect.bottom + 6, window.innerHeight - popover.offsetHeight - 10);
+            popover.style.left = `${left}px`;
+            popover.style.top = `${Math.max(10, top)}px`;
+            // 点选缩略图时不能先把菜单移除；只有点到菜单外才关闭。
+            setTimeout(() => document.addEventListener('pointerdown', (outsideEvent) => {
+                if (!popover.contains(outsideEvent.target) && outsideEvent.target !== button) close();
+            }, { once: true }), 0);
+        });
     }
 
     _bindCustomBrushUpload(prefix) {
@@ -2979,6 +3178,71 @@ class ReelsOverlayPanel {
         input.click();
     }
 
+    _replaceSelectedMedia() {
+        const ov = this._selectedOv;
+        if (!ov || !['image', 'video'].includes(ov.type)) return;
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*,video/*';
+        input.onchange = e => {
+            const file = e.target.files?.[0]; if (!file) return;
+            const path = getFileNativePath(file);
+            ov.content = path && path !== file.name && window.electronAPI?.toFileUrl ? window.electronAPI.toFileUrl(path) : URL.createObjectURL(file);
+            ov.type = /\.(mp4|mov|avi|mkv|webm|m4v|gif)$/i.test(file.name) ? 'video' : 'image';
+            delete ov.media_folder_path; delete ov.media_folder_files; delete ov.media_folder_items;
+            this._syncFromOverlay(ov); this._refreshList(); this._requestRender();
+        };
+        input.click();
+    }
+
+    async _pickSelectedMediaFolder() {
+        const ov = this._selectedOv;
+        if (!ov || !['image', 'video'].includes(ov.type)) return;
+        let folder = '';
+        try {
+            if (window.electronAPI?.showOpenDialog) {
+                const result = await window.electronAPI.showOpenDialog({ title: '选择覆层媒体循环文件夹', properties: ['openDirectory'] });
+                folder = result?.filePaths?.[0] || '';
+            } else if (window.bridge?.localFiles?.pickFolder) {
+                folder = await window.bridge.localFiles.pickFolder({ title: '选择覆层媒体循环文件夹' }) || '';
+            }
+        } catch (error) {
+            console.warn('[Overlay] 选择媒体文件夹失败', error);
+        }
+        // 浏览器/旧桌面壳的回退：仍允许用系统文件夹选择器读取其中的文件。
+        if (!folder) {
+            const input = document.createElement('input');
+            input.type = 'file'; input.multiple = true; input.webkitdirectory = true;
+            input.onchange = e => {
+                const selected = Array.from(e.target.files || []);
+                if (!selected.length) return;
+                this._setSelectedMediaFolderFiles(ov, '', selected.map(file => ({
+                    path: getFileNativePath(file) || URL.createObjectURL(file), name: file.name, isDirectory: false,
+                })));
+            };
+            input.click();
+            return;
+        }
+        const exts = new Set(['mp4','mov','avi','mkv','webm','m4v','jpg','jpeg','png','webp','gif','bmp']);
+        let entries = [];
+        if (window.electronAPI?.scanDirectoryRecursive) entries = await window.electronAPI.scanDirectoryRecursive(folder, { maxDepth: 20 });
+        else if (window.electronAPI?.scanDirectory) entries = await window.electronAPI.scanDirectory(folder);
+        else { alert('已选择文件夹，但当前版本无法读取其中的媒体；请更新桌面版后重试。'); return; }
+        this._setSelectedMediaFolderFiles(ov, folder, entries, exts);
+    }
+
+    _setSelectedMediaFolderFiles(ov, folder, entries, allowedExtensions = null) {
+        const exts = allowedExtensions || new Set(['mp4','mov','avi','mkv','webm','m4v','jpg','jpeg','png','webp','gif','bmp']);
+        const files = (entries || []).filter(item => !item.isDirectory && item.path && exts.has(String(item.name || item.path).split('.').pop().toLowerCase()))
+            .sort((a,b) => String(a.name || a.path).localeCompare(String(b.name || b.path), undefined, { numeric: true })).map(item => item.path);
+        if (!files.length) { alert('该文件夹没有图片或视频素材'); return; }
+        ov.media_folder_path = folder || '通过文件夹选择器导入';
+        ov.media_folder_files = files;
+        // 循环文件夹是此覆层自己的素材池；首个文件也立即作为当前来源，便于导出路径可见。
+        ov.content = window.electronAPI?.toFileUrl ? window.electronAPI.toFileUrl(files[0]) : files[0];
+        ov.type = /\.(mp4|mov|avi|mkv|webm|m4v|gif)$/i.test(files[0]) ? 'video' : 'image';
+        this._syncFromOverlay(ov); this._refreshList(); this._requestRender();
+    }
+
     _duplicateOverlay() {
         if (!this._selectedOv) return;
         const clone = JSON.parse(JSON.stringify(this._selectedOv, (key, val) => key === '_allOverlays' ? undefined : val));
@@ -3228,16 +3492,21 @@ class ReelsOverlayPanel {
         this.container.querySelector('#rop-opacity-label').style.display = isTextBased ? 'none' : '';
         this.container.querySelector('#rop-opacity-wrap').style.display = isTextBased ? 'none' : 'flex';
 
+        // 旧“变换”是整个覆层的总控制，媒体也必须保留；新增字段只管窗口内素材。
         this.container.querySelector('#rop-xy-label-x').style.display = isCard ? 'none' : '';
         this.container.querySelector('#rop-x').style.display = isCard ? 'none' : '';
         this.container.querySelector('#rop-xy-label-y').style.display = isCard ? 'none' : '';
         this.container.querySelector('#rop-y').style.display = isCard ? 'none' : '';
+        this.container.querySelector('#rop-x').disabled = false;
+        this.container.querySelector('#rop-y').disabled = false;
         this.container.querySelector('#rop-wh-label-w').style.display = (isImg || isCard) ? 'none' : '';
         this.container.querySelector('#rop-w').style.display = (isImg || isCard) ? 'none' : '';
         this.container.querySelector('#rop-wh-label-h').style.display = (isImg || isCard) ? 'none' : '';
         this.container.querySelector('#rop-h').style.display = (isImg || isCard) ? 'none' : '';
         this.container.querySelector('#rop-scale-label').style.display = (ov.type === 'image' || ov.type === 'video') ? '' : 'none';
         this.container.querySelector('#rop-scale-wrap').style.display = (ov.type === 'image' || ov.type === 'video') ? '' : 'none';
+        this.container.querySelector('#rop-scale-label').textContent = '缩放%';
+        this.container.querySelector('#rop-rotation-label').textContent = '旋转';
 
         // Dynamic labels for scroll overlay (x/y/w/h = clip region)
         const isScroll = ov.type === 'scroll';
@@ -3556,6 +3825,22 @@ class ReelsOverlayPanel {
         }
 
         if (ov.type === 'image' || ov.type === 'video') {
+            const sourceEl = this.container.querySelector('#rop-media-source');
+            if (sourceEl) sourceEl.textContent = ov.content || '—';
+            const folderStatus = this.container.querySelector('#rop-media-folder-status');
+            if (folderStatus) {
+                const count = Array.isArray(ov.media_folder_files) ? ov.media_folder_files.length : 0;
+                folderStatus.textContent = count ? `🔁 文件夹循环：${ov.media_folder_path || ''}（${count} 个素材）` : '未使用文件夹循环';
+            }
+            // 仅迁移本轮错误创建的 PIP：旧的普通媒体没有 media_window_mode，完全不动。
+            if (ov.media_window_mode === 'pip' && ov.media_window && !ov.media_window_initialized
+                && Number(ov.media_window.w) >= 1000 && Number(ov.media_window.h) >= 1500) {
+                ov.w = 540; ov.h = 960; ov.x = 270; ov.y = 480;
+                ov.media_window = { x: 270, y: 480, w: 540, h: 960 };
+                ov.clip_rect = { x: 270, y: 480, w: 540, h: 960 };
+                ov.media_window_initialized = true;
+                ov.media_window_ratio = '9:16';
+            }
             const scalePct = Math.round((ov.scale || 1) * 100);
             this._val('rop-scale', scalePct);
             const scValEl = this.container.querySelector('#rop-scale-val');
@@ -3565,6 +3850,18 @@ class ReelsOverlayPanel {
             this._val('rop-blend', ov.blend_mode || 'source-over');
             this._val('rop-video-offset', ov.video_start_offset || 0);
             this._val('rop-keep-aspect', ov.keep_aspect !== false);
+            this._val('rop-media-window-mode', ov.media_window_mode === 'bottom_half' ? 'bottom_half' : (ov.media_window_mode === 'pip' ? 'pip' : 'none'));
+            this._val('rop-media-window-ratio', ov.media_window_ratio || '9:16');
+            this._val('rop-media-loop', ov.media_loop !== false);
+            this._val('rop-media-folder-interval', ov.media_folder_interval || 5);
+            this._val('rop-media-inner-x', ov.media_inner_x || 0);
+            this._val('rop-media-inner-y', ov.media_inner_y || 0);
+            this._val('rop-media-inner-scale', Math.round((ov.media_inner_scale ?? 1) * 100));
+            this._val('rop-media-inner-rotation', ov.media_inner_rotation || 0);
+            const ratioEl = this.container.querySelector('#rop-media-window-ratio');
+            if (ratioEl) ratioEl.disabled = ov.media_window_mode !== 'pip';
+            const alignEl = this.container.querySelector('#rop-media-window-align');
+            if (alignEl) alignEl.style.display = ov.media_window_mode === 'pip' ? 'block' : 'none';
 
             // 跟随滚动字幕绑定
             this._val('rop-bind-scroll-offset-y', ov.bind_scroll_offset_y || 0);
@@ -3715,8 +4012,9 @@ class ReelsOverlayPanel {
                 this._val('rop-title-bg-mode', ov.title_bg_mode || 'block');
                 this._val('rop-title-bg-brush', ov.title_bg_brush ?? false);
                 this._val('rop-title-bg-brush-style', ov.title_bg_brush_style || 'acrylic');
-                this._val('rop-title-bg-brush-w', ov.title_bg_brush_w ?? 0);
-                this._val('rop-title-bg-brush-h', ov.title_bg_brush_h ?? 0);
+                this._val('rop-title-bg-brush-colormode', ov.title_bg_brush_colormode || ov.title_bg_brush_color_mode || 'tint');
+                this._val('rop-title-bg-brush-scale-x', ov.title_bg_brush_scale_x ?? 100);
+                this._val('rop-title-bg-brush-scale-y', ov.title_bg_brush_scale_y ?? 100);
                 this._val('rop-title-bg-brush-solid', ov.title_bg_brush_solid ?? 100);
                 this._val('rop-title-bg-brush-x', ov.title_bg_brush_x ?? 0);
                 this._val('rop-title-bg-brush-y', ov.title_bg_brush_y ?? 0);
@@ -3753,8 +4051,9 @@ class ReelsOverlayPanel {
                 this._val('rop-body-bg-mode', ov.body_bg_mode || 'block');
                 this._val('rop-body-bg-brush', ov.body_bg_brush ?? false);
                 this._val('rop-body-bg-brush-style', ov.body_bg_brush_style || 'acrylic');
-                this._val('rop-body-bg-brush-w', ov.body_bg_brush_w ?? 0);
-                this._val('rop-body-bg-brush-h', ov.body_bg_brush_h ?? 0);
+                this._val('rop-body-bg-brush-colormode', ov.body_bg_brush_colormode || ov.body_bg_brush_color_mode || 'tint');
+                this._val('rop-body-bg-brush-scale-x', ov.body_bg_brush_scale_x ?? 100);
+                this._val('rop-body-bg-brush-scale-y', ov.body_bg_brush_scale_y ?? 100);
                 this._val('rop-body-bg-brush-solid', ov.body_bg_brush_solid ?? 100);
                 this._val('rop-body-bg-brush-x', ov.body_bg_brush_x ?? 0);
                 this._val('rop-body-bg-brush-y', ov.body_bg_brush_y ?? 0);
@@ -4047,10 +4346,11 @@ class ReelsOverlayPanel {
         // 同步后更新 A 点参考
         setTimeout(() => this._updateAnimStartRef(), 0);
 
+        const isMedia = ov.type === 'image' || ov.type === 'video';
         if (ov.type === 'textcard' || ov.type === 'solid_mask') {
             ov.w = this._get('rop-card-width');
             ov.h = this._get('rop-card-height');
-        } else {
+        } else if (!isMedia) {
             ov.w = this._get('rop-w');
             ov.h = this._get('rop-h');
         }
@@ -4137,6 +4437,52 @@ class ReelsOverlayPanel {
             ov.blend_mode = this._get('rop-blend');
             ov.video_start_offset = parseFloat(this._get('rop-video-offset')) || 0;
             ov.keep_aspect = this._get('rop-keep-aspect');
+            ov.media_loop = this._get('rop-media-loop') !== false;
+            ov.media_folder_interval = Math.max(0.1, parseFloat(this._get('rop-media-folder-interval')) || 5);
+            const mediaWindowMode = this._get('rop-media-window-mode') || 'none';
+            // 旧变换仍是外层覆层的总控制；PIP 只是基于这个总变换再增加内层取景。
+            if (mediaWindowMode === 'none') {
+                delete ov.media_window_mode;
+                delete ov.media_window;
+                delete ov.media_window_initialized;
+                delete ov.media_inner_x;
+                delete ov.media_inner_y;
+                delete ov.media_inner_scale;
+                delete ov.media_inner_rotation;
+                if (ov.media_window_generated_clip) {
+                    delete ov.clip_rect;
+                    delete ov.crop_fill;
+                    delete ov.media_window_generated_clip;
+                }
+            } else {
+                const ratioChoice = this._get('rop-media-window-ratio') || '9:16';
+                // 比例下拉框是 PIP 外层窗口的真实尺寸来源，不能只改显示文字。
+                // 宽度仍允许由原始变换的宽度字段控制；高度随比例计算。
+                if (mediaWindowMode === 'pip' && ratioChoice !== 'free') {
+                    const [rw, rh] = ratioChoice.split(':').map(Number);
+                    if (rw > 0 && rh > 0) ov.h = Math.max(1, Math.round((Number(ov.w) || 540) * rh / rw));
+                }
+                ov.media_window = mediaWindowMode === 'bottom_half'
+                    ? { x: 0, y: 960, w: 1080, h: 960, locked: true }
+                    : { x: ov.x || 0, y: ov.y || 0, w: ov.w || 1080, h: ov.h || 960 };
+                if (mediaWindowMode === 'pip') ov.media_window_initialized = true;
+                ov.media_inner_x = parseFloat(this._get('rop-media-inner-x')) || 0;
+                ov.media_inner_y = parseFloat(this._get('rop-media-inner-y')) || 0;
+                ov.media_inner_scale = Math.max(0.01, (parseFloat(this._get('rop-media-inner-scale')) || 100) / 100);
+                ov.media_inner_rotation = parseFloat(this._get('rop-media-inner-rotation')) || 0;
+                ov.media_window_ratio = this._get('rop-media-window-ratio') || 'free';
+                ov.media_window_mode = mediaWindowMode;
+            }
+            if (mediaWindowMode === 'bottom_half') {
+                ov.clip_rect = { x: 0, y: 960, w: 1080, h: 960 };
+                ov.crop_fill = true;
+                ov.media_window_generated_clip = true;
+            } else if (mediaWindowMode === 'pip') {
+                // 用窗口坐标保存裁切范围；渲染器只把 inner X/Y 加到素材上。
+                ov.clip_rect = { x: ov.x || 0, y: ov.y || 0, w: ov.w || 1080, h: ov.h || 960 };
+                ov.crop_fill = true;
+                ov.media_window_generated_clip = true;
+            }
 
             // 跟随滚动字幕绑定
             const bindTarget = this._get('rop-bind-scroll-target') || '';
@@ -4257,10 +4603,11 @@ class ReelsOverlayPanel {
                 ov.title_bg_radius = this._get('rop-title-bg-radius');
                 ov.title_bg_brush = this._get('rop-title-bg-brush');
                 ov.title_bg_brush_style = this._get('rop-title-bg-brush-style') || 'watercolor';
-                const tBrushW = this._get('rop-title-bg-brush-w');
-                const tBrushH = this._get('rop-title-bg-brush-h');
-                ov.title_bg_brush_w = typeof tBrushW === 'number' && !isNaN(tBrushW) ? tBrushW : 0;
-                ov.title_bg_brush_h = typeof tBrushH === 'number' && !isNaN(tBrushH) ? tBrushH : 0;
+                ov.title_bg_brush_colormode = this._get('rop-title-bg-brush-colormode') || 'tint';
+                const tBrushScaleX = this._get('rop-title-bg-brush-scale-x');
+                const tBrushScaleY = this._get('rop-title-bg-brush-scale-y');
+                ov.title_bg_brush_scale_x = typeof tBrushScaleX === 'number' && !isNaN(tBrushScaleX) ? tBrushScaleX : 100;
+                ov.title_bg_brush_scale_y = typeof tBrushScaleY === 'number' && !isNaN(tBrushScaleY) ? tBrushScaleY : 100;
                 const tBrushSolid = this._get('rop-title-bg-brush-solid');
                 ov.title_bg_brush_solid = typeof tBrushSolid === 'number' && !isNaN(tBrushSolid) ? tBrushSolid : 100;
                 const tBrushX = this._get('rop-title-bg-brush-x');
@@ -4299,10 +4646,11 @@ class ReelsOverlayPanel {
                 ov.body_bg_mode = this._get('rop-body-bg-mode');
                 ov.body_bg_brush = this._get('rop-body-bg-brush');
                 ov.body_bg_brush_style = this._get('rop-body-bg-brush-style') || 'watercolor';
-                const bBrushW = this._get('rop-body-bg-brush-w');
-                const bBrushH = this._get('rop-body-bg-brush-h');
-                ov.body_bg_brush_w = typeof bBrushW === 'number' && !isNaN(bBrushW) ? bBrushW : 0;
-                ov.body_bg_brush_h = typeof bBrushH === 'number' && !isNaN(bBrushH) ? bBrushH : 0;
+                ov.body_bg_brush_colormode = this._get('rop-body-bg-brush-colormode') || 'tint';
+                const bBrushScaleX = this._get('rop-body-bg-brush-scale-x');
+                const bBrushScaleY = this._get('rop-body-bg-brush-scale-y');
+                ov.body_bg_brush_scale_x = typeof bBrushScaleX === 'number' && !isNaN(bBrushScaleX) ? bBrushScaleX : 100;
+                ov.body_bg_brush_scale_y = typeof bBrushScaleY === 'number' && !isNaN(bBrushScaleY) ? bBrushScaleY : 100;
                 const bBrushSolid = this._get('rop-body-bg-brush-solid');
                 ov.body_bg_brush_solid = typeof bBrushSolid === 'number' && !isNaN(bBrushSolid) ? bBrushSolid : 100;
                 const bBrushX = this._get('rop-body-bg-brush-x');
@@ -5062,9 +5410,9 @@ class ReelsOverlayPanel {
             'offset_x', 'offset_y',
             'max_height', 'auto_shrink', 'title_max_lines', 'min_fontsize', 'fullscreen_mask',
             // 独立区段背景
-            'title_bg_enabled', 'title_bg_mode', 'title_bg_color', 'title_bg_opacity', 'title_bg_radius', 'title_bg_pad_h', 'title_bg_pad_top', 'title_bg_pad_bottom', 'title_bg_brush', 'title_bg_brush_style', 'title_bg_brush_w', 'title_bg_brush_h', 'title_bg_brush_solid', 'title_bg_brush_x', 'title_bg_brush_y', 'title_custom_brush_data',
+            'title_bg_enabled', 'title_bg_mode', 'title_bg_color', 'title_bg_opacity', 'title_bg_radius', 'title_bg_pad_h', 'title_bg_pad_top', 'title_bg_pad_bottom', 'title_bg_brush', 'title_bg_brush_style', 'title_bg_brush_w', 'title_bg_brush_h', 'title_bg_brush_scale_x', 'title_bg_brush_scale_y', 'title_bg_brush_solid', 'title_bg_brush_x', 'title_bg_brush_y', 'title_custom_brush_data',
             'title_deco_enabled', 'title_deco_position', 'title_deco_style', 'title_deco_align', 'title_deco_color', 'title_deco_color2', 'title_deco_thickness', 'title_deco_length', 'title_deco_gap', 'title_deco_opacity',
-            'body_bg_enabled', 'body_bg_mode', 'body_bg_color', 'body_bg_opacity', 'body_bg_radius', 'body_bg_pad_h', 'body_bg_pad_top', 'body_bg_pad_bottom', 'body_bg_brush', 'body_bg_brush_style', 'body_bg_brush_w', 'body_bg_brush_h', 'body_bg_brush_solid', 'body_bg_brush_x', 'body_bg_brush_y', 'body_custom_brush_data',
+            'body_bg_enabled', 'body_bg_mode', 'body_bg_color', 'body_bg_opacity', 'body_bg_radius', 'body_bg_pad_h', 'body_bg_pad_top', 'body_bg_pad_bottom', 'body_bg_brush', 'body_bg_brush_style', 'body_bg_brush_w', 'body_bg_brush_h', 'body_bg_brush_scale_x', 'body_bg_brush_scale_y', 'body_bg_brush_solid', 'body_bg_brush_x', 'body_bg_brush_y', 'body_custom_brush_data',
             'footer_bg_enabled', 'footer_bg_mode', 'footer_bg_color', 'footer_bg_opacity', 'footer_bg_radius', 'footer_bg_pad_h', 'footer_bg_pad_top', 'footer_bg_pad_bottom',
             'card_brush', 'card_brush_style', 'card_brush_solid', 'card_brush_w', 'card_brush_h', 'card_brush_x', 'card_brush_y',
             // 独立效果
@@ -6738,7 +7086,10 @@ class ReelsOverlayPanel {
             if (onSelectCallback) {
                 actionsHtml = `
                     <div class="rop-gallery-actions" style="margin-top:auto;">
-                        <button class="rop-btn" data-mode="batch" style="width:100%;background:var(--accent,#7b8bef);color:#fff;">选用此预设</button>
+                        <div style="display:flex;gap:6px;">
+                            <button class="rop-btn" data-mode="replace" style="flex:1;background:var(--accent,#7b8bef);color:#fff;" title="用此预设覆盖应用到选中任务">覆盖应用</button>
+                            <button class="rop-btn" data-mode="merge" style="flex:1;background:rgba(16,185,129,.18);border-color:#34d399;color:#a7f3d0;" title="只追加此预设的覆层，不删除已有覆层">➕追加</button>
+                        </div>
                         <button class="rop-btn" data-mode="edit" style="width:100%;margin-top:6px;background:rgba(96,165,250,.16);border-color:#60a5fa;color:#bfdbfe;">✏️ 直接编辑预设</button>
                     </div>
                 `;
